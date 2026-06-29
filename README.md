@@ -134,6 +134,10 @@ Validated features:
   you pick an option (or type your own / stop) and it resumes. Persisted to `attention_requests`.
   The brain is pluggable (`decide` override) — use a fast model: **qwen3.5:9b ≈ 2–3s/decision, 88%**
   on the decision eval (the 35B was 27–52s; see `scripts/brain-eval.ts`).
+- **Always-on PiP status window (Tier 1)** — a "⧉ Pop out" button opens a compact always-on-top
+  window (Chrome/Edge Document Picture-in-Picture) with a live status chip per session; the
+  **needs-input** chip pulses amber and is click-to-focus. Desktop notifications fire when a
+  session finishes, errors, or flips to needs-input — so you notice even with the dashboard buried.
 
 ### Hook-attach mode (optional)
 
@@ -147,7 +151,6 @@ To drive a session you start by hand instead of a daemon-owned one:
    is down it never blocks your session.
 
 ### Not built yet
-- Chrome Picture-in-Picture always-on status window (Tier 1 — rides on the needs-input status model; next up).
 - Per-gate safety policy (currently auto-confirms default; rely on `permissionMode` + brain + escalation).
 - Dashboard UI panel for attach/detach (routes exist; wire a form like the session CRUD).
 - Brain history is last-N messages, not summarized — fine for now, may need trimming on very long runs.

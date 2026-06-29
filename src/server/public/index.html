@@ -163,6 +163,7 @@
     <header>
       <h1><b>AGI</b> · autopilot orchestrator</h1>
       <button class="primary" id="startAll">▶ Start all</button>
+      <button id="popout" title="Always-on-top status window (Chrome/Edge)">⧉ Pop out</button>
       <div class="provider">
         <span class="dot" id="provdot"></span><span id="prov">connecting…</span>
       </div>
@@ -193,7 +194,7 @@
         ws.onmessage = (ev) => {
           const msg = JSON.parse(ev.data);
           if (msg.type === "error") { toast(msg.message); return; }
-          if (msg.type === "snapshot") { render(msg); return; }
+          if (msg.type === "snapshot") { render(msg); notifyTransitions(msg); return; }
         };
         ws.onclose = () => setTimeout(connect, 1000);
       }
@@ -359,6 +360,7 @@
           </div>`;
 
         if (att) wireAttention(s.id, att);
+        updatePip(snap);
       }
 
       // ---- human-decision (attention) ----------------------------------------
@@ -406,6 +408,95 @@
           delete drafts[id];
           send({ type: "resolve", id, choice: { stop: true } });
         };
+      }
+
+      // ---- Picture-in-Picture always-on status window ------------------------
+      let pipWindow = null;
+      const prevStatus = {};
+      const PIP_CSS = `
+        :root{--bg:#0b0e14;--panel-2:#161c28;--border:#232b3a;--text:#d7dce5;--muted:#7c8699;
+          --green:#3ddc84;--blue:#5aa9ff;--amber:#ffb454;--red:#ff5f6e;--gray:#5b6577;}
+        *{box-sizing:border-box;} body{margin:0;background:var(--bg);color:var(--text);
+          font:13px/1.4 ui-sans-serif,system-ui,"Segoe UI",sans-serif;}
+        #pipRoot{padding:8px;}
+        .pip-h{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);padding:4px 6px 8px;}
+        .pchip{display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:6px;
+          background:var(--panel-2);border:1px solid var(--border);border-radius:8px;cursor:pointer;}
+        .pchip:hover{border-color:var(--amber);}
+        .pdot{width:9px;height:9px;border-radius:50%;background:var(--gray);flex:none;}
+        .pdot.running{background:var(--green);} .pdot.done{background:var(--blue);}
+        .pdot.stopped{background:var(--amber);} .pdot.error{background:var(--red);}
+        .pdot.needs-input{background:var(--amber);}
+        .pname{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .pstat{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);}
+        .pturn{font-size:10px;color:var(--muted);}
+        .pchip.needs-input{background:rgba(255,180,84,.16);border-color:var(--amber);
+          animation:pp 1.05s ease-in-out infinite;}
+        .pchip.needs-input .pstat{color:var(--amber);font-weight:700;}
+        @keyframes pp{0%,100%{opacity:1;}50%{opacity:.5;}}
+        .pempty{color:var(--muted);padding:14px;text-align:center;}`;
+
+      const popoutBtn = document.getElementById("popout");
+      if (!("documentPictureInPicture" in window)) {
+        popoutBtn.disabled = true;
+        popoutBtn.title = "Needs Chrome/Edge (Document Picture-in-Picture API)";
+      } else {
+        popoutBtn.onclick = togglePip;
+      }
+
+      async function togglePip() {
+        if (pipWindow) { pipWindow.close(); return; }
+        try {
+          pipWindow = await documentPictureInPicture.requestWindow({ width: 320, height: 440 });
+        } catch (e) { toast("could not open pop-out: " + e.message); return; }
+        const st = pipWindow.document.createElement("style");
+        st.textContent = PIP_CSS;
+        pipWindow.document.head.appendChild(st);
+        pipWindow.document.body.innerHTML = `<div id="pipRoot"><div class="pip-h">AGI · live</div><div id="pipList"></div></div>`;
+        popoutBtn.textContent = "⧉ Pop in";
+        // ask for notification permission (this is a user gesture)
+        if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
+        pipWindow.addEventListener("pagehide", () => { pipWindow = null; popoutBtn.textContent = "⧉ Pop out"; });
+        if (last) updatePip(last);
+      }
+
+      function updatePip(snap) {
+        if (!pipWindow) return;
+        const listEl = pipWindow.document.getElementById("pipList");
+        if (!listEl) return;
+        listEl.innerHTML = snap.sessions.map((s) => `
+          <div class="pchip ${s.status}" data-id="${esc(s.id)}">
+            <span class="pdot ${s.status}"></span>
+            <span class="pname">${esc(s.id)}</span>
+            <span class="pstat">${s.status === "needs-input" ? "needs you" : s.status}</span>
+            <span class="pturn">t${s.turns}</span>
+          </div>`).join("") || `<div class="pempty">no sessions</div>`;
+        listEl.querySelectorAll(".pchip").forEach((el) => {
+          el.onclick = () => {
+            focusId = el.dataset.id;
+            send({ type: "focus", id: focusId });
+            render(last);
+            window.focus();
+          };
+        });
+      }
+
+      // Desktop notifications on status transitions (so you notice even with PiP closed).
+      function notifyTransitions(snap) {
+        for (const s of snap.sessions) {
+          const prev = prevStatus[s.id];
+          if (prev && prev !== s.status) {
+            if (s.status === "needs-input") notify(`⚠ ${s.id} needs your decision`, (s.attention && s.attention.question) || "");
+            else if (s.status === "done") notify(`✓ ${s.id} finished`, "");
+            else if (s.status === "error") notify(`⚠ ${s.id} errored`, s.error || "");
+          }
+          prevStatus[s.id] = s.status;
+        }
+      }
+      function notify(title, body) {
+        if ("Notification" in window && Notification.permission === "granted") {
+          try { new Notification(title, { body }); } catch (e) {}
+        }
       }
 
       connect();
