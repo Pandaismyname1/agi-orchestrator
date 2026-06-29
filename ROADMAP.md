@@ -1,11 +1,98 @@
 # AGI orchestrator — roadmap / feature backlog
 
-Planning doc. Nothing here is implemented yet — it's the list of features that would make
-this the most powerful version of itself. Tiers are rough priority. The three the owner
-explicitly flagged as must-haves are marked **★MUST**.
+Planning doc. Tiers are rough priority. The three the owner originally flagged as must-haves
+are marked **★MUST**.
 
 Guiding principle stays fixed: **local-only, subscription-safe** (no Agent SDK, no API key,
 billing preflight). Every feature below must respect that.
+
+**Status (built so far):** Tiers 0–2 are DONE — SQLite persistence; human-decision escalation;
+PiP status window; per-gate safety; usage budget + rate-limit guard; observability
+(history/replay/metrics); concurrency cap + queue; stuck detection. Tier 3: operator personas done.
+
+> **The next priority is the Product & UX track below — it supersedes the remaining Tier 3
+> extras.** A brilliant design (UX + UI) is the goal; the design dictates the backend work.
+
+---
+
+## Product & UX track — NEXT PRIORITY
+
+The orchestrator is capable but its UX is utilitarian and it assumes you create sessions from
+config. These four reframe it as a polished product. Design-first: nail the experience, and the
+backend requirements fall out of it.
+
+### P1. Onboarding + context-aware sessions + manual/autopilot toggle ★
+
+Today a session is born already on autopilot from a config goal. Real use wants to **seed a
+session by hand first, then hand it to Qwen.**
+
+- **Two modes per session, with a toggle:**
+  - **Manual (passthrough):** the user types directly to the claude agent through the dashboard;
+    **Qwen does NOT respond.** You chat with the agent, give initial instructions, paste context,
+    course-correct — exactly like using claude by hand, but inside our cockpit.
+  - **Autopilot (Qwen loop):** the current behavior — Qwen reads each turn-end and drives.
+  - A prominent **per-session toggle** flips between them at ANY time (pause autopilot to take the
+    wheel; resume when ready).
+- **Onboarding flow:** create session → it opens in **manual** mode → you type the initial
+  instructions / drop context → flip the toggle → the Qwen loop starts *from the current state*.
+  Because it's the real claude session, the manual conversation IS the context Qwen continues from
+  (Qwen already reads transcript history), so sessions are "context aware" for free.
+- **Backend implications (this is the meaty one):**
+  - Restructure the orchestrator loop to be **mode-aware**: in manual mode it does NOT call the
+    brain; it waits for the next user message and injects it (like `resolveAttention`, but
+    open-ended and repeatable). In autopilot it runs as today.
+  - Add `ClaudeSession.sendUserMessage(text)` (we already own the PTY stdin) and a live
+    "message the agent" input bar in the session detail, enabled in manual mode.
+  - A `mode: "manual" | "autopilot"` on the session + WS messages to set it and to send a manual
+    message; persist the last mode.
+  - A guided **new-session wizard** (richer than today's form): pick directory, state the goal,
+    choose start-manual vs start-autopilot, set autonomy / gatePolicy / budget with explained
+    defaults.
+
+### P2. Adopt existing Claude Code (and maybe Desktop) sessions ★
+
+Be able to see and drive sessions that ALREADY exist, not just ones we created.
+
+- **Discover** past/active sessions by scanning `~/.claude/projects/<encoded-cwd>/<id>.jsonl`
+  — list them with project path, last-activity time, a one-line summary, turn count.
+- **Adopt / resume** one: spawn `claude --resume <id>` (or `--continue`) in a PTY we own, then
+  it's a normal session in the cockpit (manual or autopilot).
+- **Attach to a live one** the user started in their own terminal — via the Stop-hook attach mode
+  that already exists (wire the UI for `/attach`).
+- **Claude Desktop sessions** — Desktop keeps agent-mode sessions under
+  `~/AppData/Roaming/Claude/local-agent-mode-sessions/…`; different format, may not be drivable.
+  Mark **investigate / if-possible**; don't block the Claude Code path on it.
+- **Backend:** a `SessionDiscovery` module (scan + parse transcript heads for metadata); a
+  dashboard "Existing sessions" browser to import/resume/attach.
+
+### P3. Major UI/UX overhaul ★
+
+Rebuild the dashboard around the experience, not the data. Driven by the design vision (P4): a
+coherent design system, clear information hierarchy, the fleet at a glance, a great session
+detail (live terminal + manual input + autopilot toggle + brain panel + history), and the
+needs-you / decision moments made unmissable. Mobile-friendly read-only view a plus. This is the
+*build*; P4 is the *design* that specifies it.
+
+### P4. Design vision — envision the whole dashboard (UX + UI) first ★
+
+Before building P1–P3, design the thing properly — both UX (flows, mental model, interaction
+patterns) and UI (layout, visual language). A brilliant design tells us what the backend must do.
+
+- **Mental model:** *mission control for a fleet of AI coding agents.*
+- **Primary surfaces to design:**
+  1. **Fleet overview** — every session at a glance; status, what each is doing, and LOUD
+     "needs you" alerts; quick start/stop/queue; today's budget.
+  2. **Session detail** — live terminal, the **manual-message bar + autopilot toggle**, the
+     brain's last decision, inline gate/attention prompts, history/timeline, per-session settings.
+  3. **New-session wizard** (onboarding, P1) and **Existing-sessions browser** (P2).
+  4. **Decision/attention experience** — the most important moment: a session needs a human call.
+     Make it unmissable and fast to resolve (dashboard + PiP + notification already exist; design
+     the ideal interaction).
+  5. **Settings** — provider/model, budget, concurrency, defaults.
+- **Key flows to storyboard:** create → seed (manual) → hand to autopilot; get pinged → decide in
+  seconds; adopt an existing session; review what an agent did (history/diff).
+- **Deliverable:** a design spec + mockups (see the `mission-control` mockup produced alongside
+  this roadmap entry). The agreed design then becomes the work-list for P1–P3 and any new backend.
 
 ---
 
