@@ -40,10 +40,12 @@ type SessionPatch = Partial<{
 }>;
 
 interface ClientMsg {
-  type: "start" | "stop" | "startAll" | "focus" | "add" | "update" | "remove";
+  type: "start" | "stop" | "startAll" | "focus" | "add" | "update" | "remove" | "resolve";
   id?: string;
   session?: SessionInput;
   patch?: SessionPatch;
+  /** For "resolve": how the user answered an open human-decision. */
+  choice?: { optionIndex?: number; customPrompt?: string; stop?: boolean };
 }
 
 async function main(): Promise<void> {
@@ -75,6 +77,11 @@ async function main(): Promise<void> {
     brain: async ({ goal, doneCriteria, lastAssistantText, turnNumber }) => {
       const session: SessionConfig = { id: "attached", cwd: "", goal, doneCriteria };
       const d = await decideNextStep(llm, session, lastAssistantText, turnNumber);
+      // Attached sessions are hand-driven in the user's own terminal — there's no
+      // dashboard pause/resume here, so a genuine decision just hands control back.
+      if (d.action === "escalate") {
+        return { action: "stop", reason: `needs your decision: ${d.question ?? d.reason}` };
+      }
       return { action: d.action, prompt: d.prompt, reason: d.reason };
     },
     readLastMessage: (cwd, sessionId) => readLastAssistantMessage(cwd, sessionId),
@@ -194,6 +201,9 @@ async function main(): Promise<void> {
           break;
         case "focus":
           focusId = msg.id;
+          break;
+        case "resolve":
+          if (msg.id && msg.choice) sup.resolveAttention(msg.id, msg.choice);
           break;
         case "add":
           try {

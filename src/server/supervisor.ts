@@ -6,15 +6,15 @@
  */
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { runSession, type OrchestratorEvent } from "../orchestrator.js";
+import { runSession, type OrchestratorEvent, type RunOptions } from "../orchestrator.js";
 import { ClaudeSession } from "../session/claudeSession.js";
 import { LocalLLM } from "../brain/provider.js";
 import { saveConfig } from "../config.js";
 import { Recorder } from "../db/recorder.js";
 import type { Store } from "../db/store.js";
-import type { AppConfig, SessionConfig } from "../types.js";
+import type { AppConfig, AttentionRequest, Resolution, SessionConfig } from "../types.js";
 
-export type SessionStatus = "idle" | "running" | "stopped" | "done" | "error";
+export type SessionStatus = "idle" | "running" | "needs-input" | "stopped" | "done" | "error";
 
 export interface SessionView {
   id: string;
@@ -28,12 +28,16 @@ export interface SessionView {
   lastReply: string;
   lastDecision: string;
   error?: string;
+  /** Present only while status === "needs-input": the open human decision. */
+  attention?: AttentionRequest | null;
 }
 
 interface Managed extends SessionView {
   config: SessionConfig;
   sess?: ClaudeSession;
   stopRequested: boolean;
+  /** Resolver for the open AttentionRequest's pending promise (if any). */
+  resolveAttention?: (r: Resolution) => void;
 }
 
 export class Supervisor {
@@ -44,6 +48,8 @@ export class Supervisor {
   constructor(
     private readonly cfg: AppConfig,
     private readonly store?: Store,
+    /** Optional brain override (e.g. a faster model, or a test stub). */
+    private readonly decide?: RunOptions["decide"],
   ) {
     this.llm = new LocalLLM(cfg.provider);
     if (store) this.recorder = new Recorder(store);
@@ -89,12 +95,27 @@ export class Supervisor {
     m.turns = 0;
     m.lastReply = "";
     m.lastDecision = "";
+    m.attention = null;
 
     void runSession(m.config, {
       llm: this.llm,
       limits: this.cfg.limits,
+      decide: this.decide,
       onSession: (s) => (m.sess = s),
       shouldStop: () => m.stopRequested,
+      // Pause on a real human decision: flip to needs-input and hand back a
+      // promise the dashboard resolves when the user picks an option.
+      resolveAttention: (req) =>
+        new Promise<Resolution>((resolve) => {
+          m.attention = req;
+          m.status = "needs-input";
+          m.resolveAttention = (r) => {
+            m.attention = null;
+            m.resolveAttention = undefined;
+            if (m.status === "needs-input") m.status = "running";
+            resolve(r);
+          };
+        }),
       onEvent: (e) => {
         this.onEvent(m, e);
         this.recorder?.record(e);
@@ -104,6 +125,25 @@ export class Supervisor {
       if (m.status === "running") m.status = "done";
       m.sess = undefined;
     });
+  }
+
+  /**
+   * Resolve an open human-decision for a session: pick an option by index, send
+   * a custom prompt, or stop. No-op if the session isn't currently waiting.
+   */
+  resolveAttention(id: string, choice: { optionIndex?: number; customPrompt?: string; stop?: boolean }): void {
+    const m = this.sessions.get(id);
+    if (!m || !m.resolveAttention || !m.attention) return;
+    if (choice.stop) {
+      m.resolveAttention({ kind: "stop" });
+      return;
+    }
+    if (typeof choice.customPrompt === "string" && choice.customPrompt.trim()) {
+      m.resolveAttention({ kind: "answer", prompt: choice.customPrompt.trim(), label: "custom" });
+      return;
+    }
+    const opt = m.attention.options[choice.optionIndex ?? -1];
+    if (opt) m.resolveAttention({ kind: "answer", prompt: opt.prompt, label: opt.label });
   }
 
   startAll(): void {
@@ -215,7 +255,14 @@ export class Supervisor {
 
   stop(id: string): void {
     const m = this.sessions.get(id);
-    if (!m || m.status !== "running") return;
+    if (!m) return;
+    // A session paused on a human decision: unblock it with a stop resolution.
+    if (m.status === "needs-input" && m.resolveAttention) {
+      m.stopRequested = true;
+      m.resolveAttention({ kind: "stop" });
+      return;
+    }
+    if (m.status !== "running") return;
     m.stopRequested = true;
     // Force-interrupt a long in-flight turn by tearing down the pty.
     void m.sess?.dispose();
@@ -240,7 +287,15 @@ export class Supervisor {
         m.lastDecision =
           e.decision.action === "stop"
             ? `STOP — ${e.decision.reason}`
-            : `→ ${e.decision.prompt} (${e.decision.reason})`;
+            : e.decision.action === "escalate"
+              ? `NEEDS YOU — ${e.decision.question ?? e.decision.reason}`
+              : `→ ${e.decision.prompt} (${e.decision.reason})`;
+        break;
+      case "attention_resolved":
+        m.lastDecision =
+          e.resolution.kind === "stop"
+            ? `you chose: stop`
+            : `you chose: ${e.resolution.label}`;
         break;
       case "stop":
         m.status = m.stopRequested ? "stopped" : "done";
@@ -269,5 +324,6 @@ function toView(m: Managed): SessionView {
     lastReply: m.lastReply,
     lastDecision: m.lastDecision,
     error: m.error,
+    attention: m.attention ?? null,
   };
 }

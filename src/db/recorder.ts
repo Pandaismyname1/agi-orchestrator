@@ -11,6 +11,7 @@ import type { OrchestratorEvent } from "../orchestrator.js";
 export class Recorder {
   private readonly runBySession = new Map<string, number>();
   private readonly lastTurnBySession = new Map<string, number>();
+  private readonly attnRowByReqId = new Map<string, number>();
 
   constructor(private readonly store: Store) {}
 
@@ -49,6 +50,26 @@ export class Recorder {
             reason: e.decision.reason,
           });
           this.store.addEvent({ sessionId: e.sessionId, runId, type: "decision", payload: e.decision });
+          break;
+        }
+        case "attention": {
+          const runId = this.runBySession.get(e.sessionId);
+          const turnId = this.lastTurnBySession.get(e.sessionId);
+          const rowId = this.store.addAttentionRequest(runId, turnId, {
+            question: e.request.question,
+            options: e.request.options,
+          });
+          this.attnRowByReqId.set(e.request.id, rowId);
+          this.store.addEvent({ sessionId: e.sessionId, runId, type: "attention", payload: e.request });
+          break;
+        }
+        case "attention_resolved": {
+          const runId = this.runBySession.get(e.sessionId);
+          const rowId = this.attnRowByReqId.get(e.request.id);
+          const chosen = e.resolution.kind === "stop" ? "stop" : e.resolution.label;
+          if (rowId !== undefined) this.store.resolveAttentionRequest(rowId, chosen);
+          this.attnRowByReqId.delete(e.request.id);
+          this.store.addEvent({ sessionId: e.sessionId, runId, type: "attention_resolved", payload: { chosen } });
           break;
         }
         case "stop": {

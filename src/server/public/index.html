@@ -76,6 +76,38 @@
       .badge.done { color: var(--blue); border-color: var(--blue); }
       .badge.stopped { color: var(--amber); border-color: var(--amber); }
       .badge.error { color: var(--red); border-color: var(--red); }
+      .badge.needs-input {
+        color: #1a1300; background: var(--amber); border-color: var(--amber);
+        animation: pulse 1.05s ease-in-out infinite;
+      }
+      .scard.needs .name::before { content: "● "; color: var(--amber); }
+      @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+      /* attention / human-decision panel */
+      .attention {
+        margin: 14px 18px; padding: 14px 16px;
+        border: 1px solid var(--amber); border-left: 4px solid var(--amber);
+        border-radius: 10px; background: rgba(255,180,84,0.08);
+      }
+      .attention h3 {
+        margin: 0 0 6px; font-size: 12px; color: var(--amber);
+        text-transform: uppercase; letter-spacing: 1px;
+      }
+      .attention .q { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+      .attention .opt {
+        display: block; width: 100%; text-align: left; margin-bottom: 8px;
+        padding: 9px 12px; background: var(--panel-2);
+      }
+      .attention .opt:hover { border-color: var(--amber); }
+      .attention .opt b { display: block; font-size: 13px; }
+      .attention .opt small { color: var(--muted); }
+      .attention .custom { display: flex; gap: 8px; margin-top: 10px; }
+      .attention .custom textarea {
+        flex: 1; font: inherit; font-size: 13px; color: var(--text);
+        background: var(--panel-2); border: 1px solid var(--border);
+        border-radius: 7px; padding: 7px 9px; resize: vertical; min-height: 38px;
+      }
+      .attention .custom textarea:focus { outline: none; border-color: var(--accent); }
       .scard .meta { color: var(--muted); font-size: 11px; margin-top: 5px; }
       .scard .acts { display: flex; gap: 6px; margin-top: 9px; }
       section.detail { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
@@ -255,7 +287,7 @@
         // sidebar
         const list = document.getElementById("list");
         list.innerHTML = snap.sessions.map((s) => `
-          <div class="scard ${s.id === focusId ? "sel" : ""}" data-id="${esc(s.id)}">
+          <div class="scard ${s.id === focusId ? "sel" : ""} ${s.status === "needs-input" ? "needs" : ""}" data-id="${esc(s.id)}">
             <div class="row1">
               <span class="name">${esc(s.id)}</span>
               <span class="badge ${s.status}">${s.status}</span>
@@ -301,6 +333,7 @@
         const detail = document.getElementById("detail");
         if (!s) { detail.innerHTML = `<div class="empty">No session selected.</div>`; return; }
         const screen = snap.focus && snap.focus.id === s.id ? snap.focus.screen : "";
+        const att = s.status === "needs-input" && s.attention ? s.attention : null;
         detail.innerHTML = `
           <div class="dhead">
             <div class="row1">
@@ -314,6 +347,7 @@
               <span class="stat">cwd <b>${esc(s.cwd)}</b></span>
             </div>
           </div>
+          ${att ? attentionHtml(s, att) : ""}
           <div class="brain">
             <span class="lbl">brain</span>${esc(s.lastDecision) || '<span style="color:var(--muted)">—</span>'}
             ${s.error ? `<div style="color:var(--red);margin-top:6px">${esc(s.error)}</div>` : ""}
@@ -321,8 +355,57 @@
           <div class="screen-wrap">
             ${screen
               ? `<pre class="screen">${esc(screen)}</pre>`
-              : `<div class="empty">${s.status === "running" ? "waiting for screen…" : "session not running"}</div>`}
+              : `<div class="empty">${s.status === "running" || s.status === "needs-input" ? "waiting for screen…" : "session not running"}</div>`}
           </div>`;
+
+        if (att) wireAttention(s.id, att);
+      }
+
+      // ---- human-decision (attention) ----------------------------------------
+      const drafts = {}; // preserve a half-typed custom prompt across 1s re-renders
+
+      function attentionHtml(s, att) {
+        const opts = (att.options || []).map((o, i) => `
+          <button class="opt" data-opt="${i}">
+            <b>${esc(o.label)}</b>
+            ${o.rationale ? `<small>${esc(o.rationale)}</small>` : ""}
+          </button>`).join("");
+        return `
+          <div class="attention">
+            <h3>⚠ Needs your decision</h3>
+            <div class="q">${esc(att.question)}</div>
+            ${opts}
+            <div class="custom">
+              <textarea id="att_custom" placeholder="…or type your own instruction">${esc(drafts[s.id] || "")}</textarea>
+              <div style="display:flex; flex-direction:column; gap:6px">
+                <button class="primary" id="att_send">Send</button>
+                <button class="danger" id="att_stop">Stop run</button>
+              </div>
+            </div>
+          </div>`;
+      }
+
+      function wireAttention(id, att) {
+        const ta = document.getElementById("att_custom");
+        if (ta) ta.oninput = () => { drafts[id] = ta.value; };
+        document.querySelectorAll(".attention .opt").forEach((b) => {
+          b.onclick = () => {
+            delete drafts[id];
+            send({ type: "resolve", id, choice: { optionIndex: Number(b.dataset.opt) } });
+          };
+        });
+        const sendBtn = document.getElementById("att_send");
+        if (sendBtn) sendBtn.onclick = () => {
+          const v = (ta && ta.value || "").trim();
+          if (!v) { toast("type an instruction or pick an option"); return; }
+          delete drafts[id];
+          send({ type: "resolve", id, choice: { customPrompt: v } });
+        };
+        const stopBtn = document.getElementById("att_stop");
+        if (stopBtn) stopBtn.onclick = () => {
+          delete drafts[id];
+          send({ type: "resolve", id, choice: { stop: true } });
+        };
       }
 
       connect();

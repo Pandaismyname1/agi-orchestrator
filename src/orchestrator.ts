@@ -14,12 +14,22 @@ import { decideNextStep } from "./brain/decide.js";
 import { readRecentMessages } from "./transcript/reader.js";
 import { LocalLLM } from "./brain/provider.js";
 import { Guards } from "./policy/guards.js";
-import type { Decision, Limits, SessionConfig, TurnResult } from "./types.js";
+import { randomUUID } from "node:crypto";
+import type {
+  AttentionRequest,
+  Decision,
+  Limits,
+  Resolution,
+  SessionConfig,
+  TurnResult,
+} from "./types.js";
 
 export type OrchestratorEvent =
   | { type: "start"; sessionId: string; goal: string }
   | { type: "turn"; sessionId: string; turnNumber: number; result: TurnResult }
   | { type: "decision"; sessionId: string; turnNumber: number; decision: Decision }
+  | { type: "attention"; sessionId: string; turnNumber: number; request: AttentionRequest }
+  | { type: "attention_resolved"; sessionId: string; request: AttentionRequest; resolution: Resolution }
   | { type: "stop"; sessionId: string; reason: string; turns: number; elapsedMin: number }
   | { type: "error"; sessionId: string; error: string };
 
@@ -33,6 +43,24 @@ export interface RunOptions {
   onSession?: (sess: ClaudeSession) => void;
   /** Checked at the top of each loop iteration; return true to stop gracefully. */
   shouldStop?: () => boolean;
+  /**
+   * Called when the brain escalates a genuine decision to the human. Must block
+   * until the human (or a policy) resolves it, returning the chosen prompt or a
+   * stop. If omitted, an escalation safely stops the run (no one to ask).
+   */
+  resolveAttention?: (req: AttentionRequest) => Promise<Resolution>;
+  /**
+   * Override the brain decision function. Defaults to the real local-LLM
+   * decideNextStep. Lets callers inject a faster/different model — or a stub for
+   * deterministic tests.
+   */
+  decide?: (
+    llm: LocalLLM,
+    session: SessionConfig,
+    lastAssistantText: string,
+    turnNumber: number,
+    history?: Array<{ role: "user" | "assistant"; text: string }>,
+  ) => Promise<Decision>;
 }
 
 export async function runSession(session: SessionConfig, opts: RunOptions): Promise<void> {
@@ -78,13 +106,8 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
       // Feed the brain recent history (our injected prompts + claude's replies) so
       // its decisions stay anchored on long projects, not just the last message.
       const history = await readRecentMessages(session.cwd, sess.sessionId, 8);
-      const decision = await decideNextStep(
-        llm,
-        session,
-        result.assistantText,
-        guards.turnCount,
-        history,
-      );
+      const decide = opts.decide ?? decideNextStep;
+      const decision = await decide(llm, session, result.assistantText, guards.turnCount, history);
       emit({ type: "decision", sessionId: session.id, turnNumber: guards.turnCount, decision });
 
       if (decision.action === "stop") {
@@ -97,6 +120,39 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
         });
         break;
       }
+
+      if (decision.action === "escalate") {
+        // A genuine human decision. Pause: surface options and wait for a choice.
+        const request: AttentionRequest = {
+          id: randomUUID(),
+          sessionId: session.id,
+          turnNumber: guards.turnCount,
+          question: decision.question ?? decision.reason,
+          options: decision.options ?? [],
+          createdAt: Date.now(),
+        };
+        emit({ type: "attention", sessionId: session.id, turnNumber: guards.turnCount, request });
+
+        // No resolver (e.g. headless run with no human) -> safe stop.
+        const resolution: Resolution = opts.resolveAttention
+          ? await opts.resolveAttention(request)
+          : { kind: "stop" };
+        emit({ type: "attention_resolved", sessionId: session.id, request, resolution });
+
+        if (resolution.kind === "stop") {
+          emit({
+            type: "stop",
+            sessionId: session.id,
+            reason: "human resolved the decision as: stop",
+            turns: guards.turnCount,
+            elapsedMin: guards.elapsedMin,
+          });
+          break;
+        }
+        prompt = resolution.prompt; // chosen option (or custom) becomes the next instruction
+        continue;
+      }
+
       prompt = decision.prompt!;
     }
   } catch (e) {

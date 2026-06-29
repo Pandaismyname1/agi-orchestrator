@@ -128,6 +128,12 @@ Validated features:
 - **SQLite persistence (Tier 0)** — every run / turn / decision / event is recorded to a local `agi.db`
   (Node's built-in `node:sqlite`, no native build), via a `Recorder` on the orchestrator event stream.
   Survives restarts; foundation for history, resume, and analytics. `dbPath` configurable (default `./agi.db`).
+- **Human-decision escalation / "attention" (Tier 1)** — the brain classifies each turn-end as
+  routine (auto-continue), done (stop), or a genuine human decision (**escalate**). On escalate it
+  proposes 2–4 concrete options; the session pauses in a loud **needs-input** state in the dashboard;
+  you pick an option (or type your own / stop) and it resumes. Persisted to `attention_requests`.
+  The brain is pluggable (`decide` override) — use a fast model: **qwen3.5:9b ≈ 2–3s/decision, 88%**
+  on the decision eval (the 35B was 27–52s; see `scripts/brain-eval.ts`).
 
 ### Hook-attach mode (optional)
 
@@ -141,6 +147,7 @@ To drive a session you start by hand instead of a daemon-owned one:
    is down it never blocks your session.
 
 ### Not built yet
-- Per-gate safety policy (currently auto-confirms default; rely on `permissionMode` + brain).
+- Chrome Picture-in-Picture always-on status window (Tier 1 — rides on the needs-input status model; next up).
+- Per-gate safety policy (currently auto-confirms default; rely on `permissionMode` + brain + escalation).
 - Dashboard UI panel for attach/detach (routes exist; wire a form like the session CRUD).
 - Brain history is last-N messages, not summarized — fine for now, may need trimming on very long runs.

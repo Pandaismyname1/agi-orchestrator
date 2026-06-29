@@ -1,7 +1,7 @@
 {
   "provider": {
-    "baseUrl": "http://localhost:1234/v1",
-    "model": "qwen2.5-coder-14b-instruct",
+    "baseUrl": "http://localhost:11434/v1",
+    "model": "qwen3.5:9b",
     "apiKey": "local",
     "temperature": 0.3
   },
@@ -23,6 +23,7 @@
   "_notes": {
     "provider.baseUrl": "LM Studio = http://localhost:1234/v1 ; Ollama = http://localhost:11434/v1",
     "provider.model": "must match what the local server reports under /v1/models",
+    "provider.model.note": "the brain runs once per turn — pick a FAST model. qwen3.5:9b benchmarked ~2-3s/decision @ 88% accuracy with good escalation; the 35B was 27-52s (too slow), nemotron-nano 192s (unusable).",
     "permissionMode": "acceptEdits auto-accepts file edits; 'bypassPermissions' = fully unattended (riskier); 'default' = prompts more",
     "limits": "the real budget is rate-limit/turn burn, not money — keep maxTurns sane while testing"
   }

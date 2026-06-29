@@ -8,24 +8,31 @@
  * moment the done-criteria are met or claude is blocked on something only a
  * human can resolve.
  */
-import type { Decision, SessionConfig } from "../types.js";
+import type { AttentionOption, Decision, SessionConfig } from "../types.js";
 import { LocalLLM, type ChatMessage } from "./provider.js";
 
 const SYSTEM = `You are the OPERATOR of an autonomous coding agent (Claude Code). You speak to it AS the human user would.
-The agent just finished a turn. You read its last message and reply with the SINGLE next instruction, or stop.
+The agent just finished a turn. You read its last message and choose ONE action: continue, stop, or escalate.
+
+Pick "continue" for routine progress: answer a simple "shall I continue?" or give the obvious next step that moves toward the goal. Keep the instruction short, concrete, one step.
+
+Pick "stop" when the done-criteria are satisfied, or the agent is going in circles / asking to confirm already-finished work.
+
+Pick "escalate" — hand the decision to the human — when a GENUINE judgement call is needed that you should NOT make on their behalf:
+  * an irreversible or destructive action (deleting data, force-push, sending things externally, spending money),
+  * ambiguous requirements where reasonable people would choose differently,
+  * a choice with real taste / product / business tradeoffs (which library, which design direction, which scope cut),
+  * something needing credentials, secrets, or information only the user has,
+  * anything clearly OUTSIDE the stated goal/scope.
+When you escalate, give a one-line "question" naming the decision, and 2-4 "options". Each option has a short "label", a one-line "rationale" (the tradeoff), and a "prompt" — the EXACT instruction to send the agent if the user picks it.
 
 Hard rules:
-- Stay anchored to the ORIGINAL GOAL. Do not invent new scope. Do not gold-plate.
-- Keep the instruction short, concrete, and actionable — one step, like a focused human would type.
-- If the agent asked a question, ANSWER it in a way that moves toward the goal.
-- Output STOP when ANY of these is true:
-  * the done-criteria are satisfied,
-  * the agent is blocked on something only a human can do (credentials, a decision you cannot infer, a destructive action),
-  * the agent is going in circles or asking for confirmation of already-finished work.
-- Never instruct destructive or irreversible actions (force-push, deleting data, sending things externally) without the human — STOP instead.
+- Stay anchored to the ORIGINAL GOAL. Do not invent scope or gold-plate.
+- When unsure whether something is routine or a real decision, ESCALATE rather than guess.
+- Never instruct a destructive/irreversible action yourself — escalate it.
 
 Respond with ONLY a JSON object, no prose, no code fence:
-{"action":"continue"|"stop","prompt":"<next instruction if continue>","reason":"<one short sentence>"}`;
+{"action":"continue"|"stop"|"escalate","prompt":"<next instruction if continue>","reason":"<one short sentence>","question":"<the decision, if escalate>","options":[{"label":"...","rationale":"...","prompt":"..."}]}`;
 
 /** Max total characters of rendered RECENT STEPS history to include. */
 const HISTORY_CHAR_BUDGET = 4000;
@@ -108,7 +115,7 @@ export async function decideNextStep(
   const raw = await llm.chat(messages);
   const obj = extractJson(raw);
 
-  if (!obj || (obj.action !== "continue" && obj.action !== "stop")) {
+  if (!obj || (obj.action !== "continue" && obj.action !== "stop" && obj.action !== "escalate")) {
     // Fail safe: if the brain gives garbage, stop rather than inject nonsense.
     return {
       action: "stop",
@@ -118,9 +125,45 @@ export async function decideNextStep(
   if (obj.action === "stop") {
     return { action: "stop", reason: String(obj.reason ?? "brain decided to stop") };
   }
+  if (obj.action === "escalate") {
+    const options = parseOptions(obj.options);
+    // An escalation with no usable options can't be presented — fail safe to stop.
+    if (options.length === 0) {
+      return {
+        action: "stop",
+        reason: `brain wanted a human decision but gave no options; stopping for safety. (${String(obj.question ?? "")})`,
+      };
+    }
+    return {
+      action: "escalate",
+      reason: String(obj.reason ?? "needs a human decision"),
+      question: String(obj.question ?? obj.reason ?? "A decision is needed."),
+      options,
+    };
+  }
   const prompt = typeof obj.prompt === "string" ? obj.prompt.trim() : "";
   if (!prompt) {
     return { action: "stop", reason: "brain said continue but gave no prompt; stopping for safety." };
   }
   return { action: "continue", prompt, reason: String(obj.reason ?? "continuing") };
+}
+
+/** Validate/clean the options array from an escalate decision. */
+function parseOptions(raw: unknown): AttentionOption[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AttentionOption[] = [];
+  for (const o of raw) {
+    if (!o || typeof o !== "object") continue;
+    const r = o as Record<string, unknown>;
+    const label = typeof r.label === "string" ? r.label.trim() : "";
+    const prompt = typeof r.prompt === "string" ? r.prompt.trim() : "";
+    if (!label || !prompt) continue; // an option must be selectable and actionable
+    out.push({
+      label,
+      prompt,
+      rationale: typeof r.rationale === "string" ? r.rationale.trim() : "",
+    });
+    if (out.length >= 4) break;
+  }
+  return out;
 }

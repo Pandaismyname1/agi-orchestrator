@@ -53,12 +53,46 @@ export interface AppConfig {
 
 /** The brain's decision after reading a finished turn. */
 export interface Decision {
-  action: "continue" | "stop";
+  /**
+   * continue — inject `prompt` and keep going (routine, auto-handled).
+   * stop     — done, or blocked in a way that means end the run.
+   * escalate — a genuine human decision is needed: pause and surface `options`.
+   */
+  action: "continue" | "stop" | "escalate";
   /** Next prompt to inject (when action === "continue"). */
   prompt?: string;
   /** Short human-readable rationale (shown in dashboard/logs). */
   reason: string;
+  /** One-line description of the decision the human must make (when action === "escalate"). */
+  question?: string;
+  /** Concrete choices for the human (when action === "escalate"). */
+  options?: AttentionOption[];
 }
+
+/** One proposed way forward when a decision is escalated to the human. */
+export interface AttentionOption {
+  /** Short button label, e.g. "Use PostgreSQL". */
+  label: string;
+  /** One line on why / the tradeoff. */
+  rationale: string;
+  /** The exact instruction injected into claude if this option is chosen. */
+  prompt: string;
+}
+
+/** A paused session waiting on a human decision. */
+export interface AttentionRequest {
+  id: string;
+  sessionId: string;
+  turnNumber: number;
+  question: string;
+  options: AttentionOption[];
+  createdAt: number;
+}
+
+/** How a human (or a fallback policy) resolves an AttentionRequest. */
+export type Resolution =
+  | { kind: "answer"; prompt: string; label: string }
+  | { kind: "stop" };
 
 /** Result of one driven turn. */
 export interface TurnResult {

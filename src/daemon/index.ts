@@ -31,9 +31,20 @@ function log(e: OrchestratorEvent): void {
     case "decision":
       if (e.decision.action === "continue") {
         console.log(`${tag} → next: ${oneLine(e.decision.prompt ?? "")}  (${e.decision.reason})`);
+      } else if (e.decision.action === "escalate") {
+        console.log(`${tag} ⚑ NEEDS A HUMAN: ${oneLine(e.decision.question ?? e.decision.reason)}`);
       } else {
         console.log(`${tag} ✖ brain says STOP: ${e.decision.reason}`);
       }
+      break;
+    case "attention":
+      console.log(
+        `${tag} ⏸ paused for decision — ${e.request.options.length} option(s). ` +
+          `(headless: no resolver, will stop)`,
+      );
+      break;
+    case "attention_resolved":
+      console.log(`${tag} ▶ resolved: ${e.resolution.kind === "stop" ? "stop" : e.resolution.label}`);
       break;
     case "stop":
       console.log(

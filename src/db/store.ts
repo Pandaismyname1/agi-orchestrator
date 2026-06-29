@@ -118,6 +118,28 @@ export class Store {
       .run(turnId, d.action, d.prompt ?? null, d.reason, Date.now());
   }
 
+  // ---- attention (human-decision escalation) ------------------------------
+
+  addAttentionRequest(
+    runId: number | undefined,
+    turnId: number | undefined,
+    req: { question: string; options: unknown },
+  ): number {
+    const r = this.db
+      .prepare(
+        `INSERT INTO attention_requests (run_id, turn_id, kind, summary, options, status, created_at)
+         VALUES (?, ?, 'decision', ?, ?, 'open', ?)`,
+      )
+      .run(runId ?? null, turnId ?? null, req.question, JSON.stringify(req.options ?? []), Date.now());
+    return Number(r.lastInsertRowid);
+  }
+
+  resolveAttentionRequest(rowId: number, chosen: string, status: "resolved" | "timed_out" = "resolved"): void {
+    this.db
+      .prepare(`UPDATE attention_requests SET status=?, chosen_option=?, resolved_at=? WHERE id=?`)
+      .run(status, chosen, Date.now(), rowId);
+  }
+
   // ---- events -------------------------------------------------------------
 
   addEvent(e: { sessionId?: string; runId?: number; type: string; payload?: unknown }): void {
