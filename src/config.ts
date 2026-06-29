@@ -51,6 +51,7 @@ export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json")
     limits,
     sessions,
     port: parsed.port ?? 4317,
+    dbPath: path.resolve(parsed.dbPath ?? process.env.AGI_DB ?? "agi.db"),
   };
 }
 
@@ -70,6 +71,7 @@ export async function saveConfig(
     limits: cfg.limits,
     sessions: cfg.sessions,
     port: cfg.port,
+    dbPath: cfg.dbPath,
   };
   await writeFile(abs, JSON.stringify(out, null, 2) + "\n", "utf8");
 }

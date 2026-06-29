@@ -11,6 +11,8 @@
 import { preflight, BillingSafetyError } from "../util/env.js";
 import { loadConfig } from "../config.js";
 import { LocalLLM } from "../brain/provider.js";
+import { openStore } from "../db/store.js";
+import { Recorder } from "../db/recorder.js";
 import { runSession, type OrchestratorEvent } from "../orchestrator.js";
 
 function log(e: OrchestratorEvent): void {
@@ -62,6 +64,10 @@ async function main(): Promise<void> {
 
   const cfg = await loadConfig();
   const llm = new LocalLLM(cfg.provider);
+  const store = openStore(cfg.dbPath ?? "agi.db");
+  const recorder = new Recorder(store);
+  for (const s of cfg.sessions) store.upsertSession(s);
+  console.log(`persistent store → ${cfg.dbPath}`);
 
   const health = await llm.health();
   console.log(`local LLM @ ${cfg.provider.baseUrl} (${cfg.provider.model}): ${health.detail}`);
@@ -74,8 +80,12 @@ async function main(): Promise<void> {
 
   console.log(`Running ${cfg.sessions.length} session(s). Ctrl+C to stop.\n`);
 
+  const onEvent = (e: OrchestratorEvent) => {
+    log(e);
+    recorder.record(e);
+  };
   await Promise.allSettled(
-    cfg.sessions.map((s) => runSession(s, { llm, limits: cfg.limits, onEvent: log })),
+    cfg.sessions.map((s) => runSession(s, { llm, limits: cfg.limits, onEvent })),
   );
 
   console.log("\nAll sessions finished.");

@@ -47,6 +47,8 @@ export interface AppConfig {
   sessions: SessionConfig[];
   /** HTTP port for the dashboard + optional Stop-hook notifier. */
   port?: number;
+  /** Path to the local SQLite store (default ./agi.db). */
+  dbPath?: string;
 }
 
 /** The brain's decision after reading a finished turn. */

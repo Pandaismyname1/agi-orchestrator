@@ -12,3 +12,8 @@ config.json
 
 # local Claude Code settings (personal, not shared)
 .claude/settings.local.json
+
+# local SQLite store
+*.db
+*.db-shm
+*.db-wal

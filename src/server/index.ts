@@ -14,6 +14,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { preflight, BillingSafetyError } from "../util/env.js";
 import { loadConfig } from "../config.js";
 import { Supervisor } from "./supervisor.js";
+import { openStore } from "../db/store.js";
 import { AttachManager } from "../attach/attachManager.js";
 import { decideNextStep } from "../brain/decide.js";
 import { LocalLLM } from "../brain/provider.js";
@@ -57,7 +58,9 @@ async function main(): Promise<void> {
   }
 
   const cfg = await loadConfig();
-  const sup = new Supervisor(cfg);
+  const store = openStore(cfg.dbPath ?? "agi.db");
+  console.log(`persistent store → ${cfg.dbPath}`);
+  const sup = new Supervisor(cfg, store);
 
   const health = await sup.health();
   console.log(`local LLM @ ${cfg.provider.baseUrl} (${cfg.provider.model}): ${health.detail}`);

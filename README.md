@@ -94,6 +94,9 @@ Prefer a headless console runner? `npm run daemon` runs all sessions and logs th
 
 ```
 src/
+  db/store.ts            SQLite persistence (node:sqlite) — sessions/runs/turns/decisions/events
+  db/recorder.ts         maps the orchestrator event stream into the store
+  db/schema.ts           schema (incl. attention_requests + preferences for later tiers)
   server/index.ts        dashboard: HTTP + WebSocket server (preflight → config → serve)
   server/supervisor.ts   manages all sessions; live state + start/stop for the dashboard
   server/public/index.html  single-page cockpit (live screens, status, start/stop)
@@ -122,6 +125,9 @@ Validated features:
 - **Session CRUD from the UI** — add / edit / remove sessions, persisted to `config.json`.
 - **Richer brain context** — the brain sees recent history (injected prompts + replies), not just the last message.
 - **Hook-attach mode** — drive a `claude` you started by hand via a Stop hook → daemon → brain → injected next prompt.
+- **SQLite persistence (Tier 0)** — every run / turn / decision / event is recorded to a local `agi.db`
+  (Node's built-in `node:sqlite`, no native build), via a `Recorder` on the orchestrator event stream.
+  Survives restarts; foundation for history, resume, and analytics. `dbPath` configurable (default `./agi.db`).
 
 ### Hook-attach mode (optional)
 

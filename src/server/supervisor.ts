@@ -10,6 +10,8 @@ import { runSession, type OrchestratorEvent } from "../orchestrator.js";
 import { ClaudeSession } from "../session/claudeSession.js";
 import { LocalLLM } from "../brain/provider.js";
 import { saveConfig } from "../config.js";
+import { Recorder } from "../db/recorder.js";
+import type { Store } from "../db/store.js";
 import type { AppConfig, SessionConfig } from "../types.js";
 
 export type SessionStatus = "idle" | "running" | "stopped" | "done" | "error";
@@ -37,9 +39,14 @@ interface Managed extends SessionView {
 export class Supervisor {
   private readonly sessions = new Map<string, Managed>();
   private readonly llm: LocalLLM;
+  private readonly recorder?: Recorder;
 
-  constructor(private readonly cfg: AppConfig) {
+  constructor(
+    private readonly cfg: AppConfig,
+    private readonly store?: Store,
+  ) {
     this.llm = new LocalLLM(cfg.provider);
+    if (store) this.recorder = new Recorder(store);
     for (const s of cfg.sessions) {
       this.sessions.set(s.id, {
         config: s,
@@ -55,6 +62,7 @@ export class Supervisor {
         lastDecision: "",
         stopRequested: false,
       });
+      this.store?.upsertSession(s);
     }
   }
 
@@ -87,7 +95,10 @@ export class Supervisor {
       limits: this.cfg.limits,
       onSession: (s) => (m.sess = s),
       shouldStop: () => m.stopRequested,
-      onEvent: (e) => this.onEvent(m, e),
+      onEvent: (e) => {
+        this.onEvent(m, e);
+        this.recorder?.record(e);
+      },
     }).then(() => {
       // If the loop ended without an explicit stop/error event, mark done.
       if (m.status === "running") m.status = "done";
@@ -139,6 +150,7 @@ export class Supervisor {
       stopRequested: false,
     };
     this.sessions.set(id, m);
+    this.store?.upsertSession(config);
     this.persist();
     return toView(m);
   }
@@ -179,6 +191,7 @@ export class Supervisor {
       m.config.permissionMode = patch.permissionMode;
       m.permissionMode = patch.permissionMode;
     }
+    this.store?.upsertSession(m.config);
     this.persist();
     return toView(m);
   }
