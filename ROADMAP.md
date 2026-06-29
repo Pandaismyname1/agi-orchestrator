@@ -65,13 +65,21 @@ Be able to see and drive sessions that ALREADY exist, not just ones we created.
 - **Backend:** a `SessionDiscovery` module (scan + parse transcript heads for metadata); a
   dashboard "Existing sessions" browser to import/resume/attach.
 
-### P3. Major UI/UX overhaul ★
+### P3. Major UI/UX overhaul ★ — DONE
 
-Rebuild the dashboard around the experience, not the data. Driven by the design vision (P4): a
-coherent design system, clear information hierarchy, the fleet at a glance, a great session
-detail (live terminal + manual input + autopilot toggle + brain panel + history), and the
-needs-you / decision moments made unmissable. Mobile-friendly read-only view a plus. This is the
-*build*; P4 is the *design* that specifies it.
+Rebuilt the dashboard as a **modular Svelte app** (`web/`, Svelte 5 + Vite + TS + Tailwind v4 +
+DaisyUI v5; replaced the 900-line monolith) around the experience, not the data:
+- Coherent dark "agi" design system (slate + run-green, Inter), clear hierarchy.
+- **Fleet at a glance** — status-rail grid + per-status breakdown chips + live count.
+- **Great session detail** — live-output terminal (header + live dot), manual message bar,
+  autopilot toggle, brain panel, history modal.
+- **Decision moments unmissable** — global "N needs you" header alert (jumps to the session),
+  pulsing needs-input cards, prominent attention/gate panel.
+- **Guided new-session wizard** (Project → Mode → Tune) and **adopt/attach** browsers.
+- **Settings** surface (provider, budget, concurrency, defaults — live `updateSettings`).
+- **Mobile-friendly** read-only view (single-column page scroll at ≤720px).
+Build: `npm run web:build` → `web/dist`, served by the dashboard server. Done across commits
+c482a91 → 35ea73a → c6b87b3.
 
 ### P4. Design vision — envision the whole dashboard (UX + UI) first ★
 
