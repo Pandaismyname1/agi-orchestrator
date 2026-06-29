@@ -24,6 +24,14 @@
     "handoffFile": ".agi/handoff.md",
     "minTurnsBetween": 6
   },
+  "learning": {
+    "enabled": false,
+    "scanLimit": 60,
+    "maxExamples": 30,
+    "maxFewShot": 6,
+    "guidanceCharBudget": 700,
+    "evalHeldOut": 40
+  },
   "sessions": [
     {
       "id": "demo-website",
@@ -45,6 +53,7 @@
     "budget": "daily caps across ALL sessions (resets at local midnight). Sessions refuse to start / stop when exceeded. Omit to disable. The dashboard shows today's usage; claude's own usage-limit notice also auto-pauses the session.",
     "maxConcurrent": "max sessions running at once; extra 'Start all' sessions queue and auto-start as slots free (protects the rate limit). Omit for no cap.",
     "contextGuard": "memory-preserving compaction for long runs. When estimated context use (transcript bytes/4 ÷ window) crosses compactAtPercent, the agent writes a handoff to handoffFile, runs /compact, then resumes from the handoff — so it doesn't overflow or lose the thread. Set enabled:true and window to your model's context (e.g. 200000, or 1000000). minTurnsBetween throttles repeat compactions.",
+    "learning": "self-improvement: Qwen learns YOUR operating style from past Claude Code sessions + your live corrections, behind a propose→approve→revert gate (use the dashboard 'Learn' button). OFF by default and a strict no-op until you approve a profile. enabled:true turns on guidance injection for APPROVED profiles only; the other knobs bound mining/few-shot/guidance size + the advisory eval's held-out set.",
     "gatePolicy.note": "see permissionMode — gatePolicy only sees gates when claude actually prompts",
     "autonomy": "operator persona: 'cautious' escalates more decisions to you, 'autonomous' fewer, 'balanced' (default) in between"
   }

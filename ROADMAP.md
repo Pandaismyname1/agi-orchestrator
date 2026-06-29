@@ -148,7 +148,21 @@ Long autopilot runs overflow the context. Claude Code auto-compacts, but bluntly
   indicator parsing; `/compact` behavior; confirming the handoff is re-read. Needs a live probe
   before committing to detection method (a) vs (b).
 
-### A3. Self-improvement / learning loop ★
+### A3. Self-improvement / learning loop ★ — BUILT (commit d7233c9)
+
+Qwen's operator prompt learns the owner's style from past sessions + live corrections, behind a
+strict **propose → approve → revert** gate (OFF by default; no-op until a profile is approved).
+`src/learning/`: miner (past sessions), liveSignals (derived manual overrides), synthesize (one
+local-LLM call → draft), advisory replay-eval, versioned profiles in the `preferences` table
+(global ⊕ per-cwd), `LearningService` facade. Injected via `buildSystemPrompt(autonomy, guidance)`
++ a supervisor decide-wrapper. Surface: WS learn* + `/api/learning*` + a "Learn" modal (diff +
+advisory eval + approve/revert). `scripts/learn-test.ts` 24/24. **Roadmap follow-ups:** make the
+eval strong (LLM-judge + larger held-out) then add `learning.evalGate` so approve rejects Δ<0;
+optional thumbs up/down on decisions. **Live validation:** enable `learning`, run sessions, override
+Qwen a few times, Synthesize → review → Approve, confirm the next run reflects it, then Revert.
+Original design below.
+
+
 
 Qwen's operator prompts should get better by learning from the owner's many past Claude Code
 sessions AND from live feedback. Local-only; opt-in; review-before-apply so it can't drift badly.
