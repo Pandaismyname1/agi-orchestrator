@@ -74,10 +74,10 @@ export class Supervisor {
   private readonly sessions = new Map<string, Managed>();
   private readonly llm: LocalLLM;
   private readonly recorder?: Recorder;
-  private readonly budget: BudgetTracker;
+  private budget: BudgetTracker;
   private readonly running = new Set<string>();
   private readonly queue: string[] = [];
-  private readonly maxConcurrent: number;
+  private maxConcurrent: number;
 
   constructor(
     private readonly cfg: AppConfig,
@@ -141,6 +141,24 @@ export class Supervisor {
   /** Today's budget status (persisted + live). Exposed for the dashboard. */
   budgetStatus(): BudgetStatus {
     return this.budget.status(this.liveUsage());
+  }
+
+  /**
+   * Update the concurrency cap at runtime. Lowering it never stops a running
+   * session (it just won't pump new ones until the count drops below the cap);
+   * raising it immediately fills freed slots from the queue.
+   */
+  setMaxConcurrent(n: number): void {
+    this.maxConcurrent = n > 0 ? n : Infinity;
+    this.pump();
+  }
+
+  /**
+   * Update the daily budget limits at runtime. Rebuilds the BudgetTracker from
+   * the (already mutated) cfg.budget so the new caps take effect immediately.
+   */
+  setBudgetLimits(): void {
+    this.budget = new BudgetTracker(this.store, this.cfg.budget);
   }
 
   /** Request a session to run: launch now if a slot is free, else queue it. */

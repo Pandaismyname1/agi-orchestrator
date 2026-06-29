@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { preflight, BillingSafetyError } from "../util/env.js";
-import { loadConfig } from "../config.js";
+import { loadConfig, saveConfig } from "../config.js";
 import { Supervisor } from "./supervisor.js";
 import { openStore } from "../db/store.js";
 import { SessionDiscovery } from "../discovery.js";
@@ -46,13 +46,25 @@ type SessionPatch = Partial<{
   startMode: SessionConfig["startMode"];
 }>;
 
+/** Runtime-editable global settings patch (see the "updateSettings" handler). */
+type SettingsPatch = Partial<{
+  providerModel: string;
+  maxConcurrent: number;
+  budgetMaxTurns: number | null;
+  budgetMaxMinutes: number | null;
+  defaultPermissionMode: SessionConfig["permissionMode"];
+  defaultAutonomy: SessionConfig["autonomy"];
+}>;
+
 interface ClientMsg {
   type:
     | "start" | "stop" | "startAll" | "focus" | "add" | "update" | "remove" | "resolve"
-    | "setMode" | "sendMessage";
+    | "setMode" | "sendMessage" | "updateSettings";
   id?: string;
   session?: SessionInput;
   patch?: SessionPatch;
+  /** For "updateSettings": the global-settings fields to change. */
+  settings?: SettingsPatch;
   /** For "resolve": how the user answered an open human-decision. */
   choice?: { optionIndex?: number; customPrompt?: string; stop?: boolean };
   /** For "setMode": the target mode. For "sendMessage": the message text. */
@@ -239,6 +251,19 @@ async function main(): Promise<void> {
           type: "snapshot",
           provider: { model: cfg.provider.model, baseUrl: cfg.provider.baseUrl, ok: health.ok },
           budget: sup.budgetStatus(),
+          settings: {
+            providerModel: cfg.provider.model,
+            providerBaseUrl: cfg.provider.baseUrl,
+            maxConcurrent: cfg.maxConcurrent ?? 2,
+            budget: {
+              maxTurns: cfg.budget?.maxTurnsPerDay ?? null,
+              maxMinutes: cfg.budget?.maxMinutesPerDay ?? null,
+            },
+            defaults: {
+              permissionMode: cfg.defaults?.permissionMode ?? "acceptEdits",
+              autonomy: cfg.defaults?.autonomy ?? "balanced",
+            },
+          },
           sessions: sup.list(),
           focus: focusId ? { id: focusId, screen: sup.screen(focusId) } : undefined,
         }),
@@ -248,7 +273,7 @@ async function main(): Promise<void> {
     const timer = setInterval(push, PUSH_MS);
     push();
 
-    ws.on("message", (raw) => {
+    ws.on("message", async (raw) => {
       let msg: ClientMsg;
       try {
         msg = JSON.parse(raw.toString());
@@ -280,6 +305,63 @@ async function main(): Promise<void> {
           break;
         case "sendMessage":
           if (msg.id && typeof msg.text === "string") sup.sendMessage(msg.id, msg.text);
+          break;
+        case "updateSettings":
+          try {
+            const p = msg.settings ?? {};
+            let applyConcurrency = false;
+            let applyBudget = false;
+
+            // Provider model: non-empty string. Persisting is enough (read when
+            // the brain/health is constructed); we don't re-run health here.
+            if (typeof p.providerModel === "string" && p.providerModel.trim()) {
+              cfg.provider.model = p.providerModel.trim();
+            }
+
+            // Concurrency cap: finite number >= 1.
+            if (typeof p.maxConcurrent === "number" && Number.isFinite(p.maxConcurrent) && p.maxConcurrent >= 1) {
+              cfg.maxConcurrent = Math.floor(p.maxConcurrent);
+              applyConcurrency = true;
+            }
+
+            // Budget caps: null clears the cap; a finite number >= 0 sets it.
+            if (p.budgetMaxTurns !== undefined) {
+              if (p.budgetMaxTurns === null) {
+                cfg.budget = { ...cfg.budget, maxTurnsPerDay: undefined };
+                applyBudget = true;
+              } else if (Number.isFinite(p.budgetMaxTurns) && p.budgetMaxTurns >= 0) {
+                cfg.budget = { ...cfg.budget, maxTurnsPerDay: Math.floor(p.budgetMaxTurns) };
+                applyBudget = true;
+              }
+            }
+            if (p.budgetMaxMinutes !== undefined) {
+              if (p.budgetMaxMinutes === null) {
+                cfg.budget = { ...cfg.budget, maxMinutesPerDay: undefined };
+                applyBudget = true;
+              } else if (Number.isFinite(p.budgetMaxMinutes) && p.budgetMaxMinutes >= 0) {
+                cfg.budget = { ...cfg.budget, maxMinutesPerDay: Math.floor(p.budgetMaxMinutes) };
+                applyBudget = true;
+              }
+            }
+
+            // Defaults for newly created sessions. Persisted; addSession reads
+            // its own defaults today, so these take effect when that wiring uses
+            // cfg.defaults. (TODO: have addSession fall back to cfg.defaults.)
+            if (p.defaultPermissionMode !== undefined) {
+              cfg.defaults = { ...cfg.defaults, permissionMode: p.defaultPermissionMode };
+            }
+            if (p.defaultAutonomy !== undefined) {
+              cfg.defaults = { ...cfg.defaults, autonomy: p.defaultAutonomy };
+            }
+
+            // Apply at runtime what's safe.
+            if (applyConcurrency) sup.setMaxConcurrent(cfg.maxConcurrent ?? Infinity);
+            if (applyBudget) sup.setBudgetLimits();
+
+            await saveConfig(cfg);
+          } catch (e) {
+            sendError(e instanceof Error ? e.message : String(e));
+          }
           break;
         case "add":
           try {

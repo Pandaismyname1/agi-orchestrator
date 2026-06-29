@@ -165,6 +165,12 @@
   @media (max-width: 720px) {
     .grid {
       grid-template-columns: 1fr;
+      /* On phones, let the page scroll as one column instead of a cramped
+         inner scroll region (which otherwise compresses the card rows). */
+      overflow-y: visible;
+    }
+    .fleet {
+      max-height: none;
     }
   }
 </style>

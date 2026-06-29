@@ -83,6 +83,14 @@ export interface AppConfig {
    * slots free up — so a fleet can't hammer the rate limit. Omit for no cap.
    */
   maxConcurrent?: number;
+  /**
+   * Default session settings applied to newly created sessions when the caller
+   * doesn't specify them. Editable at runtime from the dashboard.
+   */
+  defaults?: {
+    permissionMode?: SessionConfig["permissionMode"];
+    autonomy?: SessionConfig["autonomy"];
+  };
 }
 
 /**

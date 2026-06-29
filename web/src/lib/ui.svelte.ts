@@ -10,7 +10,9 @@ export type Modal =
   | { kind: "edit"; session: SessionView }
   | { kind: "adopt" }
   | { kind: "adopt-form"; cwd: string; resumeId: string }
-  | { kind: "history"; sessionId: string };
+  | { kind: "history"; sessionId: string }
+  | { kind: "settings" }
+  | { kind: "attach" };
 
 interface Toast {
   id: number;

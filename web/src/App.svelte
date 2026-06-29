@@ -55,4 +55,16 @@
     flex-direction: column;
     min-height: 0;
   }
+
+  /* Mobile: stop being a fixed-height two-pane app; let the whole page scroll
+     as a single column (fleet, then session detail). */
+  @media (max-width: 720px) {
+    .shell {
+      height: auto;
+      min-height: 100vh;
+    }
+    main {
+      overflow: visible;
+    }
+  }
 </style>

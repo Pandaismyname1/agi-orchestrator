@@ -45,6 +45,7 @@
   }
   input {
     flex: 1;
+    min-width: 0;
     font: inherit;
     font-size: 13px;
     color: var(--color-base-content);
@@ -52,9 +53,24 @@
     border: 1px solid var(--border-strong);
     border-radius: 9px;
     padding: 8px 12px;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
+  }
+  input::placeholder {
+    color: var(--faint);
   }
   input:focus {
     outline: none;
     border-color: var(--color-secondary);
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.18);
+  }
+  .msgbar :global(.btn) {
+    flex: none;
+  }
+  @media (max-width: 640px) {
+    .msgbar {
+      padding: 10px 14px;
+    }
   }
 </style>

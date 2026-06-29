@@ -4,6 +4,8 @@
   import NewSessionWizard from "./modals/NewSessionWizard.svelte";
   import AdoptModal from "./modals/AdoptModal.svelte";
   import HistoryModal from "./modals/HistoryModal.svelte";
+  import SettingsModal from "./modals/SettingsModal.svelte";
+  import AttachModal from "./modals/AttachModal.svelte";
 </script>
 
 {#if ui.modal}
@@ -17,5 +19,9 @@
     <AdoptModal />
   {:else if ui.modal.kind === "history"}
     <HistoryModal sessionId={ui.modal.sessionId} />
+  {:else if ui.modal.kind === "settings"}
+    <SettingsModal />
+  {:else if ui.modal.kind === "attach"}
+    <AttachModal />
   {/if}
 {/if}

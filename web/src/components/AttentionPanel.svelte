@@ -30,8 +30,11 @@
   }
 </script>
 
-<div class="attention">
-  <h3><Icon name="alert" size={13} /> {isGate ? "Risky action — approve?" : "Needs your decision"}</h3>
+<div class="attention" class:gate={isGate}>
+  <div class="att-head">
+    <span class="att-icon" aria-hidden="true"><Icon name="alert" size={15} /></span>
+    <h3>{isGate ? "Risky action — approve?" : "Needs your decision"}</h3>
+  </div>
   <div class="q">{attention.question}</div>
 
   {#each attention.options ?? [] as opt, i (i)}
@@ -61,43 +64,77 @@
 <style>
   .attention {
     margin: 14px 20px;
-    padding: 15px 17px;
+    padding: 16px 18px;
     border: 1px solid var(--color-warning);
     border-left: 4px solid var(--color-warning);
     border-radius: var(--radius-box);
-    background: rgba(251, 191, 36, 0.07);
+    background:
+      linear-gradient(rgba(251, 191, 36, 0.1), rgba(251, 191, 36, 0.04));
+    box-shadow:
+      0 0 0 1px rgba(251, 191, 36, 0.12),
+      0 8px 26px -10px rgba(251, 191, 36, 0.35);
+    animation: att-in 0.34s cubic-bezier(0.2, 0.9, 0.3, 1.2);
   }
-  h3 {
-    margin: 0 0 8px;
-    font-size: 11px;
-    color: var(--color-warning);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-weight: 700;
+  .att-head {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 9px;
+    margin-bottom: 10px;
+  }
+  .att-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    flex: none;
+    border-radius: 7px;
+    color: var(--color-base-100);
+    background: var(--color-warning);
+    box-shadow: 0 0 14px -2px rgba(251, 191, 36, 0.6);
+  }
+  h3 {
+    margin: 0;
+    font-size: 11.5px;
+    color: var(--color-warning);
+    text-transform: uppercase;
+    letter-spacing: 1.1px;
+    font-weight: 800;
   }
   .q {
-    font-size: 14px;
+    font-size: 14.5px;
     font-weight: 600;
-    margin-bottom: 13px;
+    line-height: 1.45;
+    color: var(--color-base-content);
+    margin-bottom: 14px;
+    overflow-wrap: anywhere;
   }
   .opt {
     display: block;
     width: 100%;
     text-align: left;
     margin-bottom: 8px;
-    padding: 10px 13px;
+    padding: 11px 13px;
     background: var(--color-base-200);
     border: 1px solid var(--border-soft);
     border-radius: 9px;
     cursor: pointer;
     color: var(--color-base-content);
+    transition:
+      border-color 0.14s,
+      background 0.14s,
+      transform 0.08s;
   }
   .opt:hover {
     border-color: var(--color-warning);
     background: var(--color-base-300);
+  }
+  .opt:active {
+    transform: translateY(1px);
+  }
+  .opt:focus-visible {
+    outline: 2px solid var(--color-warning);
+    outline-offset: 2px;
   }
   .opt b {
     display: block;
@@ -106,6 +143,7 @@
   }
   .opt small {
     color: var(--color-neutral-content);
+    line-height: 1.4;
   }
   .custom {
     display: flex;
@@ -114,6 +152,7 @@
   }
   .custom textarea {
     flex: 1;
+    min-width: 0;
     font: inherit;
     font-size: 13px;
     color: var(--color-base-content);
@@ -122,19 +161,62 @@
     border-radius: 9px;
     padding: 8px 10px;
     resize: vertical;
-    min-height: 40px;
+    min-height: 42px;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
+  }
+  .custom textarea::placeholder {
+    color: var(--faint);
   }
   .custom textarea:focus {
     outline: none;
     border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18);
   }
   .col {
     display: flex;
     flex-direction: column;
     gap: 6px;
   }
+  .col :global(.btn) {
+    white-space: nowrap;
+  }
   .row-end {
     display: flex;
     justify-content: flex-end;
+  }
+  @keyframes att-in {
+    0% {
+      opacity: 0;
+      transform: scale(0.98) translateY(-4px);
+      box-shadow:
+        0 0 0 3px rgba(251, 191, 36, 0.35),
+        0 8px 26px -10px rgba(251, 191, 36, 0.5);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .attention {
+      animation: none;
+    }
+  }
+  @media (max-width: 640px) {
+    .attention {
+      margin: 12px 14px;
+      padding: 14px;
+    }
+    .custom {
+      flex-direction: column;
+    }
+    .col {
+      flex-direction: row;
+    }
+    .col :global(.btn) {
+      flex: 1;
+    }
   }
 </style>

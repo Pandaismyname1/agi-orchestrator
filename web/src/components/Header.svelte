@@ -54,20 +54,34 @@
   <button class="btn btn-sm" onclick={() => ui.openModal({ kind: "adopt" })}>
     <Icon name="download" size={13} /> Adopt
   </button>
+  <button
+    class="btn btn-sm hide-sm"
+    title="Drive a claude you started by hand (Stop-hook attach)"
+    onclick={() => ui.openModal({ kind: "attach" })}
+  >
+    <Icon name="plug" size={13} /> Attach
+  </button>
   <button class="btn btn-sm" onclick={() => ui.openModal({ kind: "new" })}>
     <Icon name="plus" size={13} /> New
   </button>
   <button
-    class="btn btn-sm btn-square"
+    class="btn btn-sm btn-square hide-sm"
     title={pip.supported ? "Always-on-top status window" : "Needs Chrome/Edge (Document PiP)"}
     disabled={!pip.supported}
     onclick={() => pip.toggle()}
   >
     <Icon name="pip" size={15} />
   </button>
+  <button
+    class="btn btn-sm btn-square"
+    title="Settings — provider, budget, concurrency, defaults"
+    onclick={() => ui.openModal({ kind: "settings" })}
+  >
+    <Icon name="settings" size={15} />
+  </button>
 
   {#if budget}
-    <div class="ml"><BudgetMeter {budget} /></div>
+    <div class="ml hide-sm"><BudgetMeter {budget} /></div>
   {/if}
 
   <div class="provider" title="Local brain model (Ollama / LM Studio)">
@@ -196,5 +210,22 @@
   }
   .dot.bad {
     background: var(--color-error);
+  }
+
+  @media (max-width: 640px) {
+    header {
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 10px 14px;
+    }
+    /* force the action cluster onto its own row below the brand */
+    .spacer {
+      flex-basis: 100%;
+      height: 0;
+      margin: 0;
+    }
+    .sub {
+      display: none;
+    }
   }
 </style>

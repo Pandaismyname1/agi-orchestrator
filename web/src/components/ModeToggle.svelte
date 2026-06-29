@@ -39,6 +39,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
+    white-space: nowrap;
     transition:
       background 0.15s,
       color 0.15s;
@@ -48,6 +49,12 @@
   }
   .seg:hover {
     color: var(--color-base-content);
+    background: var(--color-base-300);
+  }
+  .seg:focus-visible {
+    outline: 2px solid var(--color-secondary);
+    outline-offset: -2px;
+    z-index: 1;
   }
   .seg.on {
     background: var(--color-primary);

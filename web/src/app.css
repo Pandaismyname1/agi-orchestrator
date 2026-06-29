@@ -80,6 +80,14 @@ body {
   height: 100vh;
 }
 
+/* On phones the app scrolls as one page rather than locking to the viewport. */
+@media (max-width: 720px) {
+  #app {
+    height: auto;
+    min-height: 100vh;
+  }
+}
+
 /* Tabular numerals for any metric/counter readout. */
 .tnum {
   font-variant-numeric: tabular-nums;
@@ -101,6 +109,13 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #2b3a59;
+}
+
+/* Responsive utility: hide non-essential chrome on narrow (mobile) viewports. */
+@media (max-width: 640px) {
+  .hide-sm {
+    display: none !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

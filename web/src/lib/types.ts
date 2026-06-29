@@ -68,12 +68,38 @@ export interface FocusView {
   screen: string;
 }
 
+/** Runtime-editable global settings, echoed in the snapshot (backend cfg → here). */
+export interface Settings {
+  providerModel: string;
+  providerBaseUrl: string;
+  maxConcurrent: number;
+  budget: { maxTurns: number | null; maxMinutes: number | null };
+  defaults: { permissionMode: PermissionMode; autonomy: Autonomy };
+}
+
+export type SettingsPatch = Partial<{
+  providerModel: string;
+  maxConcurrent: number;
+  budgetMaxTurns: number | null;
+  budgetMaxMinutes: number | null;
+  defaultPermissionMode: PermissionMode;
+  defaultAutonomy: Autonomy;
+}>;
+
 export interface Snapshot {
   type: "snapshot";
   provider: Provider;
   budget?: Budget | null;
   sessions: SessionView[];
   focus?: FocusView;
+  settings?: Settings;
+}
+
+/** Payload to register a hand-started session for hook-attach driving (POST /attach). */
+export interface AttachInput {
+  session_id: string;
+  goal: string;
+  doneCriteria: string;
 }
 
 /** Payload to create a session (subset of SessionConfig). */
@@ -115,7 +141,8 @@ export type ClientMsg =
   | { type: "remove"; id: string }
   | { type: "resolve"; id: string; choice: ResolveChoice }
   | { type: "setMode"; id: string; mode: SessionMode }
-  | { type: "sendMessage"; id: string; text: string };
+  | { type: "sendMessage"; id: string; text: string }
+  | { type: "updateSettings"; settings: SettingsPatch };
 
 /** Discovered on-disk Claude Code session (GET /api/discover). */
 export interface DiscoveredSession {

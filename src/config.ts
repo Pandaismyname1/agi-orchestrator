@@ -56,6 +56,7 @@ export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json")
     dbPath: path.resolve(parsed.dbPath ?? process.env.AGI_DB ?? "agi.db"),
     budget: parsed.budget,
     maxConcurrent: parsed.maxConcurrent,
+    defaults: parsed.defaults,
   };
 }
 
@@ -78,6 +79,7 @@ export async function saveConfig(
     dbPath: cfg.dbPath,
     budget: cfg.budget,
     maxConcurrent: cfg.maxConcurrent,
+    defaults: cfg.defaults,
   };
   await writeFile(abs, JSON.stringify(out, null, 2) + "\n", "utf8");
 }

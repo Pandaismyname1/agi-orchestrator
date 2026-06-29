@@ -9,6 +9,13 @@ export const MOCK: Snapshot = {
   type: "snapshot",
   provider: { model: "qwen3.5:9b", baseUrl: "http://localhost:11434/v1", ok: true },
   budget: { turns: 142, maxTurns: 300, minutes: 88, maxMinutes: 240, exceeded: false },
+  settings: {
+    providerModel: "qwen3.5:9b",
+    providerBaseUrl: "http://localhost:11434/v1",
+    maxConcurrent: 2,
+    budget: { maxTurns: 300, maxMinutes: 240 },
+    defaults: { permissionMode: "acceptEdits", autonomy: "balanced" },
+  },
   sessions: [
     {
       id: "refactor-db",

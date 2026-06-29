@@ -33,9 +33,15 @@
     border-bottom: 1px solid var(--border-soft);
     background: var(--color-base-200);
     font-size: 12.5px;
+    line-height: 1.5;
     display: flex;
     align-items: flex-start;
-    gap: 8px;
+    gap: 10px;
+  }
+  @media (max-width: 640px) {
+    .brain {
+      padding: 10px 14px;
+    }
   }
   .lbl {
     color: var(--color-primary);
@@ -52,6 +58,7 @@
   .bd {
     flex: 1;
     min-width: 0;
+    overflow-wrap: anywhere;
   }
   .manual {
     color: var(--color-secondary);
