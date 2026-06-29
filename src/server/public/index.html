@@ -162,6 +162,20 @@
         opacity: 0; pointer-events: none; transition: opacity 0.2s;
       }
       #toast.show { opacity: 1; }
+
+      /* history / metrics */
+      .metrics { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+      .metric { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; min-width: 70px; }
+      .metric .v { font-size: 18px; font-weight: 700; }
+      .metric .k { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+      .runrow { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; cursor: pointer; }
+      .runrow:hover { border-color: var(--accent); }
+      .runrow .rid { color: var(--muted); font-size: 12px; }
+      .tl-turn { border-left: 2px solid var(--border); padding: 6px 0 6px 12px; margin: 0 0 10px; }
+      .tl-turn .you { color: var(--blue); font-size: 13px; }
+      .tl-turn .cl { color: var(--text); font-size: 13px; margin-top: 2px; }
+      .tl-turn .dec { color: var(--muted); font-size: 12px; margin-top: 4px; }
+      .tl-back { cursor: pointer; color: var(--accent); }
     </style>
   </head>
   <body>
@@ -356,6 +370,7 @@
             <div class="row1">
               <span class="name" style="font-weight:600">${esc(s.id)}</span>
               <span class="badge ${s.status}" style="margin-left:10px">${s.status}</span>
+              <button id="histBtn" style="margin-left:auto">🕘 History</button>
             </div>
             <div class="goal">${esc(s.goal)}</div>
             <div style="margin-top:8px">
@@ -376,6 +391,8 @@
           </div>`;
 
         if (att) wireAttention(s.id, att);
+        const hb = document.getElementById("histBtn");
+        if (hb) hb.onclick = () => openHistory(s.id);
         updatePip(snap);
       }
 
@@ -518,6 +535,74 @@
         if ("Notification" in window && Notification.permission === "granted") {
           try { new Notification(title, { body }); } catch (e) {}
         }
+      }
+
+      // ---- history / metrics (read-only, from SQLite via /api) ---------------
+      async function fetchJson(url) { const r = await fetch(url); return r.json(); }
+
+      function runRowHtml(r) {
+        const dur = r.elapsed_min != null ? r.elapsed_min.toFixed(1) + "m" : "—";
+        const badge = r.status === "ended" ? "done" : r.status;
+        return `<div class="runrow" data-run="${r.id}">
+          <span class="badge ${badge}">${r.status}</span>
+          <span class="rid">#${r.id}</span>
+          <span>turns ${r.turns} · ${dur}</span>
+          <span style="margin-left:auto;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px">${esc(r.stop_reason || "")}</span>
+        </div>`;
+      }
+
+      async function openHistory(id) {
+        const [m, runs] = await Promise.all([
+          fetchJson("/api/metrics?session=" + encodeURIComponent(id)),
+          fetchJson("/api/runs?session=" + encodeURIComponent(id)),
+        ]);
+        const byStatus = Object.entries(m.byStatus || {}).map(([k, v]) => `${k} ${v}`).join(" · ") || "—";
+        const root = document.getElementById("modalRoot");
+        root.innerHTML = `<div class="modal-back" id="modalBack"><div class="modal" style="width:560px">
+          <h2>History · ${esc(id)}</h2>
+          <div class="metrics">
+            <div class="metric"><div class="v">${m.runs}</div><div class="k">runs</div></div>
+            <div class="metric"><div class="v">${m.turns}</div><div class="k">turns</div></div>
+            <div class="metric"><div class="v">${m.avgTurns}</div><div class="k">avg turns/run</div></div>
+            <div class="metric"><div class="v">${Math.round((m.interventionRate || 0) * 100)}%</div><div class="k">needed you</div></div>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px">by status: ${esc(byStatus)}</div>
+          <div id="runsList">${runs.length ? runs.map(runRowHtml).join("") : '<div class="empty">no runs yet</div>'}</div>
+          <div class="facts"><button id="histClose">Close</button></div>
+        </div></div>`;
+        document.getElementById("histClose").onclick = () => (root.innerHTML = "");
+        document.getElementById("modalBack").onclick = (e) => { if (e.target.id === "modalBack") root.innerHTML = ""; };
+        root.querySelectorAll(".runrow").forEach((el) => { el.onclick = () => openRun(Number(el.dataset.run), id); });
+      }
+
+      async function openRun(runId, sessionId) {
+        const data = await fetchJson("/api/run?id=" + runId);
+        const decByN = {};
+        (data.decisions || []).forEach((d) => (decByN[d.n] = d));
+        const turns = (data.turns || []).map((t) => {
+          const d = decByN[t.n];
+          const decLine = d
+            ? d.action === "continue" ? `→ next: ${esc((d.prompt || "").slice(0, 120))}`
+            : d.action === "escalate" ? `⚑ escalated: ${esc(d.reason || "")}`
+            : `■ stop: ${esc(d.reason || "")}`
+            : "";
+          return `<div class="tl-turn">
+            <div class="you">→ ${esc((t.injected_prompt || "").slice(0, 160))}</div>
+            <div class="cl">claude: ${esc((t.assistant_text || "").replace(/\s+/g, " ").slice(0, 220))}</div>
+            ${decLine ? `<div class="dec">${decLine}</div>` : ""}
+          </div>`;
+        }).join("");
+        const evs = (data.events || []).map((e) => e.type).join(" → ");
+        const root = document.getElementById("modalRoot");
+        root.innerHTML = `<div class="modal-back" id="modalBack"><div class="modal" style="width:600px">
+          <h2><span class="tl-back" id="tlBack">← runs</span> · run #${runId}</h2>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:12px">${esc(evs)}</div>
+          ${turns || '<div class="empty">no turns recorded</div>'}
+          <div class="facts"><button id="histClose">Close</button></div>
+        </div></div>`;
+        document.getElementById("histClose").onclick = () => (root.innerHTML = "");
+        document.getElementById("tlBack").onclick = () => openHistory(sessionId);
+        document.getElementById("modalBack").onclick = (e) => { if (e.target.id === "modalBack") root.innerHTML = ""; };
       }
 
       connect();

@@ -170,6 +170,10 @@ export class Store {
     return (sessionId ? stmt.all(sessionId, limit) : stmt.all(limit)) as unknown as RunRow[];
   }
 
+  getRun(id: number): RunRow | null {
+    return (this.db.prepare(`SELECT * FROM runs WHERE id = ?`).get(id) as unknown as RunRow) ?? null;
+  }
+
   getTurns(runId: number): TurnRow[] {
     return this.db
       .prepare(`SELECT * FROM turns WHERE run_id=? ORDER BY n ASC`)
@@ -196,6 +200,66 @@ export class Store {
       )
       .get(sessionId) as { runs: number; totalTurns: number; lastRunAt: number | null };
     return row;
+  }
+
+  // ---- observability (history / timeline / metrics) -----------------------
+
+  /** A run's decisions, keyed by the turn number they followed. */
+  getDecisions(runId: number): Array<{ n: number; action: string; prompt: string | null; reason: string | null }> {
+    return this.db
+      .prepare(
+        `SELECT t.n AS n, d.action AS action, d.prompt AS prompt, d.reason AS reason
+         FROM decisions d JOIN turns t ON d.turn_id = t.id
+         WHERE t.run_id = ? ORDER BY t.n ASC`,
+      )
+      .all(runId) as Array<{ n: number; action: string; prompt: string | null; reason: string | null }>;
+  }
+
+  /** A run's raw event log (start/turn/decision/attention/gate/stop/…). */
+  getEvents(runId: number): Array<{ type: string; payload: string | null; created_at: number }> {
+    return this.db
+      .prepare(`SELECT type, payload, created_at FROM events WHERE run_id = ? ORDER BY id ASC`)
+      .all(runId) as Array<{ type: string; payload: string | null; created_at: number }>;
+  }
+
+  /** Aggregate metrics for the dashboard (optionally scoped to one session). */
+  metrics(sessionId?: string): {
+    runs: number;
+    turns: number;
+    avgTurns: number;
+    interventionRuns: number;
+    interventionRate: number;
+    byStatus: Record<string, number>;
+  } {
+    const where = sessionId ? `WHERE session_id = ?` : ``;
+    const args = sessionId ? [sessionId] : [];
+    const agg = this.db
+      .prepare(`SELECT COUNT(*) AS runs, COALESCE(SUM(turns),0) AS turns FROM runs ${where}`)
+      .get(...args) as { runs: number; turns: number };
+
+    const statusRows = this.db
+      .prepare(`SELECT status, COUNT(*) AS c FROM runs ${where} GROUP BY status`)
+      .all(...args) as Array<{ status: string; c: number }>;
+    const byStatus: Record<string, number> = {};
+    for (const r of statusRows) byStatus[r.status] = r.c;
+
+    // Runs that required a human (had an attention or gate event).
+    const intvWhere = sessionId ? `AND r.session_id = ?` : ``;
+    const intv = this.db
+      .prepare(
+        `SELECT COUNT(DISTINCT e.run_id) AS c FROM events e JOIN runs r ON e.run_id = r.id
+         WHERE e.type IN ('attention','gate') ${intvWhere}`,
+      )
+      .get(...args) as { c: number };
+
+    return {
+      runs: agg.runs,
+      turns: agg.turns,
+      avgTurns: agg.runs ? Number((agg.turns / agg.runs).toFixed(1)) : 0,
+      interventionRuns: intv.c,
+      interventionRate: agg.runs ? Number((intv.c / agg.runs).toFixed(2)) : 0,
+      byStatus,
+    };
   }
 }
 

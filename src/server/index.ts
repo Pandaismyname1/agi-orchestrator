@@ -134,6 +134,25 @@ async function main(): Promise<void> {
         return sendJson(res, 200, decision);
       }
 
+      // Observability read APIs (history + metrics). GET, JSON, read-only.
+      if (req.method === "GET" && req.url?.startsWith("/api/")) {
+        const u = new URL(req.url, "http://localhost");
+        const session = u.searchParams.get("session") ?? undefined;
+        if (u.pathname === "/api/runs") return sendJson(res, 200, store.getRuns(session, 50));
+        if (u.pathname === "/api/metrics") return sendJson(res, 200, store.metrics(session));
+        if (u.pathname === "/api/run") {
+          const runId = Number(u.searchParams.get("id"));
+          if (!runId) return sendJson(res, 400, { error: "id required" });
+          return sendJson(res, 200, {
+            run: store.getRun(runId),
+            turns: store.getTurns(runId),
+            decisions: store.getDecisions(runId),
+            events: store.getEvents(runId),
+          });
+        }
+        return sendJson(res, 404, { error: "unknown api" });
+      }
+
       // Register / unregister an attached session (goal + doneCriteria for an id).
       if (req.method === "POST" && (req.url === "/attach" || req.url === "/detach")) {
         let body: { session_id?: string; goal?: string; doneCriteria?: string };

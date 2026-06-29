@@ -97,6 +97,7 @@ src/
   db/store.ts            SQLite persistence (node:sqlite) — sessions/runs/turns/decisions/events
   db/recorder.ts         maps the orchestrator event stream into the store
   db/schema.ts           schema (incl. attention_requests + preferences for later tiers)
+  policy/budget.ts       daily usage budget (turns/minutes) tracked from SQLite
   server/index.ts        dashboard: HTTP + WebSocket server (preflight → config → serve)
   server/supervisor.ts   manages all sessions; live state + start/stop for the dashboard
   server/public/index.html  single-page cockpit (live screens, status, start/stop)
@@ -150,6 +151,11 @@ Validated features:
   header shows today's usage (amber near the cap). Separately, claude's own **usage-limit notice**
   is detected on screen and pauses the session (`rate-limited` status + notification). Detection is
   tuned to the system wording so it won't trip on code that merely mentions "rate limiting".
+- **Observability — history, timeline replay, metrics (Tier 2)** — every run/turn/decision/event in
+  SQLite is browsable from the dashboard ("🕘 History"): per-session run list, a turn-by-turn
+  **timeline replay** (injected prompt → claude's reply → brain decision, with the event sequence),
+  and **metrics** (runs, turns, avg turns/run, "needed you" intervention rate, status breakdown).
+  Read-only `/api/runs`, `/api/run`, `/api/metrics` endpoints back it.
 
 ### Hook-attach mode (optional)
 
@@ -163,7 +169,7 @@ To drive a session you start by hand instead of a daemon-owned one:
    is down it never blocks your session.
 
 ### Not built yet
-- Observability: timeline/replay from SQLite, per-turn diff viewer, metrics.
+- Per-turn file diff viewer (needs per-turn git snapshots — a Tier 3 git-integration piece).
 - Multi-session orchestration: concurrency cap, queue/scheduler, session dependencies, templates.
 - Stuck/oscillation detection (no files changed for N turns → escalate).
 - Dashboard UI panel for attach/detach (routes exist; wire a form like the session CRUD).
