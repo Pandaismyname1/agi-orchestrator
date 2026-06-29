@@ -164,6 +164,9 @@ Validated features:
   ignoring `node_modules`/`.git`/…). If the brain keeps saying "continue" but **nothing on disk changes
   for `limits.stuckTurns` turns in a row**, the agent is likely spinning — so it **escalates** ("continue
   / try a different approach / stop") instead of burning turns and budget.
+- **Operator personas (Tier 3)** — a per-session `autonomy` level tunes how readily the brain
+  escalates: **cautious** (asks you more), **balanced** (default), **autonomous** (only stops for
+  truly irreversible calls / missing info / out-of-scope). Selectable in the session form.
 
 ### Hook-attach mode (optional)
 

@@ -30,6 +30,7 @@ interface SessionInput {
   goal: string;
   doneCriteria: string;
   permissionMode?: SessionConfig["permissionMode"];
+  autonomy?: SessionConfig["autonomy"];
 }
 
 type SessionPatch = Partial<{
@@ -37,6 +38,7 @@ type SessionPatch = Partial<{
   goal: string;
   doneCriteria: string;
   permissionMode: SessionConfig["permissionMode"];
+  autonomy: SessionConfig["autonomy"];
 }>;
 
 interface ClientMsg {

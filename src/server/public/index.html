@@ -255,6 +255,12 @@
                 <option value="auto">auto</option>
                 <option value="bypassPermissions">bypassPermissions</option>
               </select>
+              <label>autonomy (how often the brain asks you)</label>
+              <select id="f_auto">
+                <option value="cautious">cautious — asks more</option>
+                <option value="balanced">balanced</option>
+                <option value="autonomous">autonomous — asks less</option>
+              </select>
               <div class="ferr" id="f_err"></div>
               <div class="facts">
                 <button id="f_cancel">Cancel</button>
@@ -265,6 +271,8 @@
 
         const permSel = document.getElementById("f_perm");
         permSel.value = (editing && sess.permissionMode) ? sess.permissionMode : "acceptEdits";
+        const autoSel = document.getElementById("f_auto");
+        autoSel.value = (editing && sess.autonomy) ? sess.autonomy : "balanced";
 
         const close = () => { root.innerHTML = ""; };
         document.getElementById("f_cancel").onclick = close;
@@ -277,16 +285,17 @@
           const goal = document.getElementById("f_goal").value.trim();
           const doneCriteria = document.getElementById("f_done").value.trim();
           const permissionMode = permSel.value;
+          const autonomy = autoSel.value;
           const errEl = document.getElementById("f_err");
           if (!cwd || !goal || !doneCriteria) {
             errEl.textContent = "cwd, goal, and done criteria are all required.";
             return;
           }
           if (editing) {
-            send({ type: "update", id: sess.id, patch: { cwd, goal, doneCriteria, permissionMode } });
+            send({ type: "update", id: sess.id, patch: { cwd, goal, doneCriteria, permissionMode, autonomy } });
           } else {
             const id = document.getElementById("f_id").value.trim();
-            const session = { cwd, goal, doneCriteria, permissionMode };
+            const session = { cwd, goal, doneCriteria, permissionMode, autonomy };
             if (id) session.id = id;
             send({ type: "add", session });
           }

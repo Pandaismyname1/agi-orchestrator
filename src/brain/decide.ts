@@ -11,7 +11,20 @@
 import type { AttentionOption, Decision, SessionConfig } from "../types.js";
 import { LocalLLM, type ChatMessage } from "./provider.js";
 
-const SYSTEM = `You are the OPERATOR of an autonomous coding agent (Claude Code). You speak to it AS the human user would.
+/** Autonomy-specific guidance that tunes how readily the operator escalates. */
+const AUTONOMY_DIRECTIVE: Record<NonNullable<SessionConfig["autonomy"]>, string> = {
+  cautious:
+    "AUTONOMY: CAUTIOUS. Escalate generously — when in any doubt, hand the decision to the human rather than choosing yourself. Prefer escalate over continue for anything that isn't trivially routine.",
+  balanced:
+    "AUTONOMY: BALANCED. Escalate only genuine judgement calls; handle routine progress yourself.",
+  autonomous:
+    "AUTONOMY: AUTONOMOUS. Keep moving on your own; only escalate for truly irreversible/destructive actions, missing credentials/info only the user has, or work clearly outside the goal. Make ordinary product/technical choices yourself and continue.",
+};
+
+/** Build the operator system prompt, tuned by the session's autonomy level. */
+export function buildSystemPrompt(autonomy?: SessionConfig["autonomy"]): string {
+  const directive = AUTONOMY_DIRECTIVE[autonomy ?? "balanced"];
+  return `You are the OPERATOR of an autonomous coding agent (Claude Code). You speak to it AS the human user would.
 The agent just finished a turn. You read its last message and choose ONE action: continue, stop, or escalate.
 
 Pick "continue" for routine progress: answer a simple "shall I continue?" or give the obvious next step that moves toward the goal. Keep the instruction short, concrete, one step.
@@ -26,13 +39,15 @@ Pick "escalate" — hand the decision to the human — when a GENUINE judgement 
   * anything clearly OUTSIDE the stated goal/scope.
 When you escalate, give a one-line "question" naming the decision, and 2-4 "options". Each option has a short "label", a one-line "rationale" (the tradeoff), and a "prompt" — the EXACT instruction to send the agent if the user picks it.
 
+${directive}
+
 Hard rules:
 - Stay anchored to the ORIGINAL GOAL. Do not invent scope or gold-plate.
-- When unsure whether something is routine or a real decision, ESCALATE rather than guess.
 - Never instruct a destructive/irreversible action yourself — escalate it.
 
 Respond with ONLY a JSON object, no prose, no code fence:
 {"action":"continue"|"stop"|"escalate","prompt":"<next instruction if continue>","reason":"<one short sentence>","question":"<the decision, if escalate>","options":[{"label":"...","rationale":"...","prompt":"..."}]}`;
+}
 
 /** Max total characters of rendered RECENT STEPS history to include. */
 const HISTORY_CHAR_BUDGET = 4000;
@@ -109,7 +124,7 @@ export async function decideNextStep(
   history?: Array<{ role: "user" | "assistant"; text: string }>,
 ): Promise<Decision> {
   const messages: ChatMessage[] = [
-    { role: "system", content: SYSTEM },
+    { role: "system", content: buildSystemPrompt(session.autonomy) },
     { role: "user", content: buildUserMessage(session, lastAssistantText, turnNumber, history) },
   ];
   const raw = await llm.chat(messages);

@@ -22,6 +22,11 @@ export interface SessionConfig {
    * "auto" — auto-approve every gate (the old behavior).
    */
   gatePolicy?: "guard" | "auto";
+  /**
+   * Operator persona — how readily the brain escalates decisions to you.
+   * "cautious" asks more, "autonomous" asks less, "balanced" (default) in between.
+   */
+  autonomy?: "cautious" | "balanced" | "autonomous";
   /** Per-session overrides of the global limits. */
   limits?: Partial<Limits>;
 }

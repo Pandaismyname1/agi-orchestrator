@@ -40,6 +40,7 @@ export interface SessionView {
   goal: string;
   doneCriteria: string;
   permissionMode: SessionConfig["permissionMode"];
+  autonomy?: SessionConfig["autonomy"];
   status: SessionStatus;
   turns: number;
   elapsedMin: number;
@@ -272,6 +273,7 @@ export class Supervisor {
     goal: string;
     doneCriteria: string;
     permissionMode?: SessionConfig["permissionMode"];
+    autonomy?: SessionConfig["autonomy"];
   }): SessionView {
     const cwd = (input.cwd ?? "").trim();
     const goal = (input.goal ?? "").trim();
@@ -289,6 +291,7 @@ export class Supervisor {
       goal,
       doneCriteria,
       permissionMode: input.permissionMode ?? "acceptEdits",
+      autonomy: input.autonomy ?? "balanced",
     };
     const m: Managed = {
       config,
@@ -318,6 +321,7 @@ export class Supervisor {
       goal: string;
       doneCriteria: string;
       permissionMode: SessionConfig["permissionMode"];
+      autonomy: SessionConfig["autonomy"];
     }>,
   ): SessionView {
     const m = this.sessions.get(id);
@@ -346,6 +350,7 @@ export class Supervisor {
       m.config.permissionMode = patch.permissionMode;
       m.permissionMode = patch.permissionMode;
     }
+    if (patch.autonomy !== undefined) m.config.autonomy = patch.autonomy;
     this.store?.upsertSession(m.config);
     this.persist();
     return toView(m);
@@ -461,6 +466,7 @@ function toView(m: Managed): SessionView {
     goal: m.goal,
     doneCriteria: m.doneCriteria,
     permissionMode: m.permissionMode,
+    autonomy: m.config.autonomy,
     status: m.status,
     turns: m.turns,
     elapsedMin: m.elapsedMin,
