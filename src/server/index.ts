@@ -56,15 +56,25 @@ type SettingsPatch = Partial<{
   defaultAutonomy: SessionConfig["autonomy"];
 }>;
 
+/** Continue a finished session in the same conversation (edited goal + next step). */
+type ContinuePatch = Partial<{
+  goal: string;
+  doneCriteria: string;
+  instruction: string;
+  startMode: "manual" | "autopilot";
+}>;
+
 interface ClientMsg {
   type:
     | "start" | "stop" | "startAll" | "focus" | "add" | "update" | "remove" | "resolve"
-    | "setMode" | "sendMessage" | "updateSettings";
+    | "setMode" | "sendMessage" | "updateSettings" | "continue";
   id?: string;
   session?: SessionInput;
   patch?: SessionPatch;
   /** For "updateSettings": the global-settings fields to change. */
   settings?: SettingsPatch;
+  /** For "continue": the edited goal / instruction / mode to resume with. */
+  continue?: ContinuePatch;
   /** For "resolve": how the user answered an open human-decision. */
   choice?: { optionIndex?: number; customPrompt?: string; stop?: boolean };
   /** For "setMode": the target mode. For "sendMessage": the message text. */
@@ -305,6 +315,14 @@ async function main(): Promise<void> {
           break;
         case "sendMessage":
           if (msg.id && typeof msg.text === "string") sup.sendMessage(msg.id, msg.text);
+          break;
+        case "continue":
+          try {
+            if (!msg.id) throw new Error("missing session id.");
+            sup.continueSession(msg.id, msg.continue ?? {});
+          } catch (e) {
+            sendError(e instanceof Error ? e.message : String(e));
+          }
           break;
         case "updateSettings":
           try {

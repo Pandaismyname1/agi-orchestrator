@@ -58,6 +58,47 @@
       >
         <Icon name="stop" size={12} /> Stop
       </button>
+    {:else if s.canContinue}
+      <button
+        class="btn btn-xs btn-primary"
+        title="Resume this conversation with a new instruction"
+        onclick={(e) => {
+          e.stopPropagation();
+          ui.openModal({ kind: "continue", session: s });
+        }}
+      >
+        <Icon name="play" size={12} /> Continue
+      </button>
+      <button
+        class="btn btn-xs"
+        title="Start fresh (new conversation)"
+        onclick={(e) => {
+          e.stopPropagation();
+          wsStore.send({ type: "start", id: s.id });
+        }}
+      >
+        Start
+      </button>
+      <button
+        class="btn btn-xs btn-square"
+        title="Edit"
+        onclick={(e) => {
+          e.stopPropagation();
+          ui.openModal({ kind: "edit", session: s });
+        }}
+      >
+        <Icon name="edit" size={12} />
+      </button>
+      <button
+        class="btn btn-xs btn-square del"
+        title="Delete"
+        onclick={(e) => {
+          e.stopPropagation();
+          del(e);
+        }}
+      >
+        <Icon name="trash" size={12} />
+      </button>
     {:else}
       <button
         class="btn btn-xs"

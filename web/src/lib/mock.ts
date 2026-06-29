@@ -113,6 +113,7 @@ export const MOCK: Snapshot = {
       lastReply: "",
       lastDecision: "stopped: goal met — landing page deployed",
       attention: null,
+      canContinue: true,
     },
   ],
   focus: {

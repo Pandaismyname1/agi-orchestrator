@@ -42,6 +42,11 @@ export interface SessionConfig {
    * on disk. Its transcript becomes this session's transcript.
    */
   resumeId?: string;
+  /**
+   * The claude conversation UUID from this session's last run. Persisted so the
+   * session can be CONTINUED (resumed in the same conversation) across restarts.
+   */
+  lastClaudeSessionId?: string;
 }
 
 /** Guard rails. The real "budget" here is rate-limit/turn burn, not dollars. */

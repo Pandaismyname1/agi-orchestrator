@@ -54,12 +54,20 @@ export interface SessionView {
   error?: string;
   /** Present only while status === "needs-input": the open human decision. */
   attention?: AttentionRequest | null;
+  /** True when the session has run before (so it can be CONTINUED, not just started). */
+  canContinue: boolean;
 }
 
 interface Managed extends SessionView {
   config: SessionConfig;
   sess?: ClaudeSession;
   stopRequested: boolean;
+  /** The claude conversation UUID from the last run (for "continue" / resume). */
+  claudeSessionId?: string;
+  /** Set for a "continue" launch: resume this conversation id for this run only. */
+  continueResumeId?: string;
+  /** Set for a "continue" launch: the prompt to seed first this run only. */
+  continueSeed?: string;
   /** Resolver for the open AttentionRequest's pending promise (if any). */
   resolveAttention?: (r: Resolution) => void;
   /** Resolver for an open dangerous-gate approval (if any). */
@@ -106,6 +114,9 @@ export class Supervisor {
         lastReply: "",
         lastDecision: "",
         stopRequested: false,
+        canContinue: false,
+        // Restore the prior conversation id so a session stays continuable across restarts.
+        claudeSessionId: s.lastClaudeSessionId,
       });
       this.store?.upsertSession(s);
     }
@@ -200,11 +211,29 @@ export class Supervisor {
     m.mode = m.config.startMode ?? "autopilot";
     m.startedAt = Date.now();
 
+    // One-shot "continue" parameters (consumed by this launch only).
+    const resumeId = m.continueResumeId;
+    const seedPrompt = m.continueSeed;
+    m.continueResumeId = undefined;
+    m.continueSeed = undefined;
+
     void this.runner(m.config, {
       llm: this.llm,
       limits: this.cfg.limits,
       decide: this.decide,
-      onSession: (s) => (m.sess = s),
+      resumeId,
+      seedPrompt,
+      onSession: (s) => {
+        m.sess = s;
+        // Remember the conversation id so the session can be continued later.
+        if (m.claudeSessionId !== s.sessionId) {
+          m.claudeSessionId = s.sessionId;
+          if (m.config.lastClaudeSessionId !== s.sessionId) {
+            m.config.lastClaudeSessionId = s.sessionId;
+            this.persist();
+          }
+        }
+      },
       // Manual/autopilot mode: the loop reads this each iteration.
       mode: () => m.mode,
       // MANUAL: park the loop until the user sends a message, switches, or stops.
@@ -330,6 +359,42 @@ export class Supervisor {
     resolve({ kind: "message", text: t });
   }
 
+  /**
+   * Continue a FINISHED session in the SAME claude conversation: optionally edit
+   * the goal / done-criteria / start-mode, then resume the prior conversation and
+   * inject the next instruction (or the edited goal). No-op while it's active.
+   */
+  continueSession(
+    id: string,
+    patch: { goal?: string; doneCriteria?: string; instruction?: string; startMode?: SessionMode },
+  ): void {
+    const m = this.sessions.get(id);
+    if (!m) throw new Error(`no session with id "${id}".`);
+    if (["running", "queued", "needs-input", "manual"].includes(m.status)) {
+      throw new Error("session is still active — stop it before continuing.");
+    }
+    const resumeId = m.claudeSessionId ?? m.config.lastClaudeSessionId;
+    if (!resumeId) throw new Error("this session hasn't run yet — start it instead.");
+
+    if (patch.goal?.trim()) {
+      m.config.goal = patch.goal.trim();
+      m.goal = m.config.goal;
+    }
+    if (patch.doneCriteria?.trim()) {
+      m.config.doneCriteria = patch.doneCriteria.trim();
+      m.doneCriteria = m.config.doneCriteria;
+    }
+    if (patch.startMode) m.config.startMode = patch.startMode;
+
+    // Resume the prior conversation and seed the next instruction (else the goal).
+    m.continueResumeId = resumeId;
+    m.continueSeed = patch.instruction?.trim() || m.config.goal;
+
+    this.store?.upsertSession(m.config);
+    this.persist();
+    this.start(id);
+  }
+
   /** Create a new session, add it to the live map as "idle", and persist. */
   addSession(input: {
     id?: string;
@@ -375,6 +440,7 @@ export class Supervisor {
       lastReply: "",
       lastDecision: "",
       stopRequested: false,
+      canContinue: false,
     };
     this.sessions.set(id, m);
     this.store?.upsertSession(config);
@@ -542,6 +608,7 @@ export class Supervisor {
 }
 
 function toView(m: Managed): SessionView {
+  const active = ["running", "queued", "needs-input", "manual"].includes(m.status);
   return {
     id: m.id,
     cwd: m.cwd,
@@ -557,5 +624,6 @@ function toView(m: Managed): SessionView {
     lastDecision: m.lastDecision,
     error: m.error,
     attention: m.attention ?? null,
+    canContinue: !active && !!(m.claudeSessionId ?? m.config.lastClaudeSessionId),
   };
 }

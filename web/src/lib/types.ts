@@ -47,7 +47,17 @@ export interface SessionView {
   lastDecision: string;
   error?: string;
   attention?: AttentionRequest | null;
+  /** True when the session has run before and can be continued (resumed). */
+  canContinue?: boolean;
 }
+
+/** Continue a finished session: edited goal / next instruction / mode to resume with. */
+export type ContinuePatch = Partial<{
+  goal: string;
+  doneCriteria: string;
+  instruction: string;
+  startMode: SessionMode;
+}>;
 
 export interface Provider {
   model: string;
@@ -142,7 +152,8 @@ export type ClientMsg =
   | { type: "resolve"; id: string; choice: ResolveChoice }
   | { type: "setMode"; id: string; mode: SessionMode }
   | { type: "sendMessage"; id: string; text: string }
-  | { type: "updateSettings"; settings: SettingsPatch };
+  | { type: "updateSettings"; settings: SettingsPatch }
+  | { type: "continue"; id: string; continue: ContinuePatch };
 
 /** Discovered on-disk Claude Code session (GET /api/discover). */
 export interface DiscoveredSession {

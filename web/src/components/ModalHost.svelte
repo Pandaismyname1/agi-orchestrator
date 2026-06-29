@@ -6,6 +6,7 @@
   import HistoryModal from "./modals/HistoryModal.svelte";
   import SettingsModal from "./modals/SettingsModal.svelte";
   import AttachModal from "./modals/AttachModal.svelte";
+  import ContinueForm from "./modals/ContinueForm.svelte";
 </script>
 
 {#if ui.modal}
@@ -23,5 +24,7 @@
     <SettingsModal />
   {:else if ui.modal.kind === "attach"}
     <AttachModal />
+  {:else if ui.modal.kind === "continue"}
+    <ContinueForm session={ui.modal.session} />
   {/if}
 {/if}

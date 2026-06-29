@@ -58,10 +58,18 @@
         </div>
         {#if active}
           <div class="grow"><ModeToggle session={s} /></div>
+        {:else if s.canContinue}
+          <button
+            class="btn btn-primary btn-sm grow"
+            title="Resume this conversation with a new instruction"
+            onclick={() => ui.openModal({ kind: "continue", session: s })}
+          >
+            <Icon name="play" size={13} /> Continue
+          </button>
         {/if}
         <button
           class="btn btn-sm"
-          class:grow={!active}
+          class:grow={!active && !s.canContinue}
           onclick={() => ui.openModal({ kind: "history", sessionId: s.id })}
         >
           <Icon name="clock" size={13} /> History

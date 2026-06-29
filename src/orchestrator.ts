@@ -85,6 +85,18 @@ export interface RunOptions {
   mode?: () => "manual" | "autopilot";
   /** In MANUAL mode, block until the user sends a message, switches, or stops. */
   waitForInput?: () => Promise<UserInput>;
+  /**
+   * Resume an existing claude conversation by id (overrides session.resumeId).
+   * Used to "continue" a finished session in the SAME conversation so its prior
+   * context carries over.
+   */
+  resumeId?: string;
+  /**
+   * Inject this as the very first prompt of the run, before any brain/manual
+   * sourcing — regardless of resume state. Used by "continue" to deliver the
+   * (possibly edited) goal / next instruction into a resumed conversation.
+   */
+  seedPrompt?: string;
 }
 
 export async function runSession(session: SessionConfig, opts: RunOptions): Promise<void> {
@@ -93,7 +105,10 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
   const limits: Limits = { ...opts.limits, ...(session.limits ?? {}) };
   const guards = new Guards(limits);
   const stuck = new StuckDetector();
-  const sess = new ClaudeSession(session);
+  // opts.resumeId (a "continue") takes precedence over the session's own resumeId.
+  const sess = new ClaudeSession(
+    opts.resumeId ? { ...session, resumeId: opts.resumeId } : session,
+  );
   // Per-gate safety: a dangerous gate pauses here, is surfaced, and is resolved
   // by the human (resolveGate) or default-denied.
   sess.onGate = async (req): Promise<GateResolution> => {
@@ -116,6 +131,7 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
 
     let pending: string | null = null; // the next prompt to inject, once sourced
     let lastResult: TurnResult | null = null;
+    let seeded = false; // whether the opts.seedPrompt (continue) has been injected
 
     while (true) {
       const stopSignal = opts.shouldStop?.();
@@ -128,7 +144,12 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
 
       // ---- source the next prompt, by mode -------------------------------
       if (pending === null) {
-        if (mode === "manual") {
+        if (!seeded && opts.seedPrompt) {
+          // CONTINUE: deliver the edited goal / next instruction first, into the
+          // resumed conversation, before normal brain/manual sourcing kicks in.
+          pending = opts.seedPrompt;
+          seeded = true;
+        } else if (mode === "manual") {
           // MANUAL: Qwen stays silent — wait for the user to drive.
           const inp: UserInput = opts.waitForInput ? await opts.waitForInput() : { kind: "stop" };
           if (inp.kind === "stop") {
