@@ -13,6 +13,14 @@ import { saveConfig } from "../config.js";
 import { Recorder } from "../db/recorder.js";
 import { BudgetTracker, type BudgetStatus } from "../policy/budget.js";
 import { ContextGuard } from "../policy/context.js";
+import { decideNextStep } from "../brain/decide.js";
+import { LearningService, emptyLearningSummary } from "../learning/service.js";
+import type {
+  DraftProposal,
+  LearningSummary,
+  OperatorProfile,
+  ProfileScope,
+} from "../learning/types.js";
 import type { Store } from "../db/store.js";
 import type {
   AppConfig,
@@ -87,6 +95,8 @@ export class Supervisor {
   private readonly running = new Set<string>();
   private readonly queue: string[] = [];
   private maxConcurrent: number;
+  /** Self-improvement / learning loop (only when a store is available). */
+  private readonly learning?: LearningService;
 
   constructor(
     private readonly cfg: AppConfig,
@@ -99,6 +109,7 @@ export class Supervisor {
     this.llm = new LocalLLM(cfg.provider);
     this.budget = new BudgetTracker(store, cfg.budget);
     this.maxConcurrent = cfg.maxConcurrent && cfg.maxConcurrent > 0 ? cfg.maxConcurrent : Infinity;
+    if (store) this.learning = new LearningService(store, this.llm, cfg.learning, cfg.provider.model);
     if (store) this.recorder = new Recorder(store);
     for (const s of cfg.sessions) {
       this.sessions.set(s.id, {
@@ -218,10 +229,20 @@ export class Supervisor {
     m.continueResumeId = undefined;
     m.continueSeed = undefined;
 
+    // Learned-guidance wrapper: inject the approved operator profile (global ⊕
+    // per-cwd) into the brain. No-op unless learning is enabled AND a profile is
+    // approved. A test-stub `this.decide` override is respected as-is.
+    const learning = this.learning;
+    const decide: RunOptions["decide"] =
+      learning?.enabled && !this.decide
+        ? (llm, session, lastText, turnNumber, history) =>
+            decideNextStep(llm, session, lastText, turnNumber, history, learning.guidanceFor(session.cwd))
+        : this.decide;
+
     void this.runner(m.config, {
       llm: this.llm,
       limits: this.cfg.limits,
-      decide: this.decide,
+      decide,
       contextGuard: new ContextGuard(this.cfg.contextGuard),
       resumeId,
       seedPrompt,
@@ -359,6 +380,35 @@ export class Supervisor {
     const resolve = m.resolveUserInput;
     m.resolveUserInput = undefined;
     resolve({ kind: "message", text: t });
+  }
+
+  // ---- learning loop (A3) — propose / approve / revert --------------------
+
+  /** Always returns a summary (a disabled/empty one when there's no store). */
+  learningSummary(): LearningSummary {
+    return this.learning ? this.learning.summary() : emptyLearningSummary();
+  }
+  /** Mine + synthesize a draft profile for a scope (LLM call; may take a moment). */
+  async learnSynthesize(scope?: ProfileScope): Promise<DraftProposal> {
+    if (!this.learning) throw new Error("learning is unavailable (no persistent store).");
+    return this.learning.synthesize(scope);
+  }
+  learnApprove(scope?: ProfileScope): OperatorProfile {
+    if (!this.learning) throw new Error("learning is unavailable.");
+    return this.learning.approve(scope);
+  }
+  learnReject(scope?: ProfileScope): void {
+    this.learning?.reject(scope);
+  }
+  learnRevert(scope: ProfileScope, version: number): void {
+    if (!this.learning) throw new Error("learning is unavailable.");
+    this.learning.revert(scope, version);
+  }
+  learningDraft(scope?: ProfileScope): DraftProposal | null {
+    return this.learning ? this.learning.getDraft(scope) : null;
+  }
+  learningVersions(scope?: ProfileScope): OperatorProfile[] {
+    return this.learning ? this.learning.listVersions(scope) : [];
   }
 
   /**

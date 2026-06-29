@@ -18,6 +18,11 @@
   let errored = $derived(sessions.filter((s) => s.status === "error"));
   let running = $derived(sessions.filter((s) => s.status === "running" || s.status === "manual").length);
 
+  let learning = $derived(wsStore.snapshot?.learning);
+  let learnDraft = $derived(
+    !!learning && (learning.global.hasDraft || learning.projects.some((p) => p.hasDraft)),
+  );
+
   function jumpTo(list: SessionView[]) {
     const target = list[0];
     if (!target) return;
@@ -97,6 +102,16 @@
     onclick={() => pip.toggle()}
   >
     <Icon name="pip" size={15} />
+  </button>
+  <button
+    class="btn btn-sm learn-btn"
+    title="Learn — review & approve operator-prompt drafts"
+    onclick={() => ui.openModal({ kind: "learn" })}
+  >
+    <Icon name="brain" size={14} /> Learn
+    {#if learnDraft}
+      <span class="draft-dot" title="A draft is waiting for review"></span>
+    {/if}
   </button>
   <button
     class="btn btn-sm btn-square"
@@ -239,6 +254,20 @@
     color: var(--color-error);
     border-color: var(--color-error);
     animation: nag-red 1s ease-in-out infinite;
+  }
+  .learn-btn {
+    position: relative;
+  }
+  .draft-dot {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-warning);
+    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.6);
+    animation: nag-amber 1.3s ease-in-out infinite;
   }
   .ml {
     margin-left: 8px;

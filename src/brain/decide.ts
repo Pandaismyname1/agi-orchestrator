@@ -21,9 +21,20 @@ const AUTONOMY_DIRECTIVE: Record<NonNullable<SessionConfig["autonomy"]>, string>
     "AUTONOMY: AUTONOMOUS. Keep moving on your own; only escalate for truly irreversible/destructive actions, missing credentials/info only the user has, or work clearly outside the goal. Make ordinary product/technical choices yourself and continue.",
 };
 
-/** Build the operator system prompt, tuned by the session's autonomy level. */
-export function buildSystemPrompt(autonomy?: SessionConfig["autonomy"]): string {
+/**
+ * Build the operator system prompt, tuned by the session's autonomy level and,
+ * optionally, the owner's LEARNED operator profile (A3). Learned guidance is
+ * inserted BEFORE the Hard rules so the safety rules always win; with no
+ * guidance the output is byte-identical to baseline.
+ */
+export function buildSystemPrompt(
+  autonomy?: SessionConfig["autonomy"],
+  learnedGuidance?: string,
+): string {
   const directive = AUTONOMY_DIRECTIVE[autonomy ?? "balanced"];
+  const learned = learnedGuidance?.trim()
+    ? `\n\nLEARNED OPERATOR PREFERENCES (from this user's own past steering — follow these unless they conflict with the Hard rules):\n${learnedGuidance.trim()}`
+    : "";
   return `You are the OPERATOR of an autonomous coding agent (Claude Code). You speak to it AS the human user would.
 The agent just finished a turn. You read its last message and choose ONE action: continue, stop, or escalate.
 
@@ -39,7 +50,7 @@ Pick "escalate" — hand the decision to the human — when a GENUINE judgement 
   * anything clearly OUTSIDE the stated goal/scope.
 When you escalate, give a one-line "question" naming the decision, and 2-4 "options". Each option has a short "label", a one-line "rationale" (the tradeoff), and a "prompt" — the EXACT instruction to send the agent if the user picks it.
 
-${directive}
+${directive}${learned}
 
 Hard rules:
 - Stay anchored to the ORIGINAL GOAL. Do not invent scope or gold-plate.
@@ -122,9 +133,10 @@ export async function decideNextStep(
   lastAssistantText: string,
   turnNumber: number,
   history?: Array<{ role: "user" | "assistant"; text: string }>,
+  learnedGuidance?: string,
 ): Promise<Decision> {
   const messages: ChatMessage[] = [
-    { role: "system", content: buildSystemPrompt(session.autonomy) },
+    { role: "system", content: buildSystemPrompt(session.autonomy, learnedGuidance) },
     { role: "user", content: buildUserMessage(session, lastAssistantText, turnNumber, history) },
   ];
   const raw = await llm.chat(messages);

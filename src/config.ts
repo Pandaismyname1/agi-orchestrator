@@ -58,6 +58,7 @@ export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json")
     maxConcurrent: parsed.maxConcurrent,
     defaults: parsed.defaults,
     contextGuard: parsed.contextGuard,
+    learning: parsed.learning,
   };
 }
 
@@ -82,6 +83,7 @@ export async function saveConfig(
     maxConcurrent: cfg.maxConcurrent,
     defaults: cfg.defaults,
     contextGuard: cfg.contextGuard,
+    learning: cfg.learning,
   };
   await writeFile(abs, JSON.stringify(out, null, 2) + "\n", "utf8");
 }

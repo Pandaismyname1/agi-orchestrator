@@ -13,6 +13,7 @@ export type Modal =
   | { kind: "history"; sessionId: string }
   | { kind: "settings" }
   | { kind: "attach" }
+  | { kind: "learn" }
   | { kind: "continue"; session: SessionView };
 
 interface Toast {

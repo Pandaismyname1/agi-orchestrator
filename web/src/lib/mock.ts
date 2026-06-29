@@ -3,7 +3,138 @@
  * opened with `?mock` (see ws.svelte.ts) — dynamically imported so it stays out of
  * the main bundle in normal use.
  */
-import type { Snapshot, RunRow, RunDetail, Metrics } from "./types";
+import type {
+  Snapshot,
+  RunRow,
+  RunDetail,
+  Metrics,
+  LearningSummary,
+  DraftProposal,
+  OperatorProfile,
+} from "./types";
+
+/** Demo learning-loop data (api.ts serves these when `?mock`). */
+export const MOCK_LEARNING: LearningSummary = {
+  enabled: true,
+  global: {
+    scope: "global",
+    label: "Global",
+    activeVersion: 3,
+    versions: 3,
+    examples: 4,
+    hasDraft: true,
+    updatedAt: Date.now() - 1000 * 60 * 60 * 6,
+  },
+  projects: [
+    {
+      scope: "cwd:C:\\dev\\api",
+      label: "api",
+      activeVersion: 1,
+      versions: 1,
+      examples: 2,
+      hasDraft: false,
+      updatedAt: Date.now() - 1000 * 60 * 60 * 30,
+    },
+    {
+      scope: "cwd:C:\\dev\\core",
+      label: "core",
+      activeVersion: null,
+      versions: 0,
+      examples: 0,
+      hasDraft: false,
+      updatedAt: null,
+    },
+  ],
+};
+
+export const MOCK_VERSIONS: OperatorProfile[] = [
+  {
+    schema: 1,
+    scope: "global",
+    version: 3,
+    guidance:
+      "Prefer continuing autonomously when tests pass and the change is reversible. Only escalate destructive or irreversible actions (deletes, force-push, schema drops). Keep momentum: when a step is done and the next is obvious from the goal, proceed without asking.",
+    examples: [
+      {
+        situation: "Tests are green after a refactor and the next step is documented in the goal.",
+        instruction: "Continue to the next step without escalating.",
+      },
+      {
+        situation: "Claude proposes `rm -rf` on an uncommitted directory.",
+        instruction: "Escalate — this is irreversible and not in git.",
+      },
+    ],
+    createdAt: Date.now() - 1000 * 60 * 60 * 30,
+    meta: { fromPastSessions: 12, fromLiveCorrections: 5, model: "qwen3.5:9b" },
+  },
+  {
+    schema: 1,
+    scope: "global",
+    version: 2,
+    guidance:
+      "Continue when the build is green; escalate on anything touching production data or credentials.",
+    examples: [
+      {
+        situation: "A migration would alter a production table.",
+        instruction: "Escalate before running.",
+      },
+    ],
+    createdAt: Date.now() - 1000 * 60 * 60 * 72,
+    meta: { fromPastSessions: 8, fromLiveCorrections: 2, model: "qwen3.5:9b" },
+  },
+  {
+    schema: 1,
+    scope: "global",
+    version: 1,
+    guidance: "Escalate whenever uncertain.",
+    examples: [],
+    createdAt: Date.now() - 1000 * 60 * 60 * 120,
+    meta: { fromPastSessions: 3, fromLiveCorrections: 0, model: "qwen3.5:9b" },
+  },
+];
+
+export const MOCK_DRAFT: DraftProposal = {
+  schema: 1,
+  scope: "global",
+  baseVersion: 3,
+  createdAt: Date.now() - 1000 * 60 * 30,
+  draft: {
+    schema: 1,
+    scope: "global",
+    guidance:
+      "Prefer continuing autonomously when tests pass and the change is reversible. Only escalate destructive or irreversible actions (deletes, force-push, schema drops). When the user has corrected the same kind of decision twice, bake that correction in and stop asking. Keep momentum: when a step is done and the next is obvious, proceed.",
+    examples: [
+      {
+        situation: "Tests are green after a refactor and the next step is documented in the goal.",
+        instruction: "Continue to the next step without escalating.",
+      },
+      {
+        situation: "Claude proposes `rm -rf` on an uncommitted directory.",
+        instruction: "Escalate — this is irreversible and not in git.",
+      },
+      {
+        situation: "The user has twice approved running the test suite without asking.",
+        instruction: "Run the test suite directly; do not escalate.",
+      },
+    ],
+    meta: {
+      fromPastSessions: 14,
+      fromLiveCorrections: 7,
+      model: "qwen3.5:9b",
+      note: "Folds in two recurring live corrections about test runs.",
+    },
+  },
+  eval: {
+    schema: 1,
+    total: 24,
+    baselineMatch: 17,
+    profileMatch: 21,
+    matchRate: 21 / 24,
+    delta: 4,
+    ranAt: Date.now() - 1000 * 60 * 25,
+    note: "Replayed against 24 past decisions.",
+  },
+};
 
 export const MOCK: Snapshot = {
   type: "snapshot",
@@ -131,6 +262,7 @@ export const MOCK: Snapshot = {
       "All tests passing. Ready for the next step.",
     ].join("\n"),
   },
+  learning: MOCK_LEARNING,
 };
 
 /** Demo history/transcript data (api.ts serves these when `?mock`). */

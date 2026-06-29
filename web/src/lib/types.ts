@@ -96,6 +96,63 @@ export type SettingsPatch = Partial<{
   defaultAutonomy: Autonomy;
 }>;
 
+/** Learning loop: synthesized operator profiles that tune the local brain's prompt. */
+export interface ProfileExample {
+  situation: string;
+  instruction: string;
+}
+
+export interface OperatorProfile {
+  schema: 1;
+  scope: string;
+  version: number;
+  guidance: string;
+  examples: ProfileExample[];
+  createdAt: number;
+  meta: {
+    fromPastSessions: number;
+    fromLiveCorrections: number;
+    model: string;
+    note?: string;
+  };
+}
+
+export interface EvalReport {
+  schema: 1;
+  total: number;
+  baselineMatch: number;
+  profileMatch: number;
+  matchRate: number;
+  delta: number;
+  ranAt: number;
+  note?: string;
+}
+
+export interface DraftProposal {
+  schema: 1;
+  scope: string;
+  draft: Omit<OperatorProfile, "version" | "createdAt">;
+  baseVersion: number | null;
+  createdAt: number;
+  eval?: EvalReport | null;
+}
+
+export interface ProfileSummary {
+  scope: string;
+  label: string;
+  activeVersion: number | null;
+  versions: number;
+  examples: number;
+  hasDraft: boolean;
+  updatedAt: number | null;
+}
+
+export interface LearningSummary {
+  enabled: boolean;
+  global: ProfileSummary;
+  projects: ProfileSummary[];
+}
+
 export interface Snapshot {
   type: "snapshot";
   provider: Provider;
@@ -103,6 +160,7 @@ export interface Snapshot {
   sessions: SessionView[];
   focus?: FocusView;
   settings?: Settings;
+  learning?: LearningSummary;
 }
 
 /** Payload to register a hand-started session for hook-attach driving (POST /attach). */
@@ -153,7 +211,11 @@ export type ClientMsg =
   | { type: "setMode"; id: string; mode: SessionMode }
   | { type: "sendMessage"; id: string; text: string }
   | { type: "updateSettings"; settings: SettingsPatch }
-  | { type: "continue"; id: string; continue: ContinuePatch };
+  | { type: "continue"; id: string; continue: ContinuePatch }
+  | { type: "learnSynthesize"; scope?: string }
+  | { type: "learnApprove"; scope?: string }
+  | { type: "learnReject"; scope?: string }
+  | { type: "learnRevert"; scope: string; version: number };
 
 /** Discovered on-disk Claude Code session (GET /api/discover). */
 export interface DiscoveredSession {

@@ -98,6 +98,24 @@ export interface AppConfig {
   };
   /** Memory-preserving context compaction (save handoff → /compact → resume). */
   contextGuard?: ContextGuardOptions;
+  /** Self-improvement / learning loop (operator-prompt tuning). Off by default. */
+  learning?: LearningOptions;
+}
+
+/** Tunables for the self-improvement / learning loop (see src/learning/). */
+export interface LearningOptions {
+  /** Master switch. Off by default — the brain is byte-identical to baseline. */
+  enabled?: boolean;
+  /** How many past Claude Code sessions to mine. */
+  scanLimit?: number;
+  /** Max ranked examples fed to the synthesis LLM. */
+  maxExamples?: number;
+  /** Max few-shot examples kept inside a profile. */
+  maxFewShot?: number;
+  /** Hard char budget for the guidance injected into the operator prompt. */
+  guidanceCharBudget?: number;
+  /** Corrections held out from synthesis for the advisory replay-eval. */
+  evalHeldOut?: number;
 }
 
 /** Tunables for the context-window manager (see policy/context.ts). */

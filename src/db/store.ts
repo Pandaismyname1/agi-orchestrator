@@ -261,6 +261,50 @@ export class Store {
       byStatus,
     };
   }
+
+  // ---- preferences (key/value store; backs the learning loop, A3) ---------
+
+  /** Read one preference row, or null. `value` is an opaque (often JSON) string. */
+  getPreference(key: string): { value: string; scope: string | null; updated_at: number } | null {
+    return (
+      (this.db
+        .prepare(`SELECT value, scope, updated_at FROM preferences WHERE key = ?`)
+        .get(key) as { value: string; scope: string | null; updated_at: number } | undefined) ?? null
+    );
+  }
+
+  /** Upsert a preference (the value is stored verbatim — JSON-encode before calling). */
+  setPreference(key: string, value: string, scope?: string): void {
+    const now = Date.now();
+    this.db
+      .prepare(
+        `INSERT INTO preferences (key, value, scope, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET
+           value=excluded.value, scope=excluded.scope, updated_at=excluded.updated_at`,
+      )
+      .run(key, value, scope ?? null, now, now);
+  }
+
+  deletePreference(key: string): void {
+    this.db.prepare(`DELETE FROM preferences WHERE key = ?`).run(key);
+  }
+
+  /** All preferences whose key starts with `prefix` (e.g. "profile.version.global."). */
+  listPreferences(
+    prefix: string,
+  ): Array<{ key: string; value: string; scope: string | null; updated_at: number }> {
+    return this.db
+      .prepare(
+        `SELECT key, value, scope, updated_at FROM preferences WHERE key LIKE ? ESCAPE '\\' ORDER BY key ASC`,
+      )
+      .all(prefix.replace(/[%_\\]/g, "\\$&") + "%") as Array<{
+      key: string;
+      value: string;
+      scope: string | null;
+      updated_at: number;
+    }>;
+  }
 }
 
 /** Open (creating if needed) the store at the given path. */

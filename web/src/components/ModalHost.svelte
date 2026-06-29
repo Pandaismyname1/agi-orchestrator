@@ -7,6 +7,7 @@
   import SettingsModal from "./modals/SettingsModal.svelte";
   import AttachModal from "./modals/AttachModal.svelte";
   import ContinueForm from "./modals/ContinueForm.svelte";
+  import LearnModal from "./modals/LearnModal.svelte";
 </script>
 
 {#if ui.modal}
@@ -26,5 +27,7 @@
     <AttachModal />
   {:else if ui.modal.kind === "continue"}
     <ContinueForm session={ui.modal.session} />
+  {:else if ui.modal.kind === "learn"}
+    <LearnModal />
   {/if}
 {/if}

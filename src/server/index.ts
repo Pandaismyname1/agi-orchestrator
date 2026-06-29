@@ -67,7 +67,8 @@ type ContinuePatch = Partial<{
 interface ClientMsg {
   type:
     | "start" | "stop" | "startAll" | "focus" | "add" | "update" | "remove" | "resolve"
-    | "setMode" | "sendMessage" | "updateSettings" | "continue";
+    | "setMode" | "sendMessage" | "updateSettings" | "continue"
+    | "learnSynthesize" | "learnApprove" | "learnReject" | "learnRevert";
   id?: string;
   session?: SessionInput;
   patch?: SessionPatch;
@@ -75,6 +76,9 @@ interface ClientMsg {
   settings?: SettingsPatch;
   /** For "continue": the edited goal / instruction / mode to resume with. */
   continue?: ContinuePatch;
+  /** For "learn*": the profile scope ("global" or "cwd:<path>") and version. */
+  scope?: string;
+  version?: number;
   /** For "resolve": how the user answered an open human-decision. */
   choice?: { optionIndex?: number; customPrompt?: string; stop?: boolean };
   /** For "setMode": the target mode. For "sendMessage": the message text. */
@@ -212,6 +216,13 @@ async function main(): Promise<void> {
         if (u.pathname === "/api/runs") return sendJson(res, 200, store.getRuns(session, 50));
         if (u.pathname === "/api/metrics") return sendJson(res, 200, store.metrics(session));
         if (u.pathname === "/api/discover") return sendJson(res, 200, await discovery.list(60));
+        if (u.pathname === "/api/learning") return sendJson(res, 200, sup.learningSummary());
+        if (u.pathname === "/api/learning/draft") {
+          return sendJson(res, 200, sup.learningDraft(u.searchParams.get("scope") ?? undefined));
+        }
+        if (u.pathname === "/api/learning/versions") {
+          return sendJson(res, 200, sup.learningVersions(u.searchParams.get("scope") ?? undefined));
+        }
         if (u.pathname === "/api/run") {
           const runId = Number(u.searchParams.get("id"));
           if (!runId) return sendJson(res, 400, { error: "id required" });
@@ -274,6 +285,7 @@ async function main(): Promise<void> {
               autonomy: cfg.defaults?.autonomy ?? "balanced",
             },
           },
+          learning: sup.learningSummary(),
           sessions: sup.list(),
           focus: focusId ? { id: focusId, screen: sup.screen(focusId) } : undefined,
         }),
@@ -320,6 +332,33 @@ async function main(): Promise<void> {
           try {
             if (!msg.id) throw new Error("missing session id.");
             sup.continueSession(msg.id, msg.continue ?? {});
+          } catch (e) {
+            sendError(e instanceof Error ? e.message : String(e));
+          }
+          break;
+        case "learnSynthesize":
+          // Mining + an LLM call — run it, then push the refreshed snapshot.
+          sup
+            .learnSynthesize(msg.scope)
+            .then(() => push())
+            .catch((e) => sendError(e instanceof Error ? e.message : String(e)));
+          break;
+        case "learnApprove":
+          try {
+            sup.learnApprove(msg.scope);
+          } catch (e) {
+            sendError(e instanceof Error ? e.message : String(e));
+          }
+          break;
+        case "learnReject":
+          sup.learnReject(msg.scope);
+          break;
+        case "learnRevert":
+          try {
+            if (typeof msg.scope !== "string" || typeof msg.version !== "number") {
+              throw new Error("scope and version are required.");
+            }
+            sup.learnRevert(msg.scope, msg.version);
           } catch (e) {
             sendError(e instanceof Error ? e.message : String(e));
           }

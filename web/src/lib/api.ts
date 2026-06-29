@@ -2,7 +2,16 @@
  * Read-only REST helpers for the observability + discovery endpoints
  * (the live fleet state comes over the WebSocket, not these).
  */
-import type { AttachInput, DiscoveredSession, Metrics, RunDetail, RunRow } from "./types";
+import type {
+  AttachInput,
+  DiscoveredSession,
+  DraftProposal,
+  LearningSummary,
+  Metrics,
+  OperatorProfile,
+  RunDetail,
+  RunRow,
+} from "./types";
 
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -34,6 +43,23 @@ export const api = {
       : getJson<Metrics>(`/api/metrics?session=${encodeURIComponent(sessionId)}`),
   run: (id: number) =>
     isMock() ? import("./mock").then((m) => m.MOCK_RUN) : getJson<RunDetail>(`/api/run?id=${id}`),
+  /** Learning loop: profile summary, the pending draft, and version history. */
+  learning: () =>
+    isMock()
+      ? import("./mock").then((m) => m.MOCK_LEARNING)
+      : getJson<LearningSummary>("/api/learning"),
+  learningDraft: (scope?: string) =>
+    isMock()
+      ? import("./mock").then((m) => m.MOCK_DRAFT)
+      : getJson<DraftProposal | null>(
+          `/api/learning/draft${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`,
+        ),
+  learningVersions: (scope?: string) =>
+    isMock()
+      ? import("./mock").then((m) => m.MOCK_VERSIONS)
+      : getJson<OperatorProfile[]>(
+          `/api/learning/versions${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`,
+        ),
   /** Register a hand-started session for hook-attach driving (POST /attach). */
   attach: (input: AttachInput) =>
     postJson<{ ok: boolean; error?: string }>("/attach", input),
