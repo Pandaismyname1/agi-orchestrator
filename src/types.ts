@@ -27,6 +27,13 @@ export interface SessionConfig {
    * "cautious" asks more, "autonomous" asks less, "balanced" (default) in between.
    */
   autonomy?: "cautious" | "balanced" | "autonomous";
+  /**
+   * Mode the session starts in.
+   * "autopilot" (default) — Qwen drives from the goal immediately.
+   * "manual" — you drive: type to the agent yourself (Qwen silent) to seed
+   *   context, then flip to autopilot when ready.
+   */
+  startMode?: "manual" | "autopilot";
   /** Per-session overrides of the global limits. */
   limits?: Partial<Limits>;
 }

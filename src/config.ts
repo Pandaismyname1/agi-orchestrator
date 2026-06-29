@@ -38,6 +38,7 @@ export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json")
       throw new Error(`each session needs cwd, goal, and doneCriteria. Offender: ${JSON.stringify(s)}`);
     }
     return {
+      ...s, // preserve optional fields (autonomy, gatePolicy, startMode, …)
       id: s.id || randomUUID(),
       cwd: path.resolve(s.cwd),
       goal: s.goal,

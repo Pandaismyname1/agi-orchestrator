@@ -167,6 +167,11 @@ Validated features:
 - **Operator personas (Tier 3)** — a per-session `autonomy` level tunes how readily the brain
   escalates: **cautious** (asks you more), **balanced** (default), **autonomous** (only stops for
   truly irreversible calls / missing info / out-of-scope). Selectable in the session form.
+- **Manual / autopilot mode (Product P1)** — each session has a **mode toggle**. In **manual**, you
+  type straight to the agent through the dashboard (Qwen stays silent) — seed context, give initial
+  instructions, course-correct. Flip to **autopilot** and the Qwen loop takes over *from that exact
+  state* (it reads the transcript, so the manual conversation is the context). Start a session in
+  either mode (`startMode`); switch any time. The orchestrator loop is mode-aware.
 
 ### Hook-attach mode (optional)
 

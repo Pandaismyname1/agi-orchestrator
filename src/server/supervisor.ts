@@ -6,7 +6,7 @@
  */
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { runSession, type OrchestratorEvent, type RunOptions } from "../orchestrator.js";
+import { runSession, type OrchestratorEvent, type RunOptions, type UserInput } from "../orchestrator.js";
 import { ClaudeSession } from "../session/claudeSession.js";
 import { LocalLLM } from "../brain/provider.js";
 import { saveConfig } from "../config.js";
@@ -28,11 +28,14 @@ export type SessionStatus =
   | "idle"
   | "queued"
   | "running"
+  | "manual" // active but waiting for the user to drive (Qwen paused)
   | "needs-input"
   | "rate-limited"
   | "stopped"
   | "done"
   | "error";
+
+export type SessionMode = "manual" | "autopilot";
 
 export interface SessionView {
   id: string;
@@ -41,6 +44,8 @@ export interface SessionView {
   doneCriteria: string;
   permissionMode: SessionConfig["permissionMode"];
   autonomy?: SessionConfig["autonomy"];
+  /** Whether Qwen drives (autopilot) or the user drives (manual). */
+  mode: SessionMode;
   status: SessionStatus;
   turns: number;
   elapsedMin: number;
@@ -59,6 +64,8 @@ interface Managed extends SessionView {
   resolveAttention?: (r: Resolution) => void;
   /** Resolver for an open dangerous-gate approval (if any). */
   resolveGate?: (r: GateResolution) => void;
+  /** Resolver for the loop's manual-mode "wait for the user" promise (if any). */
+  resolveUserInput?: (i: UserInput) => void;
   /** Wall-clock start of the current run (for live minute accounting). */
   startedAt?: number;
 }
@@ -92,6 +99,7 @@ export class Supervisor {
         goal: s.goal,
         doneCriteria: s.doneCriteria,
         permissionMode: s.permissionMode,
+        mode: s.startMode ?? "autopilot",
         status: "idle",
         turns: 0,
         elapsedMin: 0,
@@ -122,7 +130,7 @@ export class Supervisor {
     let turns = 0;
     let minutes = 0;
     for (const m of this.sessions.values()) {
-      if (m.status === "running" || m.status === "needs-input") {
+      if (m.status === "running" || m.status === "needs-input" || m.status === "manual") {
         turns += m.turns;
         if (m.startedAt) minutes += (Date.now() - m.startedAt) / 60_000;
       }
@@ -138,7 +146,7 @@ export class Supervisor {
   /** Request a session to run: launch now if a slot is free, else queue it. */
   start(id: string): void {
     const m = this.sessions.get(id);
-    if (!m || m.status === "running" || m.status === "queued" || m.status === "needs-input") return;
+    if (!m || ["running", "queued", "needs-input", "manual"].includes(m.status)) return;
     const b = this.budgetStatus();
     if (b.exceeded) {
       m.lastDecision = `blocked — ${b.reason}`;
@@ -171,6 +179,7 @@ export class Supervisor {
     m.lastReply = "";
     m.lastDecision = "";
     m.attention = null;
+    m.mode = m.config.startMode ?? "autopilot";
     m.startedAt = Date.now();
 
     void this.runner(m.config, {
@@ -178,6 +187,18 @@ export class Supervisor {
       limits: this.cfg.limits,
       decide: this.decide,
       onSession: (s) => (m.sess = s),
+      // Manual/autopilot mode: the loop reads this each iteration.
+      mode: () => m.mode,
+      // MANUAL: park the loop until the user sends a message, switches, or stops.
+      waitForInput: () =>
+        new Promise<UserInput>((resolve) => {
+          if (m.status === "running") m.status = "manual";
+          m.resolveUserInput = (i) => {
+            m.resolveUserInput = undefined;
+            if (i.kind !== "stop") m.status = "running";
+            resolve(i);
+          };
+        }),
       // Stop on operator request OR when the daily budget is spent (with a reason).
       shouldStop: () => {
         if (m.stopRequested) return true;
@@ -266,6 +287,31 @@ export class Supervisor {
     for (const id of this.sessions.keys()) this.start(id);
   }
 
+  /** Switch a running session between manual (you drive) and autopilot (Qwen drives). */
+  setMode(id: string, mode: SessionMode): void {
+    const m = this.sessions.get(id);
+    if (!m || m.mode === mode) return;
+    m.mode = mode;
+    // Flipping to autopilot while the loop is parked on manual input: unblock it.
+    if (mode === "autopilot" && m.resolveUserInput) {
+      const resolve = m.resolveUserInput;
+      m.resolveUserInput = undefined;
+      resolve({ kind: "switch" });
+    }
+    // Flipping to manual while autopilot runs takes effect after the current turn
+    // (the loop reads mode() at the top of the next iteration).
+  }
+
+  /** Send a manual message straight to the agent (only while it's awaiting input). */
+  sendMessage(id: string, text: string): void {
+    const m = this.sessions.get(id);
+    const t = text.trim();
+    if (!m || !m.resolveUserInput || !t) return;
+    const resolve = m.resolveUserInput;
+    m.resolveUserInput = undefined;
+    resolve({ kind: "message", text: t });
+  }
+
   /** Create a new session, add it to the live map as "idle", and persist. */
   addSession(input: {
     id?: string;
@@ -274,6 +320,7 @@ export class Supervisor {
     doneCriteria: string;
     permissionMode?: SessionConfig["permissionMode"];
     autonomy?: SessionConfig["autonomy"];
+    startMode?: SessionConfig["startMode"];
   }): SessionView {
     const cwd = (input.cwd ?? "").trim();
     const goal = (input.goal ?? "").trim();
@@ -292,6 +339,7 @@ export class Supervisor {
       doneCriteria,
       permissionMode: input.permissionMode ?? "acceptEdits",
       autonomy: input.autonomy ?? "balanced",
+      startMode: input.startMode ?? "autopilot",
     };
     const m: Managed = {
       config,
@@ -300,6 +348,7 @@ export class Supervisor {
       goal,
       doneCriteria,
       permissionMode: config.permissionMode,
+      mode: config.startMode ?? "autopilot",
       status: "idle",
       turns: 0,
       elapsedMin: 0,
@@ -322,6 +371,7 @@ export class Supervisor {
       doneCriteria: string;
       permissionMode: SessionConfig["permissionMode"];
       autonomy: SessionConfig["autonomy"];
+      startMode: SessionConfig["startMode"];
     }>,
   ): SessionView {
     const m = this.sessions.get(id);
@@ -351,6 +401,10 @@ export class Supervisor {
       m.permissionMode = patch.permissionMode;
     }
     if (patch.autonomy !== undefined) m.config.autonomy = patch.autonomy;
+    if (patch.startMode !== undefined) {
+      m.config.startMode = patch.startMode;
+      m.mode = patch.startMode;
+    }
     this.store?.upsertSession(m.config);
     this.persist();
     return toView(m);
@@ -376,6 +430,14 @@ export class Supervisor {
   stop(id: string): void {
     const m = this.sessions.get(id);
     if (!m) return;
+    // Parked waiting for manual input: unblock the loop with a stop.
+    if (m.resolveUserInput) {
+      m.stopRequested = true;
+      const resolve = m.resolveUserInput;
+      m.resolveUserInput = undefined;
+      resolve({ kind: "stop" });
+      return;
+    }
     // Queued but not yet running: just remove it from the queue.
     if (m.status === "queued") {
       const i = this.queue.indexOf(id);
@@ -467,6 +529,7 @@ function toView(m: Managed): SessionView {
     doneCriteria: m.doneCriteria,
     permissionMode: m.permissionMode,
     autonomy: m.config.autonomy,
+    mode: m.mode,
     status: m.status,
     turns: m.turns,
     elapsedMin: m.elapsedMin,

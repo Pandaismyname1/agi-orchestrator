@@ -31,6 +31,7 @@ interface SessionInput {
   doneCriteria: string;
   permissionMode?: SessionConfig["permissionMode"];
   autonomy?: SessionConfig["autonomy"];
+  startMode?: SessionConfig["startMode"];
 }
 
 type SessionPatch = Partial<{
@@ -39,15 +40,21 @@ type SessionPatch = Partial<{
   doneCriteria: string;
   permissionMode: SessionConfig["permissionMode"];
   autonomy: SessionConfig["autonomy"];
+  startMode: SessionConfig["startMode"];
 }>;
 
 interface ClientMsg {
-  type: "start" | "stop" | "startAll" | "focus" | "add" | "update" | "remove" | "resolve";
+  type:
+    | "start" | "stop" | "startAll" | "focus" | "add" | "update" | "remove" | "resolve"
+    | "setMode" | "sendMessage";
   id?: string;
   session?: SessionInput;
   patch?: SessionPatch;
   /** For "resolve": how the user answered an open human-decision. */
   choice?: { optionIndex?: number; customPrompt?: string; stop?: boolean };
+  /** For "setMode": the target mode. For "sendMessage": the message text. */
+  mode?: "manual" | "autopilot";
+  text?: string;
 }
 
 async function main(): Promise<void> {
@@ -226,6 +233,12 @@ async function main(): Promise<void> {
           break;
         case "resolve":
           if (msg.id && msg.choice) sup.resolveAttention(msg.id, msg.choice);
+          break;
+        case "setMode":
+          if (msg.id && msg.mode) sup.setMode(msg.id, msg.mode);
+          break;
+        case "sendMessage":
+          if (msg.id && typeof msg.text === "string") sup.sendMessage(msg.id, msg.text);
           break;
         case "add":
           try {

@@ -11,7 +11,7 @@
  */
 import { ClaudeSession, AuthError, RateLimitError } from "./session/claudeSession.js";
 import { decideNextStep } from "./brain/decide.js";
-import { readRecentMessages } from "./transcript/reader.js";
+import { readRecentMessages, readLastAssistantMessage } from "./transcript/reader.js";
 import { LocalLLM } from "./brain/provider.js";
 import { Guards } from "./policy/guards.js";
 import { StuckDetector, fingerprintDir } from "./policy/stuck.js";
@@ -40,6 +40,12 @@ export type OrchestratorEvent =
   | { type: "error"; sessionId: string; error: string };
 
 export type EventSink = (e: OrchestratorEvent) => void;
+
+/** What the user does while a session is in MANUAL mode. */
+export type UserInput =
+  | { kind: "message"; text: string } // type a message straight to the agent
+  | { kind: "switch" } // flip to autopilot — hand the wheel to Qwen
+  | { kind: "stop" };
 
 export interface RunOptions {
   llm: LocalLLM;
@@ -75,6 +81,10 @@ export interface RunOptions {
     turnNumber: number,
     history?: Array<{ role: "user" | "assistant"; text: string }>,
   ) => Promise<Decision>;
+  /** Current mode, read each loop iteration. Default "autopilot" if omitted. */
+  mode?: () => "manual" | "autopilot";
+  /** In MANUAL mode, block until the user sends a message, switches, or stops. */
+  waitForInput?: () => Promise<UserInput>;
 }
 
 export async function runSession(session: SessionConfig, opts: RunOptions): Promise<void> {
@@ -101,108 +111,106 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
   try {
     await sess.start();
 
-    let prompt = session.goal;
+    const stopRun = (reason: string) =>
+      emit({ type: "stop", sessionId: session.id, reason, turns: guards.turnCount, elapsedMin: guards.elapsedMin });
+
+    let pending: string | null = null; // the next prompt to inject, once sourced
+    let lastResult: TurnResult | null = null;
+
     while (true) {
       const stopSignal = opts.shouldStop?.();
       if (stopSignal) {
-        emit({
-          type: "stop",
-          sessionId: session.id,
-          reason: typeof stopSignal === "string" ? stopSignal : "stopped by operator",
-          turns: guards.turnCount,
-          elapsedMin: guards.elapsedMin,
-        });
-        break;
-      }
-      const guard = guards.check(prompt);
-      if (guard.stop) {
-        emit({
-          type: "stop",
-          sessionId: session.id,
-          reason: guard.reason,
-          turns: guards.turnCount,
-          elapsedMin: guards.elapsedMin,
-        });
+        stopRun(typeof stopSignal === "string" ? stopSignal : "stopped by operator");
         break;
       }
 
-      const result = await sess.runTurn(prompt);
-      emit({ type: "turn", sessionId: session.id, turnNumber: guards.turnCount, result });
+      const mode = opts.mode?.() ?? "autopilot";
 
-      // Track progress: did anything in the project actually change this turn?
-      stuck.record(fingerprintDir(session.cwd));
+      // ---- source the next prompt, by mode -------------------------------
+      if (pending === null) {
+        if (mode === "manual") {
+          // MANUAL: Qwen stays silent — wait for the user to drive.
+          const inp: UserInput = opts.waitForInput ? await opts.waitForInput() : { kind: "stop" };
+          if (inp.kind === "stop") {
+            stopRun("stopped by operator");
+            break;
+          }
+          if (inp.kind === "switch") continue; // re-loop; mode is now autopilot
+          pending = inp.text;
+        } else {
+          // AUTOPILOT: brain sources the next step.
+          const lastText = lastResult?.assistantText ?? (await readLastAssistantMessage(session.cwd, sess.sessionId));
+          if (lastResult === null && lastText === "" && session.goal) {
+            // Fresh autopilot run, nothing seeded yet — kick off with the goal.
+            pending = session.goal;
+          } else {
+            const history = await readRecentMessages(session.cwd, sess.sessionId, 8);
+            const decide = opts.decide ?? decideNextStep;
+            let decision = await decide(llm, session, lastText, guards.turnCount, history);
 
-      // Feed the brain recent history (our injected prompts + claude's replies) so
-      // its decisions stay anchored on long projects, not just the last message.
-      const history = await readRecentMessages(session.cwd, sess.sessionId, 8);
-      const decide = opts.decide ?? decideNextStep;
-      let decision = await decide(llm, session, result.assistantText, guards.turnCount, history);
+            // No file changes for a while + still "continue" => likely spinning.
+            if (decision.action === "continue" && stuck.isStuck(limits.stuckTurns ?? 0)) {
+              decision = {
+                action: "escalate",
+                reason: `no file changes for ${stuck.streak} turns — possible stall`,
+                question: `This session may be stuck — no files have changed in the last ${stuck.streak} turns. Continue, redirect, or stop?`,
+                options: [
+                  { label: "Continue as planned", rationale: "let it proceed with the next step", prompt: decision.prompt ?? "Continue." },
+                  {
+                    label: "Try a different approach",
+                    rationale: "break the loop",
+                    prompt:
+                      "You appear to be stuck repeating the same approach with no progress. Stop, re-read the goal, state in one line what is actually blocking you, then try a fundamentally different approach.",
+                  },
+                ],
+              };
+              stuck.reset();
+            }
+            emit({ type: "decision", sessionId: session.id, turnNumber: guards.turnCount, decision });
 
-      // If the brain wants to keep going but nothing has changed on disk for a
-      // while, the agent is likely spinning — escalate instead of burning turns.
-      if (decision.action === "continue" && stuck.isStuck(limits.stuckTurns ?? 0)) {
-        decision = {
-          action: "escalate",
-          reason: `no file changes for ${stuck.streak} turns — possible stall`,
-          question: `This session may be stuck — no files have changed in the last ${stuck.streak} turns. Continue, redirect, or stop?`,
-          options: [
-            { label: "Continue as planned", rationale: "let it proceed with the next step", prompt: decision.prompt ?? "Continue." },
-            {
-              label: "Try a different approach",
-              rationale: "break the loop",
-              prompt:
-                "You appear to be stuck repeating the same approach with no progress. Stop, re-read the goal, state in one line what is actually blocking you, then try a fundamentally different approach.",
-            },
-          ],
-        };
-        stuck.reset(); // give the chosen path room before flagging again
-      }
-      emit({ type: "decision", sessionId: session.id, turnNumber: guards.turnCount, decision });
-
-      if (decision.action === "stop") {
-        emit({
-          type: "stop",
-          sessionId: session.id,
-          reason: decision.reason,
-          turns: guards.turnCount,
-          elapsedMin: guards.elapsedMin,
-        });
-        break;
-      }
-
-      if (decision.action === "escalate") {
-        // A genuine human decision. Pause: surface options and wait for a choice.
-        const request: AttentionRequest = {
-          id: randomUUID(),
-          sessionId: session.id,
-          turnNumber: guards.turnCount,
-          question: decision.question ?? decision.reason,
-          options: decision.options ?? [],
-          createdAt: Date.now(),
-        };
-        emit({ type: "attention", sessionId: session.id, turnNumber: guards.turnCount, request });
-
-        // No resolver (e.g. headless run with no human) -> safe stop.
-        const resolution: Resolution = opts.resolveAttention
-          ? await opts.resolveAttention(request)
-          : { kind: "stop" };
-        emit({ type: "attention_resolved", sessionId: session.id, request, resolution });
-
-        if (resolution.kind === "stop") {
-          emit({
-            type: "stop",
-            sessionId: session.id,
-            reason: "human resolved the decision as: stop",
-            turns: guards.turnCount,
-            elapsedMin: guards.elapsedMin,
-          });
-          break;
+            if (decision.action === "stop") {
+              stopRun(decision.reason);
+              break;
+            }
+            if (decision.action === "escalate") {
+              const request: AttentionRequest = {
+                id: randomUUID(),
+                sessionId: session.id,
+                turnNumber: guards.turnCount,
+                question: decision.question ?? decision.reason,
+                options: decision.options ?? [],
+                createdAt: Date.now(),
+              };
+              emit({ type: "attention", sessionId: session.id, turnNumber: guards.turnCount, request });
+              const resolution: Resolution = opts.resolveAttention
+                ? await opts.resolveAttention(request)
+                : { kind: "stop" };
+              emit({ type: "attention_resolved", sessionId: session.id, request, resolution });
+              if (resolution.kind === "stop") {
+                stopRun("human resolved the decision as: stop");
+                break;
+              }
+              pending = resolution.prompt;
+            } else {
+              pending = decision.prompt!;
+            }
+          }
         }
-        prompt = resolution.prompt; // chosen option (or custom) becomes the next instruction
-        continue;
       }
 
-      prompt = decision.prompt!;
+      if (pending === null) continue; // mode switch with nothing to run yet
+
+      // ---- run the sourced prompt ----------------------------------------
+      const guard = guards.check(pending);
+      if (guard.stop) {
+        stopRun(guard.reason);
+        break;
+      }
+      const result = await sess.runTurn(pending);
+      emit({ type: "turn", sessionId: session.id, turnNumber: guards.turnCount, result });
+      stuck.record(fingerprintDir(session.cwd)); // did anything change this turn?
+      lastResult = result;
+      pending = null;
     }
   } catch (e) {
     if (e instanceof RateLimitError) {

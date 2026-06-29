@@ -21,7 +21,7 @@ The orchestrator is capable but its UX is utilitarian and it assumes you create 
 config. These four reframe it as a polished product. Design-first: nail the experience, and the
 backend requirements fall out of it.
 
-### P1. Onboarding + context-aware sessions + manual/autopilot toggle ★
+### P1. Onboarding + context-aware sessions + manual/autopilot toggle ★ — DONE
 
 Today a session is born already on autopilot from a config goal. Real use wants to **seed a
 session by hand first, then hand it to Qwen.**

@@ -131,6 +131,15 @@
       .empty { color: var(--muted); padding: 40px; text-align: center; }
       button.danger:hover { border-color: var(--red); color: var(--red); }
 
+      /* manual/autopilot mode toggle + message bar */
+      .mtoggle { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+      .mseg { font-size: 12px; padding: 5px 11px; cursor: pointer; color: var(--muted); user-select: none; }
+      .mseg + .mseg { border-left: 1px solid var(--border); }
+      .mseg.on { background: var(--accent); color: #1a1300; font-weight: 600; }
+      .msgbar { display: flex; gap: 8px; padding: 10px 18px; border-bottom: 1px solid var(--border); background: rgba(255,180,84,0.06); }
+      .msgbar input { flex: 1; font: inherit; font-size: 13px; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; }
+      .msgbar input:focus { outline: none; border-color: var(--accent); }
+
       /* modal */
       .modal-back {
         position: fixed; inset: 0; background: rgba(0,0,0,0.55);
@@ -261,6 +270,11 @@
                 <option value="balanced">balanced</option>
                 <option value="autonomous">autonomous — asks less</option>
               </select>
+              <label>start mode</label>
+              <select id="f_mode">
+                <option value="autopilot">autopilot — Qwen drives from the goal</option>
+                <option value="manual">manual — you seed context first, then flip</option>
+              </select>
               <div class="ferr" id="f_err"></div>
               <div class="facts">
                 <button id="f_cancel">Cancel</button>
@@ -273,6 +287,8 @@
         permSel.value = (editing && sess.permissionMode) ? sess.permissionMode : "acceptEdits";
         const autoSel = document.getElementById("f_auto");
         autoSel.value = (editing && sess.autonomy) ? sess.autonomy : "balanced";
+        const modeSel = document.getElementById("f_mode");
+        modeSel.value = (editing && sess.mode) ? sess.mode : "autopilot";
 
         const close = () => { root.innerHTML = ""; };
         document.getElementById("f_cancel").onclick = close;
@@ -286,16 +302,17 @@
           const doneCriteria = document.getElementById("f_done").value.trim();
           const permissionMode = permSel.value;
           const autonomy = autoSel.value;
+          const startMode = modeSel.value;
           const errEl = document.getElementById("f_err");
           if (!cwd || !goal || !doneCriteria) {
             errEl.textContent = "cwd, goal, and done criteria are all required.";
             return;
           }
           if (editing) {
-            send({ type: "update", id: sess.id, patch: { cwd, goal, doneCriteria, permissionMode, autonomy } });
+            send({ type: "update", id: sess.id, patch: { cwd, goal, doneCriteria, permissionMode, autonomy, startMode } });
           } else {
             const id = document.getElementById("f_id").value.trim();
-            const session = { cwd, goal, doneCriteria, permissionMode, autonomy };
+            const session = { cwd, goal, doneCriteria, permissionMode, autonomy, startMode };
             if (id) session.id = id;
             send({ type: "add", session });
           }
@@ -375,12 +392,15 @@
         if (!s) { detail.innerHTML = `<div class="empty">No session selected.</div>`; return; }
         const screen = snap.focus && snap.focus.id === s.id ? snap.focus.screen : "";
         const att = s.status === "needs-input" && s.attention ? s.attention : null;
+        const active = ["running", "manual", "needs-input"].includes(s.status);
+        const manual = s.mode === "manual";
         detail.innerHTML = `
           <div class="dhead">
             <div class="row1">
               <span class="name" style="font-weight:600">${esc(s.id)}</span>
               <span class="badge ${s.status}" style="margin-left:10px">${s.status}</span>
-              <button id="histBtn" style="margin-left:auto">🕘 History</button>
+              ${active ? modeToggleHtml(s) : ""}
+              <button id="histBtn" style="margin-left:${active ? "10px" : "auto"}">🕘 History</button>
             </div>
             <div class="goal">${esc(s.goal)}</div>
             <div style="margin-top:8px">
@@ -390,20 +410,65 @@
             </div>
           </div>
           ${att ? attentionHtml(s, att) : ""}
+          ${active && manual ? msgBarHtml(s) : ""}
           <div class="brain">
-            <span class="lbl">brain</span>${esc(s.lastDecision) || '<span style="color:var(--muted)">—</span>'}
+            <span class="lbl">brain</span>${manual && active
+              ? '<span style="color:var(--amber)">paused — you\'re driving (manual mode)</span>'
+              : (esc(s.lastDecision) || '<span style="color:var(--muted)">—</span>')}
             ${s.error ? `<div style="color:var(--red);margin-top:6px">${esc(s.error)}</div>` : ""}
           </div>
           <div class="screen-wrap">
             ${screen
               ? `<pre class="screen">${esc(screen)}</pre>`
-              : `<div class="empty">${s.status === "running" || s.status === "needs-input" ? "waiting for screen…" : "session not running"}</div>`}
+              : `<div class="empty">${active ? "waiting for screen…" : "session not running"}</div>`}
           </div>`;
 
         if (att) wireAttention(s.id, att);
+        if (active) wireModeToggle(s.id);
+        if (active && manual) wireMsgBar(s.id);
         const hb = document.getElementById("histBtn");
         if (hb) hb.onclick = () => openHistory(s.id);
         updatePip(snap);
+      }
+
+      // ---- manual / autopilot mode (P1) --------------------------------------
+      const msgDrafts = {};
+
+      function modeToggleHtml(s) {
+        const on = (m) => s.mode === m;
+        const seg = (m, label, icon) =>
+          `<span class="mseg ${on(m) ? "on" : ""}" data-mode="${m}">${icon} ${label}</span>`;
+        return `<div class="mtoggle" style="margin-left:auto">
+          ${seg("manual", "Manual", "✋")}${seg("autopilot", "Autopilot", "🤖")}
+        </div>`;
+      }
+      function wireModeToggle(id) {
+        document.querySelectorAll(".mtoggle .mseg").forEach((el) => {
+          el.onclick = () => send({ type: "setMode", id, mode: el.dataset.mode });
+        });
+      }
+
+      function msgBarHtml(s) {
+        return `<div class="msgbar">
+          <input id="msg_in" placeholder="Message the agent directly…" value="${esc(msgDrafts[s.id] || "")}" />
+          <button class="primary" id="msg_send">Send</button>
+        </div>`;
+      }
+      function wireMsgBar(id) {
+        const inp = document.getElementById("msg_in");
+        const sendMsg = () => {
+          const v = (inp && inp.value || "").trim();
+          if (!v) return;
+          delete msgDrafts[id];
+          send({ type: "sendMessage", id, text: v });
+          if (inp) inp.value = "";
+        };
+        if (inp) {
+          inp.oninput = () => { msgDrafts[id] = inp.value; };
+          inp.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); sendMsg(); } };
+        }
+        const b = document.getElementById("msg_send");
+        if (b) b.onclick = sendMsg;
       }
 
       // ---- human-decision (attention) ----------------------------------------
