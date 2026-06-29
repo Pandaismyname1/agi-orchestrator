@@ -117,7 +117,17 @@ Captured the run's claude UUID (persisted as `SessionConfig.lastClaudeSessionId`
 gained `resumeId` + `seedPrompt`; `Supervisor.continueSession()` + `"continue"` WS msg + a
 prefilled Continue modal. "Start" stays a fresh conversation.
 
-### A2. Context-window manager — memory-preserving auto-compaction ★
+### A2. Context-window manager — memory-preserving auto-compaction ★ — BUILT (commit c78d2ca); needs live validation
+
+Built `src/policy/context.ts` (`ContextGuard`) + orchestrator integration: after each turn, if
+estimated context use ≥ `compactAtPercent`, inject save-handoff → `/compact` → resume-from-handoff.
+Trigger estimates use from transcript **bytes/4 ÷ window** (reliable); a best-effort screen-gauge
+regex overrides when it matches. Config `AppConfig.contextGuard` (off by default), wired through the
+supervisor + daemon; `scripts/context-test.ts` covers the logic. **Still TODO (live):** confirm
+`/compact` fires via PTY injection + handoff is re-read; tune the gauge regex to claude's real wording;
+then flip `enabled: true`. Original design below.
+
+
 
 Long autopilot runs overflow the context. Claude Code auto-compacts, but bluntly. Do it smarter:
 **save → compact → resume from memory**, before the window fills.
