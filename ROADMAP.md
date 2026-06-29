@@ -104,6 +104,64 @@ patterns) and UI (layout, visual language). A brilliant design tells us what the
 
 ---
 
+## Tier 4 — Autonomy & self-improvement (NEXT PRIORITY after the UX track)
+
+Owner-flagged. These push the orchestrator from "drives sessions" toward "drives long,
+self-correcting work that gets better over time." Still local-only, subscription-safe.
+
+### A1. Continue a finished session in the same conversation ★ — DONE (commit a663774)
+
+Once a session is done/stopped/error, resume it IN THE SAME claude conversation (prior context
+preserved) with an edited goal / done-criteria / next-instruction, in autopilot or manual.
+Captured the run's claude UUID (persisted as `SessionConfig.lastClaudeSessionId`); `RunOptions`
+gained `resumeId` + `seedPrompt`; `Supervisor.continueSession()` + `"continue"` WS msg + a
+prefilled Continue modal. "Start" stays a fresh conversation.
+
+### A2. Context-window manager — memory-preserving auto-compaction ★
+
+Long autopilot runs overflow the context. Claude Code auto-compacts, but bluntly. Do it smarter:
+**save → compact → resume from memory**, before the window fills.
+
+- **Detect usage** (the crux — needs validation against the live TUI). Options:
+  - (a) **Read claude's own context indicator** off the PTY screen (we already VT-emulate it) —
+    e.g. the "context left until auto-compact" gauge. Most accurate; primary.
+  - (b) **Estimate ourselves** by token-counting the transcript JSONL we already read (heuristic
+    ~chars/4, or a real tokenizer) against the model's window. Fallback / provider-agnostic.
+  - (c) Ask claude directly via an injected prompt — wasteful, unreliable; last resort.
+- **Trigger** at a configurable threshold (e.g. ≥50% used, or ~500K of a 1M window). Between turns,
+  a "context guard" runs a mini-sequence:
+  1. Inject: *"Save your working state — decisions, open threads, file map, next steps — to a
+     handoff memory file (e.g. `.agi/handoff.md`)."*
+  2. Run `/compact` (claude's compaction).
+  3. Inject: *"Read `.agi/handoff.md` and resume from there."*
+- **Config:** `context: { compactAtPercent, handoffPath, enabled }`. **Unknowns:** reliable
+  indicator parsing; `/compact` behavior; confirming the handoff is re-read. Needs a live probe
+  before committing to detection method (a) vs (b).
+
+### A3. Self-improvement / learning loop ★
+
+Qwen's operator prompts should get better by learning from the owner's many past Claude Code
+sessions AND from live feedback. Local-only; opt-in; review-before-apply so it can't drift badly.
+
+- **A3a — Mine past sessions.** We already scan `~/.claude/projects` (SessionDiscovery, ~51
+  sessions). An offline analyzer reads transcripts and distills:
+  - an **operator profile** (how the owner phrases instructions, tone, risk tolerance, when they
+    stop) injected into `buildSystemPrompt`, and
+  - a **few-shot example bank** of (situation → the instruction the owner actually gave), mined
+    especially from turns the owner drove by hand.
+- **A3b — Feedback-driven evolution.** Strongest signal is the **manual override**: in autopilot,
+  when the owner takes the wheel and types something different from what Qwen proposed, that pair
+  *(Qwen suggested X, owner did Y)* is a labeled correction — we already distinguish manual vs
+  autopilot turns in the transcript. Plus optional thumbs up/down on decisions. Stored in the
+  `preferences` table.
+- **Synthesis.** Periodically (or on a "Learn" action) summarize the signals — via Qwen itself or
+  a bigger local model — into concrete additions to the operator prompt / example bank, surfaced
+  for the owner to approve before they take effect. **Auto-evolve** = re-run synthesis as feedback
+  accumulates. **Forks:** how aggressive (propose vs auto-apply); per-project vs global profile;
+  example-bank vs profile-summary vs (out of scope) fine-tuning.
+
+---
+
 ## Tier 0 — Foundation: SQLite persistence ★MUST
 
 Everything good downstream (history, resume, analytics, the attention queue, learning) needs
