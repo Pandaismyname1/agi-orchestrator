@@ -36,6 +36,12 @@ export interface SessionConfig {
   startMode?: "manual" | "autopilot";
   /** Per-session overrides of the global limits. */
   limits?: Partial<Limits>;
+  /**
+   * If set, resume this existing Claude Code session id (`claude --resume <id>`)
+   * instead of starting a fresh one — used to adopt sessions that already exist
+   * on disk. Its transcript becomes this session's transcript.
+   */
+  resumeId?: string;
 }
 
 /** Guard rails. The real "budget" here is rate-limit/turn burn, not dollars. */

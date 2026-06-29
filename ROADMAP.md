@@ -49,7 +49,7 @@ session by hand first, then hand it to Qwen.**
     choose start-manual vs start-autopilot, set autonomy / gatePolicy / budget with explained
     defaults.
 
-### P2. Adopt existing Claude Code (and maybe Desktop) sessions ★
+### P2. Adopt existing Claude Code (and maybe Desktop) sessions ★ — DONE (resume; Desktop deferred)
 
 Be able to see and drive sessions that ALREADY exist, not just ones we created.
 

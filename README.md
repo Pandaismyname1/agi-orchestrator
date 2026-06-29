@@ -172,6 +172,11 @@ Validated features:
   instructions, course-correct. Flip to **autopilot** and the Qwen loop takes over *from that exact
   state* (it reads the transcript, so the manual conversation is the context). Start a session in
   either mode (`startMode`); switch any time. The orchestrator loop is mode-aware.
+- **Adopt existing sessions (Product P2)** — "📥 Adopt" browses every Claude Code session already on
+  the machine (`src/discovery.ts` scans `~/.claude/projects`, parsing each transcript for cwd,
+  summary, turn count, recency). Pick one and it **resumes** in the cockpit (`claude --resume <id>`)
+  as a normal session (manual or autopilot). Read-only `/api/discover` backs the browser. (Claude
+  Desktop sessions live elsewhere and aren't adopted yet.)
 
 ### Hook-attach mode (optional)
 

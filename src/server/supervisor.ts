@@ -321,6 +321,7 @@ export class Supervisor {
     permissionMode?: SessionConfig["permissionMode"];
     autonomy?: SessionConfig["autonomy"];
     startMode?: SessionConfig["startMode"];
+    resumeId?: SessionConfig["resumeId"];
   }): SessionView {
     const cwd = (input.cwd ?? "").trim();
     const goal = (input.goal ?? "").trim();
@@ -340,6 +341,7 @@ export class Supervisor {
       permissionMode: input.permissionMode ?? "acceptEdits",
       autonomy: input.autonomy ?? "balanced",
       startMode: input.startMode ?? "autopilot",
+      resumeId: input.resumeId,
     };
     const m: Managed = {
       config,

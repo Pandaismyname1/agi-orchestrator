@@ -50,19 +50,20 @@ export class ClaudeSession {
   constructor(private readonly cfg: SessionConfig) {
     // claude --session-id and the transcript path require a real UUID. The
     // config `id` is just a friendly display label, so only reuse it when it
-    // already is a UUID; otherwise mint one.
+    // already is a UUID; otherwise mint one. When resuming, the transcript id IS
+    // the resumed session's id.
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    this.sessionId = UUID_RE.test(cfg.id) ? cfg.id : randomUUID();
+    if (cfg.resumeId && UUID_RE.test(cfg.resumeId)) this.sessionId = cfg.resumeId;
+    else this.sessionId = UUID_RE.test(cfg.id) ? cfg.id : randomUUID();
   }
 
   /** Spawn claude and wait until it's booted and idle (boot gates auto-cleared). */
   async start(): Promise<void> {
-    const args = [
-      "--session-id",
-      this.sessionId,
-      "--permission-mode",
-      this.cfg.permissionMode ?? "acceptEdits",
-    ];
+    // Resume an existing session, or start a fresh one with a forced id.
+    const idArgs = this.cfg.resumeId
+      ? ["--resume", this.sessionId]
+      : ["--session-id", this.sessionId];
+    const args = [...idArgs, "--permission-mode", this.cfg.permissionMode ?? "acceptEdits"];
     this.term = pty.spawn("claude.exe", args, {
       name: "xterm-256color",
       cols: COLS,

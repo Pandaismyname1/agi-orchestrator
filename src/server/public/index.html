@@ -202,7 +202,8 @@
       <aside>
         <div class="side-head">
           <span>Sessions</span>
-          <button id="newSession" style="margin-left:auto">➕ New session</button>
+          <button id="adoptBtn" style="margin-left:auto">📥 Adopt</button>
+          <button id="newSession">➕ New</button>
         </div>
         <div id="list"></div>
       </aside>
@@ -231,6 +232,38 @@
       function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
       document.getElementById("startAll").onclick = () => send({ type: "startAll" });
       document.getElementById("newSession").onclick = () => openForm(null);
+      document.getElementById("adoptBtn").onclick = () => openAdopt();
+
+      // Browse existing Claude Code sessions on disk and adopt one (P2).
+      async function openAdopt() {
+        const root = document.getElementById("modalRoot");
+        root.innerHTML = `<div class="modal-back" id="modalBack"><div class="modal" style="width:560px">
+          <h2>Adopt an existing session</h2>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Claude Code sessions found on this machine. Pick one to resume it in the cockpit.</div>
+          <div id="discoverList"><div class="empty">scanning…</div></div>
+          <div class="facts"><button id="adoptClose">Close</button></div>
+        </div></div>`;
+        document.getElementById("adoptClose").onclick = () => (root.innerHTML = "");
+        document.getElementById("modalBack").onclick = (e) => { if (e.target.id === "modalBack") root.innerHTML = ""; };
+        let sessions = [];
+        try { sessions = await fetchJson("/api/discover"); } catch (e) { sessions = []; }
+        const listEl = document.getElementById("discoverList");
+        if (!listEl) return;
+        if (!sessions.length) { listEl.innerHTML = `<div class="empty">no sessions found</div>`; return; }
+        const ago = (ms) => { const m = Math.round((Date.now() - ms) / 60000); return m < 60 ? m + "m ago" : Math.round(m / 60) + "h ago"; };
+        listEl.innerHTML = sessions.map((s, i) => `
+          <div class="runrow" data-i="${i}">
+            <span class="rid">${esc(s.sessionId.slice(0, 8))}</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.summary)}</span>
+            <span style="color:var(--muted);font-size:12px">${s.turns}t · ${ago(s.lastActivity)}</span>
+          </div>`).join("");
+        listEl.querySelectorAll(".runrow").forEach((el) => {
+          el.onclick = () => {
+            const s = sessions[Number(el.dataset.i)];
+            openForm(null, { cwd: s.cwd, resumeId: s.sessionId });
+          };
+        });
+      }
 
       let toastTimer = null;
       function toast(message) {
@@ -241,18 +274,22 @@
         toastTimer = setTimeout(() => el.classList.remove("show"), 4000);
       }
 
-      // Open the add/edit form. Pass null to add, or a session object to edit.
-      function openForm(sess) {
+      // Open the add/edit form. sess=null to add; a session to edit; prefill
+      // {cwd, resumeId} to adopt an existing on-disk session.
+      function openForm(sess, prefill) {
         const editing = !!sess;
+        const adopting = !!prefill;
         const root = document.getElementById("modalRoot");
+        const cwdVal = editing ? esc(sess.cwd) : adopting ? esc(prefill.cwd) : "";
         root.innerHTML = `
           <div class="modal-back" id="modalBack">
             <div class="modal">
-              <h2>${editing ? "Edit session" : "New session"}</h2>
+              <h2>${editing ? "Edit session" : adopting ? "Adopt existing session" : "New session"}</h2>
+              ${adopting ? `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">resuming ${esc(prefill.resumeId.slice(0,8))}… — give it a goal and pick a mode</div>` : ""}
               <label>id / label (optional)</label>
               <input id="f_id" ${editing ? "disabled" : ""} value="${editing ? esc(sess.id) : ""}" placeholder="auto-generated if blank" />
               <label>cwd (project directory)</label>
-              <input id="f_cwd" value="${editing ? esc(sess.cwd) : ""}" placeholder="C:\\path\\to\\project" />
+              <input id="f_cwd" value="${cwdVal}" placeholder="C:\\path\\to\\project" />
               <label>goal</label>
               <textarea id="f_goal" placeholder="what claude should accomplish">${editing ? esc(sess.goal) : ""}</textarea>
               <label>done criteria</label>
@@ -288,7 +325,7 @@
         const autoSel = document.getElementById("f_auto");
         autoSel.value = (editing && sess.autonomy) ? sess.autonomy : "balanced";
         const modeSel = document.getElementById("f_mode");
-        modeSel.value = (editing && sess.mode) ? sess.mode : "autopilot";
+        modeSel.value = (editing && sess.mode) ? sess.mode : adopting ? "manual" : "autopilot";
 
         const close = () => { root.innerHTML = ""; };
         document.getElementById("f_cancel").onclick = close;
@@ -314,6 +351,7 @@
             const id = document.getElementById("f_id").value.trim();
             const session = { cwd, goal, doneCriteria, permissionMode, autonomy, startMode };
             if (id) session.id = id;
+            if (adopting) session.resumeId = prefill.resumeId;
             send({ type: "add", session });
           }
           close();

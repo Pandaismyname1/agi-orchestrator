@@ -15,6 +15,7 @@ import { preflight, BillingSafetyError } from "../util/env.js";
 import { loadConfig } from "../config.js";
 import { Supervisor } from "./supervisor.js";
 import { openStore } from "../db/store.js";
+import { SessionDiscovery } from "../discovery.js";
 import { AttachManager } from "../attach/attachManager.js";
 import { decideNextStep } from "../brain/decide.js";
 import { LocalLLM } from "../brain/provider.js";
@@ -32,6 +33,7 @@ interface SessionInput {
   permissionMode?: SessionConfig["permissionMode"];
   autonomy?: SessionConfig["autonomy"];
   startMode?: SessionConfig["startMode"];
+  resumeId?: SessionConfig["resumeId"];
 }
 
 type SessionPatch = Partial<{
@@ -97,6 +99,8 @@ async function main(): Promise<void> {
     limits: cfg.limits,
   });
 
+  const discovery = new SessionDiscovery();
+
   const indexHtml = await readFile(path.join(__dirname, "public", "index.html"), "utf8");
 
   /** Read a request's JSON body (small payloads only). */
@@ -149,6 +153,7 @@ async function main(): Promise<void> {
         const session = u.searchParams.get("session") ?? undefined;
         if (u.pathname === "/api/runs") return sendJson(res, 200, store.getRuns(session, 50));
         if (u.pathname === "/api/metrics") return sendJson(res, 200, store.metrics(session));
+        if (u.pathname === "/api/discover") return sendJson(res, 200, await discovery.list(60));
         if (u.pathname === "/api/run") {
           const runId = Number(u.searchParams.get("id"));
           if (!runId) return sendJson(res, 400, { error: "id required" });
