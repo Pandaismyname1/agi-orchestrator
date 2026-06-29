@@ -71,22 +71,28 @@ Key mechanisms, all validated end-to-end against the real CLI:
 
 1. Start **LM Studio** (`http://localhost:1234/v1`) or **Ollama** (`http://localhost:11434/v1`)
    with a capable instruct model (e.g. a Qwen 30B+).
-2. `npm install`
+2. `npm run setup` — installs both the server and the dashboard UI deps (first run only).
 3. Copy `config.example.json` → `config.json`, set `provider.model` to a model the server
    reports, and define your session(s): `cwd`, `goal`, `doneCriteria`.
-4. `npm run dashboard` → open `http://localhost:4317` → **Start all** (or start sessions
-   individually). Watch each session's live screen, status, turn count, and the brain's last
-   decision; Stop any session from its card.
+4. **`npm start`** — builds the latest dashboard UI, starts the server, and opens
+   `http://localhost:4317` in your browser. Then **Start all** (or start sessions individually).
+
+> **Windows desktop shortcut:** double-click **`launch.cmd`** (or run it once to drop a
+> *"AGI Dashboard"* shortcut on your Desktop) to do all of the above with one click —
+> it even installs deps on first run. Close the window (or Ctrl+C) to stop.
 
 Prefer a headless console runner? `npm run daemon` runs all sessions and logs the event stream.
 
 ### Scripts
-- `npm run dashboard` — web cockpit (HTTP + WebSocket), start/stop + live screens.
+- **`npm start`** / `npm run launch` — build the UI, serve the dashboard, open the browser.
+- `npm run setup` — install server + UI dependencies.
+- `npm run dashboard` — serve the dashboard without rebuilding the UI / opening a browser.
+- `npm run dev` — dashboard with `tsx watch` (auto-restart on server-code changes).
+- `npm run build` — build the dashboard UI only (`web/dist`).
 - `npm run daemon` — headless: run the orchestrator over all sessions, log to console.
+- `npm test` — deterministic unit tests (context guard, learning loop, discovery).
 - `npm run pty-smoke` — prove PTY spawn/read/inject against real claude.
-- `npx tsx scripts/session-smoke.ts` — exercise the full session driver (one turn).
-- `npx tsx scripts/ws-test.ts` — drive the dashboard over its WebSocket (server must be up).
-- `npm run typecheck`
+- `npm run typecheck` — type-check the server. `npm run web:check` — type-check the UI.
 
 ---
 

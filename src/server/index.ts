@@ -456,7 +456,19 @@ async function main(): Promise<void> {
 
   const port = cfg.port ?? 4317;
   server.listen(port, () => {
-    console.log(`\n🟢 dashboard → http://localhost:${port}\n`);
+    const url = `http://localhost:${port}`;
+    console.log(`\n🟢 dashboard → ${url}\n`);
+    // Opt-in browser auto-open (set by launch.cmd / `npm run launch`). Off for
+    // the daemon and for `tsx watch` restarts so it doesn't spam tabs.
+    if (process.env.AGI_OPEN === "1") {
+      const open =
+        process.platform === "win32"
+          ? `start "" "${url}"`
+          : process.platform === "darwin"
+            ? `open "${url}"`
+            : `xdg-open "${url}"`;
+      void import("node:child_process").then(({ exec }) => exec(open, () => {}));
+    }
   });
 
   const shutdown = async () => {
