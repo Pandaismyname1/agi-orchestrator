@@ -12,6 +12,7 @@
   // Compact status breakdown shown beside the section title.
   const BREAKDOWN: { key: string; label: string; match: (s: SessionView) => boolean }[] = [
     { key: "running", label: "running", match: (s) => s.status === "running" || s.status === "manual" },
+    { key: "error", label: "error", match: (s) => s.status === "error" },
     { key: "needs-input", label: "needs you", match: (s) => s.status === "needs-input" },
     { key: "queued", label: "queued", match: (s) => s.status === "queued" },
     { key: "done", label: "done", match: (s) => s.status === "done" },
@@ -119,6 +120,14 @@
   .chip.queued {
     color: var(--st-queued);
     border-color: rgba(96, 165, 250, 0.35);
+  }
+  .chip.error {
+    color: var(--st-error);
+    border-color: rgba(248, 113, 113, 0.5);
+    background: rgba(248, 113, 113, 0.08);
+  }
+  .chip.error b {
+    color: var(--st-error);
   }
   .grid {
     overflow-y: auto;

@@ -198,6 +198,22 @@
         0 0 18px rgba(251, 191, 36, 0.18);
     }
   }
+  /* An error means work has STOPPED and needs you — flash it red, urgently. */
+  .agent.error {
+    border-color: var(--st-error);
+    animation: cardpulse-red 1.15s ease-in-out infinite;
+  }
+  @keyframes cardpulse-red {
+    0%,
+    100% {
+      box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.3);
+    }
+    50% {
+      box-shadow:
+        0 0 0 1px rgba(248, 113, 113, 0.75),
+        0 0 20px rgba(248, 113, 113, 0.22);
+    }
+  }
 
   .top {
     display: flex;

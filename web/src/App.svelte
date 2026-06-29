@@ -3,6 +3,7 @@
   import { wsStore } from "./lib/ws.svelte";
   import { ui } from "./lib/ui.svelte";
   import { pip } from "./lib/pip.svelte";
+  import { alarm } from "./lib/alarm.svelte";
   import Header from "./components/Header.svelte";
   import Fleet from "./components/Fleet.svelte";
   import Detail from "./components/Detail.svelte";
@@ -26,6 +27,7 @@
     if (!snap) return;
     if (!ui.focusId && sessions[0]) ui.focusId = sessions[0].id;
     pip.update(snap);
+    alarm.update(snap);
   });
 
   let focused = $derived(sessions.find((s) => s.id === ui.focusId));

@@ -28,6 +28,11 @@ const PIP_CSS = `
   .pchip.needs-input{background:rgba(251,191,36,.16);border-color:var(--amber);
     animation:pp 1.05s ease-in-out infinite;}
   .pchip.needs-input .pstat{color:var(--amber);font-weight:700;}
+  .pchip.error{background:rgba(248,113,113,.18);border-color:var(--red);
+    animation:pp .85s ease-in-out infinite;}
+  .pchip.error .pstat{color:var(--red);font-weight:700;}
+  .pchip.rate-limited{border-color:var(--amber);animation:pp 1.3s ease-in-out infinite;}
+  .pchip.rate-limited .pstat{color:var(--amber);}
   @keyframes pp{0%,100%{opacity:1;}50%{opacity:.5;}}
   .pempty{color:var(--muted);padding:14px;text-align:center;}`;
 

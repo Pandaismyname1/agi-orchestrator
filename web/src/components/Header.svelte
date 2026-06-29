@@ -3,6 +3,7 @@
   import { wsStore } from "../lib/ws.svelte";
   import { ui } from "../lib/ui.svelte";
   import { pip } from "../lib/pip.svelte";
+  import { alarm } from "../lib/alarm.svelte";
   import Icon from "./Icon.svelte";
   import BudgetMeter from "./BudgetMeter.svelte";
 
@@ -14,14 +15,23 @@
   let { provider, budget, sessions }: Props = $props();
 
   let needsYou = $derived(sessions.filter((s) => s.status === "needs-input"));
+  let errored = $derived(sessions.filter((s) => s.status === "error"));
   let running = $derived(sessions.filter((s) => s.status === "running" || s.status === "manual").length);
 
-  function jumpToNeedsYou() {
-    const target = needsYou[0];
+  function jumpTo(list: SessionView[]) {
+    const target = list[0];
     if (!target) return;
     ui.focusId = target.id;
     wsStore.send({ type: "focus", id: target.id });
   }
+
+  let soundTitle = $derived(
+    alarm.enabled
+      ? alarm.active
+        ? "Alarm sounding — click to mute"
+        : "Sound alerts on — click to mute"
+      : "Sound alerts off — click to enable an audible alarm for errors / needs-you",
+  );
 </script>
 
 <header>
@@ -41,12 +51,28 @@
 
   <div class="spacer"></div>
 
+  {#if errored.length > 0}
+    <button class="alert-pill errored" onclick={() => jumpTo(errored)} title="A session errored — work has stopped">
+      <Icon name="alert" size={14} />
+      {errored.length} {errored.length === 1 ? "error" : "errors"}
+    </button>
+  {/if}
   {#if needsYou.length > 0}
-    <button class="needsyou" onclick={jumpToNeedsYou}>
+    <button class="alert-pill needsyou" onclick={() => jumpTo(needsYou)}>
       <Icon name="alert" size={14} />
       {needsYou.length} {needsYou.length === 1 ? "needs" : "need"} you
     </button>
   {/if}
+  <button
+    class="btn btn-sm btn-square sound"
+    class:on={alarm.enabled}
+    class:ringing={alarm.active}
+    title={soundTitle}
+    aria-pressed={alarm.enabled}
+    onclick={() => alarm.toggle()}
+  >
+    <Icon name={alarm.enabled ? "bell" : "bellOff"} size={15} />
+  </button>
 
   <button class="btn btn-primary btn-sm" onclick={() => wsStore.send({ type: "startAll" })}>
     <Icon name="play" size={13} /> Start all
@@ -161,24 +187,33 @@
   .spacer {
     flex: 1;
   }
-  .needsyou {
+  .alert-pill {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     font-size: 12px;
     font-weight: 700;
-    color: var(--color-accent-content);
-    background: var(--color-warning);
-    border: 1px solid var(--color-warning);
     border-radius: 9px;
     padding: 6px 12px;
     cursor: pointer;
-    animation: nag 1.1s ease-in-out infinite;
+    border: 1px solid transparent;
   }
-  .needsyou:hover {
+  .alert-pill:hover {
     filter: brightness(1.05);
   }
-  @keyframes nag {
+  .alert-pill.needsyou {
+    color: var(--color-accent-content);
+    background: var(--color-warning);
+    border-color: var(--color-warning);
+    animation: nag-amber 1.1s ease-in-out infinite;
+  }
+  .alert-pill.errored {
+    color: #2a0808;
+    background: var(--color-error);
+    border-color: var(--color-error);
+    animation: nag-red 1s ease-in-out infinite;
+  }
+  @keyframes nag-amber {
     0%,
     100% {
       box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.5);
@@ -186,6 +221,24 @@
     50% {
       box-shadow: 0 0 0 5px rgba(251, 191, 36, 0);
     }
+  }
+  @keyframes nag-red {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.6);
+    }
+    50% {
+      box-shadow: 0 0 0 6px rgba(248, 113, 113, 0);
+    }
+  }
+  .sound.on {
+    color: var(--color-primary);
+    border-color: rgba(34, 197, 94, 0.4);
+  }
+  .sound.ringing {
+    color: var(--color-error);
+    border-color: var(--color-error);
+    animation: nag-red 1s ease-in-out infinite;
   }
   .ml {
     margin-left: 8px;
