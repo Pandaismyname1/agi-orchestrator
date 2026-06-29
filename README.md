@@ -144,6 +144,12 @@ Validated features:
   network exfil) **escalate** to the human (approve/deny, reusing needs-input) — and **default-deny**
   (Esc) when unattended. Requires `permissionMode: "default"` so claude actually prompts. Verified
   live: a `rm -rf` was classified, denied, and the target folder survived.
+- **Usage budgeting + rate-limit guard (Tier 2)** — the real cost is the subscription's weekly cap,
+  so a daily `budget` (`maxTurnsPerDay` / `maxMinutesPerDay`) is tracked from SQLite across all
+  sessions: sessions refuse to start and stop mid-run when the budget is spent, and the dashboard
+  header shows today's usage (amber near the cap). Separately, claude's own **usage-limit notice**
+  is detected on screen and pauses the session (`rate-limited` status + notification). Detection is
+  tuned to the system wording so it won't trip on code that merely mentions "rate limiting".
 
 ### Hook-attach mode (optional)
 
@@ -157,7 +163,8 @@ To drive a session you start by hand instead of a daemon-owned one:
    is down it never blocks your session.
 
 ### Not built yet
-- Rate-limit / usage budgeting (track turn/time burn vs the weekly cap; warn + hard-stop).
 - Observability: timeline/replay from SQLite, per-turn diff viewer, metrics.
+- Multi-session orchestration: concurrency cap, queue/scheduler, session dependencies, templates.
+- Stuck/oscillation detection (no files changed for N turns → escalate).
 - Dashboard UI panel for attach/detach (routes exist; wire a form like the session CRUD).
 - Brain history is last-N messages, not summarized — fine for now, may need trimming on very long runs.

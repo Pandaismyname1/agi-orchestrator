@@ -52,6 +52,9 @@ function log(e: OrchestratorEvent): void {
     case "gate_resolved":
       console.log(`${tag} ${e.resolution.kind === "approve" ? "✓ approved" : "⛔ denied"}: ${e.request.summary}`);
       break;
+    case "rate_limited":
+      console.log(`${tag} ⏳ RATE LIMITED: ${e.detail}`);
+      break;
     case "stop":
       console.log(
         `${tag} ■ STOPPED after ${e.turns} turn(s), ${e.elapsedMin.toFixed(1)}m — ${e.reason}`,

@@ -169,6 +169,7 @@ async function main(): Promise<void> {
         JSON.stringify({
           type: "snapshot",
           provider: { model: cfg.provider.model, baseUrl: cfg.provider.baseUrl, ok: health.ok },
+          budget: sup.budgetStatus(),
           sessions: sup.list(),
           focus: focusId ? { id: focusId, screen: sup.screen(focusId) } : undefined,
         }),

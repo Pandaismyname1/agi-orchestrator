@@ -56,6 +56,20 @@ export interface AppConfig {
   port?: number;
   /** Path to the local SQLite store (default ./agi.db). */
   dbPath?: string;
+  /** Daily usage budget across all sessions (protects the subscription cap). */
+  budget?: Budget;
+}
+
+/**
+ * Daily usage budget. The real cost of this tool is the subscription's
+ * rate-limit / weekly cap, not dollars — these caps stop runs before they
+ * burn through it. Resets at local midnight. Omit a field for "no limit".
+ */
+export interface Budget {
+  /** Max autopilot turns per day across all sessions. */
+  maxTurnsPerDay?: number;
+  /** Max wall-clock minutes per day across all sessions. */
+  maxMinutesPerDay?: number;
 }
 
 /** The brain's decision after reading a finished turn. */

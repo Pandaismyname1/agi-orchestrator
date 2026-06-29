@@ -9,7 +9,7 @@
  * This is the whole point of the project: the brain stands in for the human so
  * claude never sits idle waiting for you to answer "ok, continue".
  */
-import { ClaudeSession, AuthError } from "./session/claudeSession.js";
+import { ClaudeSession, AuthError, RateLimitError } from "./session/claudeSession.js";
 import { decideNextStep } from "./brain/decide.js";
 import { readRecentMessages } from "./transcript/reader.js";
 import { LocalLLM } from "./brain/provider.js";
@@ -34,6 +34,7 @@ export type OrchestratorEvent =
   | { type: "attention_resolved"; sessionId: string; request: AttentionRequest; resolution: Resolution }
   | { type: "gate"; sessionId: string; request: GateRequest }
   | { type: "gate_resolved"; sessionId: string; request: GateRequest; resolution: GateResolution }
+  | { type: "rate_limited"; sessionId: string; detail: string }
   | { type: "stop"; sessionId: string; reason: string; turns: number; elapsedMin: number }
   | { type: "error"; sessionId: string; error: string };
 
@@ -45,8 +46,11 @@ export interface RunOptions {
   onEvent?: EventSink;
   /** Hands the live session to the caller (for dashboard screen reads + stop). */
   onSession?: (sess: ClaudeSession) => void;
-  /** Checked at the top of each loop iteration; return true to stop gracefully. */
-  shouldStop?: () => boolean;
+  /**
+   * Checked at the top of each loop iteration. Return true (or a reason string)
+   * to stop gracefully; false/undefined to continue.
+   */
+  shouldStop?: () => boolean | string;
   /**
    * Called when the brain escalates a genuine decision to the human. Must block
    * until the human (or a policy) resolves it, returning the chosen prompt or a
@@ -97,11 +101,12 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
 
     let prompt = session.goal;
     while (true) {
-      if (opts.shouldStop?.()) {
+      const stopSignal = opts.shouldStop?.();
+      if (stopSignal) {
         emit({
           type: "stop",
           sessionId: session.id,
-          reason: "stopped by operator",
+          reason: typeof stopSignal === "string" ? stopSignal : "stopped by operator",
           turns: guards.turnCount,
           elapsedMin: guards.elapsedMin,
         });
@@ -175,8 +180,19 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
       prompt = decision.prompt!;
     }
   } catch (e) {
-    const msg = e instanceof AuthError ? e.message : (e as Error).message;
-    emit({ type: "error", sessionId: session.id, error: msg });
+    if (e instanceof RateLimitError) {
+      emit({ type: "rate_limited", sessionId: session.id, detail: e.message });
+      emit({
+        type: "stop",
+        sessionId: session.id,
+        reason: e.message,
+        turns: guards.turnCount,
+        elapsedMin: guards.elapsedMin,
+      });
+    } else {
+      const msg = e instanceof AuthError ? e.message : (e as Error).message;
+      emit({ type: "error", sessionId: session.id, error: msg });
+    }
   } finally {
     await sess.dispose();
   }

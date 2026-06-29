@@ -11,7 +11,7 @@
 import { randomUUID } from "node:crypto";
 import * as pty from "node-pty";
 import { VirtualScreen } from "../terminal/screen.js";
-import { classifyScreen, detectAuthError } from "../terminal/state.js";
+import { classifyScreen, detectAuthError, detectRateLimit } from "../terminal/state.js";
 import { classifyGate } from "../terminal/gates.js";
 import { readLastAssistantMessage } from "../transcript/reader.js";
 import { scrubbedEnv } from "../util/env.js";
@@ -30,6 +30,7 @@ const MIN_THINK_MS = 1500; // ignore "ready" for this long after injecting (avoi
 
 export class AuthError extends Error {}
 export class TimeoutError extends Error {}
+export class RateLimitError extends Error {}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -122,6 +123,9 @@ export class ClaudeSession {
       const text = this.screen.visibleText();
       if (detectAuthError(text)) {
         throw new AuthError("claude reported an authentication error (401). Run `claude` and `/login`.");
+      }
+      if (detectRateLimit(text)) {
+        throw new RateLimitError("claude hit the subscription usage limit — pausing this session.");
       }
 
       const state: ScreenState = classifyScreen(text);

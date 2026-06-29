@@ -11,6 +11,7 @@ import { ClaudeSession } from "../session/claudeSession.js";
 import { LocalLLM } from "../brain/provider.js";
 import { saveConfig } from "../config.js";
 import { Recorder } from "../db/recorder.js";
+import { BudgetTracker, type BudgetStatus } from "../policy/budget.js";
 import type { Store } from "../db/store.js";
 import type {
   AppConfig,
@@ -20,7 +21,14 @@ import type {
   SessionConfig,
 } from "../types.js";
 
-export type SessionStatus = "idle" | "running" | "needs-input" | "stopped" | "done" | "error";
+export type SessionStatus =
+  | "idle"
+  | "running"
+  | "needs-input"
+  | "rate-limited"
+  | "stopped"
+  | "done"
+  | "error";
 
 export interface SessionView {
   id: string;
@@ -46,12 +54,15 @@ interface Managed extends SessionView {
   resolveAttention?: (r: Resolution) => void;
   /** Resolver for an open dangerous-gate approval (if any). */
   resolveGate?: (r: GateResolution) => void;
+  /** Wall-clock start of the current run (for live minute accounting). */
+  startedAt?: number;
 }
 
 export class Supervisor {
   private readonly sessions = new Map<string, Managed>();
   private readonly llm: LocalLLM;
   private readonly recorder?: Recorder;
+  private readonly budget: BudgetTracker;
 
   constructor(
     private readonly cfg: AppConfig,
@@ -60,6 +71,7 @@ export class Supervisor {
     private readonly decide?: RunOptions["decide"],
   ) {
     this.llm = new LocalLLM(cfg.provider);
+    this.budget = new BudgetTracker(store, cfg.budget);
     if (store) this.recorder = new Recorder(store);
     for (const s of cfg.sessions) {
       this.sessions.set(s.id, {
@@ -94,9 +106,32 @@ export class Supervisor {
     return m?.sess?.isAlive ? m.sess.screenText() : "";
   }
 
+  /** Live (in-progress) usage across running sessions, for budget accounting. */
+  private liveUsage(): { turns: number; minutes: number } {
+    let turns = 0;
+    let minutes = 0;
+    for (const m of this.sessions.values()) {
+      if (m.status === "running" || m.status === "needs-input") {
+        turns += m.turns;
+        if (m.startedAt) minutes += (Date.now() - m.startedAt) / 60_000;
+      }
+    }
+    return { turns, minutes };
+  }
+
+  /** Today's budget status (persisted + live). Exposed for the dashboard. */
+  budgetStatus(): BudgetStatus {
+    return this.budget.status(this.liveUsage());
+  }
+
   start(id: string): void {
     const m = this.sessions.get(id);
     if (!m || m.status === "running") return;
+    const b = this.budgetStatus();
+    if (b.exceeded) {
+      m.lastDecision = `blocked — ${b.reason}`;
+      return; // refuse to start: daily budget spent
+    }
     m.status = "running";
     m.stopRequested = false;
     m.error = undefined;
@@ -104,13 +139,19 @@ export class Supervisor {
     m.lastReply = "";
     m.lastDecision = "";
     m.attention = null;
+    m.startedAt = Date.now();
 
     void runSession(m.config, {
       llm: this.llm,
       limits: this.cfg.limits,
       decide: this.decide,
       onSession: (s) => (m.sess = s),
-      shouldStop: () => m.stopRequested,
+      // Stop on operator request OR when the daily budget is spent (with a reason).
+      shouldStop: () => {
+        if (m.stopRequested) return true;
+        const b = this.budgetStatus();
+        return b.exceeded ? b.reason : false;
+      },
       // Pause on a real human decision: flip to needs-input and hand back a
       // promise the dashboard resolves when the user picks an option.
       resolveAttention: (req) =>
@@ -350,8 +391,16 @@ export class Supervisor {
       case "gate_resolved":
         m.lastDecision = `gate ${e.resolution.kind === "approve" ? "approved" : "denied"}: ${e.request.summary}`;
         break;
+      case "rate_limited":
+        m.status = "rate-limited";
+        m.error = e.detail;
+        break;
       case "stop":
-        m.status = m.stopRequested ? "stopped" : "done";
+        // Don't clobber a rate-limited status with the stop that follows it.
+        if (m.status !== "rate-limited") {
+          m.status = m.stopRequested ? "stopped" : "done";
+          m.lastDecision = `stopped: ${e.reason}`;
+        }
         m.turns = e.turns;
         m.elapsedMin = e.elapsedMin;
         break;

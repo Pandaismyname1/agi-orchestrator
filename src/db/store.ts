@@ -176,6 +176,17 @@ export class Store {
       .all(runId) as unknown as TurnRow[];
   }
 
+  /** Total turns + wall-clock minutes across all runs started since `sinceMs`. */
+  usageSince(sinceMs: number): { turns: number; minutes: number } {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(turns),0) AS turns, COALESCE(SUM(elapsed_min),0) AS minutes
+         FROM runs WHERE started_at >= ?`,
+      )
+      .get(sinceMs) as { turns: number; minutes: number };
+    return row;
+  }
+
   /** Per-session aggregate stats for an analytics view. */
   sessionStats(sessionId: string): { runs: number; totalTurns: number; lastRunAt: number | null } {
     const row = this.db

@@ -76,6 +76,11 @@
       .badge.done { color: var(--blue); border-color: var(--blue); }
       .badge.stopped { color: var(--amber); border-color: var(--amber); }
       .badge.error { color: var(--red); border-color: var(--red); }
+      .badge.rate-limited { color: var(--amber); border-color: var(--amber); }
+      .usage { margin-left: auto; color: var(--muted); font-size: 12px; }
+      .usage b { color: var(--text); }
+      .usage.warn b { color: var(--amber); }
+      .usage.over b { color: var(--red); }
       .badge.needs-input {
         color: #1a1300; background: var(--amber); border-color: var(--amber);
         animation: pulse 1.05s ease-in-out infinite;
@@ -164,6 +169,7 @@
       <h1><b>AGI</b> · autopilot orchestrator</h1>
       <button class="primary" id="startAll">▶ Start all</button>
       <button id="popout" title="Always-on-top status window (Chrome/Edge)">⧉ Pop out</button>
+      <span class="usage" id="usage"></span>
       <div class="provider">
         <span class="dot" id="provdot"></span><span id="prov">connecting…</span>
       </div>
@@ -284,6 +290,16 @@
         const p = snap.provider;
         document.getElementById("prov").textContent = `${p.model}`;
         document.getElementById("provdot").className = "dot " + (p.ok ? "ok" : "bad");
+
+        const b = snap.budget;
+        const uEl = document.getElementById("usage");
+        if (b) {
+          const t = `<b>${b.turns}</b>${b.maxTurns ? "/" + b.maxTurns : ""} turns`;
+          const m = `<b>${Math.round(b.minutes)}</b>${b.maxMinutes ? "/" + b.maxMinutes : ""}m`;
+          uEl.innerHTML = `today: ${t} · ${m}`;
+          const near = (b.maxTurns && b.turns / b.maxTurns >= 0.8) || (b.maxMinutes && b.minutes / b.maxMinutes >= 0.8);
+          uEl.className = "usage" + (b.exceeded ? " over" : near ? " warn" : "");
+        }
 
         // sidebar
         const list = document.getElementById("list");
@@ -430,7 +446,7 @@
         .pdot{width:9px;height:9px;border-radius:50%;background:var(--gray);flex:none;}
         .pdot.running{background:var(--green);} .pdot.done{background:var(--blue);}
         .pdot.stopped{background:var(--amber);} .pdot.error{background:var(--red);}
-        .pdot.needs-input{background:var(--amber);}
+        .pdot.needs-input{background:var(--amber);} .pdot.rate-limited{background:var(--amber);}
         .pname{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
         .pstat{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);}
         .pturn{font-size:10px;color:var(--muted);}
@@ -493,6 +509,7 @@
             if (s.status === "needs-input") notify(`⚠ ${s.id} needs your decision`, (s.attention && s.attention.question) || "");
             else if (s.status === "done") notify(`✓ ${s.id} finished`, "");
             else if (s.status === "error") notify(`⚠ ${s.id} errored`, s.error || "");
+            else if (s.status === "rate-limited") notify(`⏳ ${s.id} rate-limited`, s.error || "");
           }
           prevStatus[s.id] = s.status;
         }

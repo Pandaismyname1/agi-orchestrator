@@ -31,6 +31,18 @@ export function detectAuthError(text: string): boolean {
 }
 
 /**
+ * Detect the subscription usage-limit notice so the orchestrator can pause
+ * instead of hammering a capped account. Deliberately matches only the
+ * DISTINCTIVE system wordings — NOT a bare "rate limit", which would
+ * false-positive when claude is merely writing code about rate limiting.
+ */
+export function detectRateLimit(text: string): boolean {
+  return /usage limit reached|reached your usage limit|you'?ve reached your (usage|account|plan)? ?limit|approaching your usage limit|your (usage )?limit (will )?reset|limit resets? (at|in)\b|out of (usage|credits)\b|upgrade to increase your usage/i.test(
+    text,
+  );
+}
+
+/**
  * For a GATE screen, pick the index of the default/proceed option.
  * Claude highlights the recommended option with "❯" and numbers options 1..N.
  * The highlighted option is almost always the "proceed" choice, so we return
