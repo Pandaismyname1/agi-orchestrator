@@ -17,6 +17,13 @@
     "maxMinutesPerDay": 300
   },
   "maxConcurrent": 3,
+  "contextGuard": {
+    "enabled": false,
+    "window": 200000,
+    "compactAtPercent": 50,
+    "handoffFile": ".agi/handoff.md",
+    "minTurnsBetween": 6
+  },
   "sessions": [
     {
       "id": "demo-website",
@@ -37,6 +44,7 @@
     "limits": "the real budget is rate-limit/turn burn, not money — keep maxTurns sane while testing. stuckTurns: escalate if no files change for N turns in a row (0 = off).",
     "budget": "daily caps across ALL sessions (resets at local midnight). Sessions refuse to start / stop when exceeded. Omit to disable. The dashboard shows today's usage; claude's own usage-limit notice also auto-pauses the session.",
     "maxConcurrent": "max sessions running at once; extra 'Start all' sessions queue and auto-start as slots free (protects the rate limit). Omit for no cap.",
+    "contextGuard": "memory-preserving compaction for long runs. When estimated context use (transcript bytes/4 ÷ window) crosses compactAtPercent, the agent writes a handoff to handoffFile, runs /compact, then resumes from the handoff — so it doesn't overflow or lose the thread. Set enabled:true and window to your model's context (e.g. 200000, or 1000000). minTurnsBetween throttles repeat compactions.",
     "gatePolicy.note": "see permissionMode — gatePolicy only sees gates when claude actually prompts",
     "autonomy": "operator persona: 'cautious' escalates more decisions to you, 'autonomous' fewer, 'balanced' (default) in between"
   }

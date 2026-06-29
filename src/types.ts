@@ -96,6 +96,22 @@ export interface AppConfig {
     permissionMode?: SessionConfig["permissionMode"];
     autonomy?: SessionConfig["autonomy"];
   };
+  /** Memory-preserving context compaction (save handoff → /compact → resume). */
+  contextGuard?: ContextGuardOptions;
+}
+
+/** Tunables for the context-window manager (see policy/context.ts). */
+export interface ContextGuardOptions {
+  /** Master switch. Off by default. */
+  enabled?: boolean;
+  /** Approx model context window in tokens (e.g. 200_000 or 1_000_000). */
+  window?: number;
+  /** Compact once estimated use reaches this percent of the window. */
+  compactAtPercent?: number;
+  /** Handoff file written before compaction, relative to the session cwd. */
+  handoffFile?: string;
+  /** Don't compact again until at least this many turns have passed. */
+  minTurnsBetween?: number;
 }
 
 /**

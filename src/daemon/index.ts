@@ -14,6 +14,7 @@ import { LocalLLM } from "../brain/provider.js";
 import { openStore } from "../db/store.js";
 import { Recorder } from "../db/recorder.js";
 import { runSession, type OrchestratorEvent } from "../orchestrator.js";
+import { ContextGuard } from "../policy/context.js";
 
 function log(e: OrchestratorEvent): void {
   const tag = `[${e.sessionId.slice(0, 8)}]`;
@@ -105,7 +106,14 @@ async function main(): Promise<void> {
     recorder.record(e);
   };
   await Promise.allSettled(
-    cfg.sessions.map((s) => runSession(s, { llm, limits: cfg.limits, onEvent })),
+    cfg.sessions.map((s) =>
+      runSession(s, {
+        llm,
+        limits: cfg.limits,
+        onEvent,
+        contextGuard: new ContextGuard(cfg.contextGuard),
+      }),
+    ),
   );
 
   console.log("\nAll sessions finished.");

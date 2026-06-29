@@ -77,6 +77,16 @@ export class Recorder {
           this.store.addEvent({ sessionId: e.sessionId, runId, type: "gate", payload: e.request });
           break;
         }
+        case "context": {
+          const runId = this.runBySession.get(e.sessionId);
+          this.store.addEvent({
+            sessionId: e.sessionId,
+            runId,
+            type: `context_${e.phase}`,
+            payload: { usedPercent: e.usedPercent },
+          });
+          break;
+        }
         case "gate_resolved": {
           const runId = this.runBySession.get(e.sessionId);
           this.store.addEvent({

@@ -12,6 +12,7 @@ import { LocalLLM } from "../brain/provider.js";
 import { saveConfig } from "../config.js";
 import { Recorder } from "../db/recorder.js";
 import { BudgetTracker, type BudgetStatus } from "../policy/budget.js";
+import { ContextGuard } from "../policy/context.js";
 import type { Store } from "../db/store.js";
 import type {
   AppConfig,
@@ -221,6 +222,7 @@ export class Supervisor {
       llm: this.llm,
       limits: this.cfg.limits,
       decide: this.decide,
+      contextGuard: new ContextGuard(this.cfg.contextGuard),
       resumeId,
       seedPrompt,
       onSession: (s) => {
@@ -588,6 +590,12 @@ export class Supervisor {
       case "rate_limited":
         m.status = "rate-limited";
         m.error = e.detail;
+        break;
+      case "context":
+        m.lastDecision =
+          e.phase === "compacting"
+            ? `compacting context (~${e.usedPercent}% used) — saving handoff…`
+            : `resumed after compaction (was ~${e.usedPercent}%)`;
         break;
       case "stop":
         // Don't clobber a rate-limited status with the stop that follows it.

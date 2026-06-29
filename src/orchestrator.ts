@@ -15,6 +15,7 @@ import { readRecentMessages, readLastAssistantMessage } from "./transcript/reade
 import { LocalLLM } from "./brain/provider.js";
 import { Guards } from "./policy/guards.js";
 import { StuckDetector, fingerprintDir } from "./policy/stuck.js";
+import type { ContextGuard } from "./policy/context.js";
 import { randomUUID } from "node:crypto";
 import type {
   AttentionRequest,
@@ -37,6 +38,7 @@ export type OrchestratorEvent =
   | { type: "gate_resolved"; sessionId: string; request: GateRequest; resolution: GateResolution }
   | { type: "rate_limited"; sessionId: string; detail: string }
   | { type: "stop"; sessionId: string; reason: string; turns: number; elapsedMin: number }
+  | { type: "context"; sessionId: string; phase: "compacting" | "resumed"; usedPercent: number }
   | { type: "error"; sessionId: string; error: string };
 
 export type EventSink = (e: OrchestratorEvent) => void;
@@ -85,6 +87,11 @@ export interface RunOptions {
   mode?: () => "manual" | "autopilot";
   /** In MANUAL mode, block until the user sends a message, switches, or stops. */
   waitForInput?: () => Promise<UserInput>;
+  /**
+   * Proactively compact the conversation before its context window overflows
+   * (save handoff → /compact → resume). Off unless a guard is supplied.
+   */
+  contextGuard?: ContextGuard;
   /**
    * Resume an existing claude conversation by id (overrides session.resumeId).
    * Used to "continue" a finished session in the SAME conversation so its prior
@@ -232,6 +239,21 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
       stuck.record(fingerprintDir(session.cwd)); // did anything change this turn?
       lastResult = result;
       pending = null;
+
+      // ---- context guard: memory-preserving compaction before overflow ----
+      const cg = opts.contextGuard;
+      if (cg?.enabled) {
+        const used = await cg.usedFraction(session.cwd, sess.sessionId, sess.screenText());
+        if (cg.shouldCompact(used, guards.turnCount)) {
+          const usedPercent = Math.round(used * 100);
+          emit({ type: "context", sessionId: session.id, phase: "compacting", usedPercent });
+          await sess.runTurn(cg.savePrompt()); // write the handoff memory
+          await sess.runTurn("/compact"); // compact the conversation
+          lastResult = await sess.runTurn(cg.resumePrompt()); // resume from the handoff
+          cg.markCompacted(guards.turnCount);
+          emit({ type: "context", sessionId: session.id, phase: "resumed", usedPercent });
+        }
+      }
     }
   } catch (e) {
     if (e instanceof RateLimitError) {
