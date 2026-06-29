@@ -160,6 +160,10 @@ Validated features:
   "Start all" launches up to the cap and **queues** the rest, which auto-start as slots free
   (so a fleet can't hammer the rate limit). Queued sessions show a `queued` badge and can be
   cancelled before they run.
+- **Stuck / oscillation detection (Tier 2)** — each turn fingerprints the project (`src/policy/stuck.ts`,
+  ignoring `node_modules`/`.git`/…). If the brain keeps saying "continue" but **nothing on disk changes
+  for `limits.stuckTurns` turns in a row**, the agent is likely spinning — so it **escalates** ("continue
+  / try a different approach / stop") instead of burning turns and budget.
 
 ### Hook-attach mode (optional)
 
@@ -175,6 +179,6 @@ To drive a session you start by hand instead of a daemon-owned one:
 ### Not built yet
 - Per-turn file diff viewer (needs per-turn git snapshots — a Tier 3 git-integration piece).
 - Session dependencies + templates (concurrency cap + queue are done; these are the remaining orchestration bits).
-- Stuck/oscillation detection (no files changed for N turns → escalate).
+- Tier 3: git per-turn snapshots, learning loop (thumbs up/down → tune the operator), attach/detach UI panel.
 - Dashboard UI panel for attach/detach (routes exist; wire a form like the session CRUD).
 - Brain history is last-N messages, not summarized — fine for now, may need trimming on very long runs.

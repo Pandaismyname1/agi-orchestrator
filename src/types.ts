@@ -34,6 +34,8 @@ export interface Limits {
   maxWallClockMin: number;
   /** Stop if the brain produces N near-identical prompts in a row (ping-pong guard). */
   pingPongThreshold: number;
+  /** Escalate if no files change for this many turns in a row (stuck guard). 0 = off. */
+  stuckTurns?: number;
 }
 
 /** Local-LLM provider config (LM Studio / Ollama — both OpenAI-compatible). */

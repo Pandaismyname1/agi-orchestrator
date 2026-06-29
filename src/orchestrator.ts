@@ -14,6 +14,7 @@ import { decideNextStep } from "./brain/decide.js";
 import { readRecentMessages } from "./transcript/reader.js";
 import { LocalLLM } from "./brain/provider.js";
 import { Guards } from "./policy/guards.js";
+import { StuckDetector, fingerprintDir } from "./policy/stuck.js";
 import { randomUUID } from "node:crypto";
 import type {
   AttentionRequest,
@@ -81,6 +82,7 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
   const emit: EventSink = onEvent ?? (() => {});
   const limits: Limits = { ...opts.limits, ...(session.limits ?? {}) };
   const guards = new Guards(limits);
+  const stuck = new StuckDetector();
   const sess = new ClaudeSession(session);
   // Per-gate safety: a dangerous gate pauses here, is surfaced, and is resolved
   // by the human (resolveGate) or default-denied.
@@ -127,11 +129,34 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
       const result = await sess.runTurn(prompt);
       emit({ type: "turn", sessionId: session.id, turnNumber: guards.turnCount, result });
 
+      // Track progress: did anything in the project actually change this turn?
+      stuck.record(fingerprintDir(session.cwd));
+
       // Feed the brain recent history (our injected prompts + claude's replies) so
       // its decisions stay anchored on long projects, not just the last message.
       const history = await readRecentMessages(session.cwd, sess.sessionId, 8);
       const decide = opts.decide ?? decideNextStep;
-      const decision = await decide(llm, session, result.assistantText, guards.turnCount, history);
+      let decision = await decide(llm, session, result.assistantText, guards.turnCount, history);
+
+      // If the brain wants to keep going but nothing has changed on disk for a
+      // while, the agent is likely spinning — escalate instead of burning turns.
+      if (decision.action === "continue" && stuck.isStuck(limits.stuckTurns ?? 0)) {
+        decision = {
+          action: "escalate",
+          reason: `no file changes for ${stuck.streak} turns — possible stall`,
+          question: `This session may be stuck — no files have changed in the last ${stuck.streak} turns. Continue, redirect, or stop?`,
+          options: [
+            { label: "Continue as planned", rationale: "let it proceed with the next step", prompt: decision.prompt ?? "Continue." },
+            {
+              label: "Try a different approach",
+              rationale: "break the loop",
+              prompt:
+                "You appear to be stuck repeating the same approach with no progress. Stop, re-read the goal, state in one line what is actually blocking you, then try a fundamentally different approach.",
+            },
+          ],
+        };
+        stuck.reset(); // give the chosen path room before flagging again
+      }
       emit({ type: "decision", sessionId: session.id, turnNumber: guards.turnCount, decision });
 
       if (decision.action === "stop") {

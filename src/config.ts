@@ -11,6 +11,7 @@ const DEFAULT_LIMITS: Limits = {
   maxTurns: 25,
   maxWallClockMin: 60,
   pingPongThreshold: 3,
+  stuckTurns: 4,
 };
 
 export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json"): Promise<AppConfig> {
