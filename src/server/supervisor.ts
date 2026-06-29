@@ -12,7 +12,13 @@ import { LocalLLM } from "../brain/provider.js";
 import { saveConfig } from "../config.js";
 import { Recorder } from "../db/recorder.js";
 import type { Store } from "../db/store.js";
-import type { AppConfig, AttentionRequest, Resolution, SessionConfig } from "../types.js";
+import type {
+  AppConfig,
+  AttentionRequest,
+  GateResolution,
+  Resolution,
+  SessionConfig,
+} from "../types.js";
 
 export type SessionStatus = "idle" | "running" | "needs-input" | "stopped" | "done" | "error";
 
@@ -38,6 +44,8 @@ interface Managed extends SessionView {
   stopRequested: boolean;
   /** Resolver for the open AttentionRequest's pending promise (if any). */
   resolveAttention?: (r: Resolution) => void;
+  /** Resolver for an open dangerous-gate approval (if any). */
+  resolveGate?: (r: GateResolution) => void;
 }
 
 export class Supervisor {
@@ -116,6 +124,29 @@ export class Supervisor {
             resolve(r);
           };
         }),
+      // A dangerous gate pauses the run for an Approve/Deny — reuses needs-input.
+      resolveGate: (req) =>
+        new Promise<GateResolution>((resolve) => {
+          m.attention = {
+            id: req.id,
+            sessionId: m.id,
+            turnNumber: m.turns,
+            question: `⚠ Approve risky action — ${req.summary}`,
+            options: [
+              { label: "Approve — run it", rationale: "let claude proceed with this", prompt: "" },
+              { label: "Deny — cancel it", rationale: "block it; claude continues another way", prompt: "" },
+            ],
+            createdAt: Date.now(),
+            kind: "gate",
+          };
+          m.status = "needs-input";
+          m.resolveGate = (r) => {
+            m.attention = null;
+            m.resolveGate = undefined;
+            if (m.status === "needs-input") m.status = "running";
+            resolve(r);
+          };
+        }),
       onEvent: (e) => {
         this.onEvent(m, e);
         this.recorder?.record(e);
@@ -133,7 +164,17 @@ export class Supervisor {
    */
   resolveAttention(id: string, choice: { optionIndex?: number; customPrompt?: string; stop?: boolean }): void {
     const m = this.sessions.get(id);
-    if (!m || !m.resolveAttention || !m.attention) return;
+    if (!m) return;
+
+    // Dangerous-gate approval: option 0 = approve, anything else = deny.
+    if (m.resolveGate) {
+      if (choice.stop) m.stopRequested = true; // deny + stop the run
+      const approve = choice.optionIndex === 0 && !choice.customPrompt && !choice.stop;
+      m.resolveGate({ kind: approve ? "approve" : "deny" });
+      return;
+    }
+
+    if (!m.resolveAttention || !m.attention) return;
     if (choice.stop) {
       m.resolveAttention({ kind: "stop" });
       return;
@@ -256,7 +297,13 @@ export class Supervisor {
   stop(id: string): void {
     const m = this.sessions.get(id);
     if (!m) return;
-    // A session paused on a human decision: unblock it with a stop resolution.
+    // Paused on a dangerous gate: deny it and stop the run.
+    if (m.status === "needs-input" && m.resolveGate) {
+      m.stopRequested = true;
+      m.resolveGate({ kind: "deny" });
+      return;
+    }
+    // Paused on a brain decision: unblock it with a stop resolution.
     if (m.status === "needs-input" && m.resolveAttention) {
       m.stopRequested = true;
       m.resolveAttention({ kind: "stop" });
@@ -296,6 +343,12 @@ export class Supervisor {
           e.resolution.kind === "stop"
             ? `you chose: stop`
             : `you chose: ${e.resolution.label}`;
+        break;
+      case "gate":
+        m.lastDecision = `⚠ risky gate: ${e.request.summary}`;
+        break;
+      case "gate_resolved":
+        m.lastDecision = `gate ${e.resolution.kind === "approve" ? "approved" : "denied"}: ${e.request.summary}`;
         break;
       case "stop":
         m.status = m.stopRequested ? "stopped" : "done";

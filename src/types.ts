@@ -15,6 +15,13 @@ export interface SessionConfig {
   doneCriteria: string;
   /** Permission mode for claude. Looser modes = fewer interactive gates. */
   permissionMode?: "default" | "acceptEdits" | "auto" | "bypassPermissions";
+  /**
+   * Gate safety policy.
+   * "guard" (default) — auto-approve safe gates; escalate dangerous ones (or
+   *   default-deny if no human is watching).
+   * "auto" — auto-approve every gate (the old behavior).
+   */
+  gatePolicy?: "guard" | "auto";
   /** Per-session overrides of the global limits. */
   limits?: Partial<Limits>;
 }
@@ -87,12 +94,25 @@ export interface AttentionRequest {
   question: string;
   options: AttentionOption[];
   createdAt: number;
+  /** "turn" = brain escalation; "gate" = a risky permission prompt awaiting approval. */
+  kind?: "turn" | "gate";
 }
 
 /** How a human (or a fallback policy) resolves an AttentionRequest. */
 export type Resolution =
   | { kind: "answer"; prompt: string; label: string }
   | { kind: "stop" };
+
+/** A risky TUI gate (e.g. a destructive shell command) awaiting approval. */
+export interface GateRequest {
+  id: string;
+  sessionId: string;
+  /** What the gate wants to do, e.g. "Bash: rm -rf build". */
+  summary: string;
+}
+
+/** How a risky gate is resolved: approve it, or deny (cancel) it. */
+export type GateResolution = { kind: "approve" } | { kind: "deny" };
 
 /** Result of one driven turn. */
 export interface TurnResult {

@@ -11,10 +11,13 @@
 import { randomUUID } from "node:crypto";
 import * as pty from "node-pty";
 import { VirtualScreen } from "../terminal/screen.js";
-import { classifyScreen, detectAuthError, defaultGateChoice } from "../terminal/state.js";
+import { classifyScreen, detectAuthError } from "../terminal/state.js";
+import { classifyGate } from "../terminal/gates.js";
 import { readLastAssistantMessage } from "../transcript/reader.js";
 import { scrubbedEnv } from "../util/env.js";
-import type { ScreenState, SessionConfig, TurnResult } from "../types.js";
+import type { GateRequest, GateResolution, ScreenState, SessionConfig, TurnResult } from "../types.js";
+
+const ESC = "\x1b"; // cancels/denies a claude TUI gate ("Esc to cancel")
 
 const COLS = 120;
 const ROWS = 40;
@@ -36,6 +39,12 @@ export class ClaudeSession {
   private term: pty.IPty | undefined;
   private exited = false;
   private exitCode: number | null = null;
+
+  /**
+   * Optional handler for a DANGEROUS gate. Returns approve/deny. If unset, the
+   * session default-denies dangerous gates (safe under unattended automation).
+   */
+  onGate?: (req: GateRequest) => Promise<GateResolution>;
 
   constructor(private readonly cfg: SessionConfig) {
     // claude --session-id and the transcript path require a real UUID. The
@@ -118,11 +127,7 @@ export class ClaudeSession {
       const state: ScreenState = classifyScreen(text);
 
       if (state === "gate") {
-        const choice = defaultGateChoice(text);
-        // Move highlight to the default choice is unnecessary — it's already the
-        // highlighted one — so just confirm with Enter.
-        void choice;
-        this.type("\r");
+        await this.handleGate(text);
         gates += 1;
         sawNonReady = true;
         readySince = null;
@@ -146,6 +151,29 @@ export class ClaudeSession {
 
       await sleep(POLL_MS);
     }
+  }
+
+  /**
+   * Handle one gate. Safe gates (and everything under gatePolicy "auto") are
+   * auto-approved with Enter. Dangerous gates under "guard" are escalated via
+   * onGate; approve → Enter, deny → Esc (claude treats Esc as "cancel/no"). With
+   * no handler, dangerous gates default-deny.
+   */
+  private async handleGate(text: string): Promise<void> {
+    const policy = this.cfg.gatePolicy ?? "guard";
+    const cls = classifyGate(text);
+
+    if (policy === "auto" || cls.danger === "safe") {
+      this.type("\r"); // approve the highlighted default
+      return;
+    }
+
+    // Dangerous gate under "guard".
+    const resolution: GateResolution = this.onGate
+      ? await this.onGate({ id: randomUUID(), sessionId: this.sessionId, summary: cls.summary })
+      : { kind: "deny" };
+
+    this.type(resolution.kind === "approve" ? "\r" : ESC);
   }
 
   private type(s: string): void {

@@ -46,6 +46,12 @@ function log(e: OrchestratorEvent): void {
     case "attention_resolved":
       console.log(`${tag} ▶ resolved: ${e.resolution.kind === "stop" ? "stop" : e.resolution.label}`);
       break;
+    case "gate":
+      console.log(`${tag} ⚠ risky gate: ${e.request.summary} (headless: default-deny)`);
+      break;
+    case "gate_resolved":
+      console.log(`${tag} ${e.resolution.kind === "approve" ? "✓ approved" : "⛔ denied"}: ${e.request.summary}`);
+      break;
     case "stop":
       console.log(
         `${tag} ■ STOPPED after ${e.turns} turn(s), ${e.elapsedMin.toFixed(1)}m — ${e.reason}`,

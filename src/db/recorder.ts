@@ -72,6 +72,21 @@ export class Recorder {
           this.store.addEvent({ sessionId: e.sessionId, runId, type: "attention_resolved", payload: { chosen } });
           break;
         }
+        case "gate": {
+          const runId = this.runBySession.get(e.sessionId);
+          this.store.addEvent({ sessionId: e.sessionId, runId, type: "gate", payload: e.request });
+          break;
+        }
+        case "gate_resolved": {
+          const runId = this.runBySession.get(e.sessionId);
+          this.store.addEvent({
+            sessionId: e.sessionId,
+            runId,
+            type: "gate_resolved",
+            payload: { summary: e.request.summary, resolution: e.resolution.kind },
+          });
+          break;
+        }
         case "stop": {
           const runId = this.runBySession.get(e.sessionId);
           if (runId !== undefined) {

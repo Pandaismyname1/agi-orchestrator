@@ -18,6 +18,8 @@ import { randomUUID } from "node:crypto";
 import type {
   AttentionRequest,
   Decision,
+  GateRequest,
+  GateResolution,
   Limits,
   Resolution,
   SessionConfig,
@@ -30,6 +32,8 @@ export type OrchestratorEvent =
   | { type: "decision"; sessionId: string; turnNumber: number; decision: Decision }
   | { type: "attention"; sessionId: string; turnNumber: number; request: AttentionRequest }
   | { type: "attention_resolved"; sessionId: string; request: AttentionRequest; resolution: Resolution }
+  | { type: "gate"; sessionId: string; request: GateRequest }
+  | { type: "gate_resolved"; sessionId: string; request: GateRequest; resolution: GateResolution }
   | { type: "stop"; sessionId: string; reason: string; turns: number; elapsedMin: number }
   | { type: "error"; sessionId: string; error: string };
 
@@ -50,6 +54,11 @@ export interface RunOptions {
    */
   resolveAttention?: (req: AttentionRequest) => Promise<Resolution>;
   /**
+   * Called when a DANGEROUS gate (e.g. `rm -rf`, force-push) needs approval.
+   * Must return approve/deny. If omitted, dangerous gates are default-denied.
+   */
+  resolveGate?: (req: GateRequest) => Promise<GateResolution>;
+  /**
    * Override the brain decision function. Defaults to the real local-LLM
    * decideNextStep. Lets callers inject a faster/different model — or a stub for
    * deterministic tests.
@@ -69,6 +78,16 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
   const limits: Limits = { ...opts.limits, ...(session.limits ?? {}) };
   const guards = new Guards(limits);
   const sess = new ClaudeSession(session);
+  // Per-gate safety: a dangerous gate pauses here, is surfaced, and is resolved
+  // by the human (resolveGate) or default-denied.
+  sess.onGate = async (req): Promise<GateResolution> => {
+    emit({ type: "gate", sessionId: session.id, request: req });
+    const resolution: GateResolution = opts.resolveGate
+      ? await opts.resolveGate(req)
+      : { kind: "deny" };
+    emit({ type: "gate_resolved", sessionId: session.id, request: req, resolution });
+    return resolution;
+  };
   opts.onSession?.(sess);
 
   emit({ type: "start", sessionId: session.id, goal: session.goal });

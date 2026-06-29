@@ -367,23 +367,27 @@
       const drafts = {}; // preserve a half-typed custom prompt across 1s re-renders
 
       function attentionHtml(s, att) {
+        const isGate = att.kind === "gate";
         const opts = (att.options || []).map((o, i) => `
           <button class="opt" data-opt="${i}">
             <b>${esc(o.label)}</b>
             ${o.rationale ? `<small>${esc(o.rationale)}</small>` : ""}
           </button>`).join("");
-        return `
-          <div class="attention">
-            <h3>⚠ Needs your decision</h3>
-            <div class="q">${esc(att.question)}</div>
-            ${opts}
-            <div class="custom">
+        const custom = isGate
+          ? `<div style="display:flex; justify-content:flex-end"><button class="danger" id="att_stop">Stop run</button></div>`
+          : `<div class="custom">
               <textarea id="att_custom" placeholder="…or type your own instruction">${esc(drafts[s.id] || "")}</textarea>
               <div style="display:flex; flex-direction:column; gap:6px">
                 <button class="primary" id="att_send">Send</button>
                 <button class="danger" id="att_stop">Stop run</button>
               </div>
-            </div>
+            </div>`;
+        return `
+          <div class="attention">
+            <h3>${isGate ? "⚠ Risky action — approve?" : "⚠ Needs your decision"}</h3>
+            <div class="q">${esc(att.question)}</div>
+            ${opts}
+            ${custom}
           </div>`;
       }
 

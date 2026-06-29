@@ -138,6 +138,12 @@ Validated features:
   window (Chrome/Edge Document Picture-in-Picture) with a live status chip per session; the
   **needs-input** chip pulses amber and is click-to-focus. Desktop notifications fire when a
   session finishes, errors, or flips to needs-input — so you notice even with the dashboard buried.
+- **Per-gate safety policy (Tier 2)** — instead of blindly auto-confirming every permission prompt,
+  gates are classified (`src/terminal/gates.ts`): safe ones (file edits, `npm test`, trust/MCP)
+  auto-approve, but **dangerous** ones (`rm -rf`, `git push --force`, `sudo`, pipe-to-shell, secrets,
+  network exfil) **escalate** to the human (approve/deny, reusing needs-input) — and **default-deny**
+  (Esc) when unattended. Requires `permissionMode: "default"` so claude actually prompts. Verified
+  live: a `rm -rf` was classified, denied, and the target folder survived.
 
 ### Hook-attach mode (optional)
 
@@ -151,6 +157,7 @@ To drive a session you start by hand instead of a daemon-owned one:
    is down it never blocks your session.
 
 ### Not built yet
-- Per-gate safety policy (currently auto-confirms default; rely on `permissionMode` + brain + escalation).
+- Rate-limit / usage budgeting (track turn/time burn vs the weekly cap; warn + hard-stop).
+- Observability: timeline/replay from SQLite, per-turn diff viewer, metrics.
 - Dashboard UI panel for attach/detach (routes exist; wire a form like the session CRUD).
 - Brain history is last-N messages, not summarized — fine for now, may need trimming on very long runs.
