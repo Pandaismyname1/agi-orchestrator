@@ -3,7 +3,7 @@
  * opened with `?mock` (see ws.svelte.ts) — dynamically imported so it stays out of
  * the main bundle in normal use.
  */
-import type { Snapshot } from "./types";
+import type { Snapshot, RunRow, RunDetail, Metrics } from "./types";
 
 export const MOCK: Snapshot = {
   type: "snapshot",
@@ -129,4 +129,63 @@ export const MOCK: Snapshot = {
       "All tests passing. Ready for the next step.",
     ].join("\n"),
   },
+};
+
+/** Demo history/transcript data (api.ts serves these when `?mock`). */
+export const MOCK_RUNS: RunRow[] = [
+  { id: 7, status: "ended", turns: 3, elapsed_min: 41.2, stop_reason: "goal met — endpoints, docs, and tests complete" },
+  { id: 5, status: "ended", turns: 2, elapsed_min: 12.4, stop_reason: "stopped by user" },
+];
+
+export const MOCK_RUN: RunDetail = {
+  run: MOCK_RUNS[0],
+  turns: [
+    {
+      n: 1,
+      injected_prompt: "Build the REST API with auth, rate limiting, and OpenAPI docs.",
+      assistant_text:
+        "I'll scaffold the Express app, add the /auth routes, and set up a test harness. Starting with the project structure, a health endpoint, and the test runner config.",
+    },
+    {
+      n: 2,
+      injected_prompt: "Implement the login + refresh-token endpoints, with tests.",
+      assistant_text:
+        "Added refresh-token rotation in src/auth/tokens.ts and a regression test in tests/auth.spec.ts.\n\nRunning 14 tests…\n  ✓ issues a refresh token on login\n  ✓ rotates the token on refresh\n  ✓ rejects a reused token\nAll passing.",
+    },
+    {
+      n: 3,
+      injected_prompt: "Actually, do the OpenAPI docs first, before the rate limiting.",
+      assistant_text:
+        "Understood — generated the OpenAPI 3.1 spec at openapi.yaml covering every auth route with request/response examples, and wired Swagger UI at /docs.",
+    },
+  ],
+  decisions: [
+    {
+      n: 1,
+      action: "continue",
+      reason: "Scaffold is in place; proceed to the core auth endpoints.",
+      prompt: "Implement the login + refresh-token endpoints, with tests.",
+    },
+    {
+      n: 2,
+      action: "continue",
+      reason: "Auth works and the tests pass; next add rate limiting.",
+      prompt: "Add rate-limiting middleware and document it.",
+    },
+    {
+      n: 3,
+      action: "stop",
+      reason: "Endpoints, docs, and tests are complete — done criteria met.",
+      prompt: null,
+    },
+  ],
+  events: [],
+};
+
+export const MOCK_METRICS: Metrics = {
+  runs: 2,
+  turns: 5,
+  avgTurns: 2.5,
+  interventionRate: 0.2,
+  byStatus: { ended: 2 },
 };

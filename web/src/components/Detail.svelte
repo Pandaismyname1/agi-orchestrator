@@ -10,6 +10,7 @@
   import AttentionPanel from "./AttentionPanel.svelte";
   import BrainLine from "./BrainLine.svelte";
   import TerminalScreen from "./TerminalScreen.svelte";
+  import Transcript from "./Transcript.svelte";
 
   interface Props {
     session: SessionView | undefined;
@@ -20,6 +21,26 @@
   let active = $derived(!!s && ["running", "manual", "needs-input"].includes(s.status));
   let screen = $derived(s && focus && focus.id === s.id ? focus.screen : "");
   let attention = $derived(s && s.status === "needs-input" ? s.attention : null);
+
+  // Output view: live PTY screen vs the persistent transcript. Defaults to live
+  // while running and flips to the transcript once a session isn't live — reset
+  // per session, but the user can override with the tabs.
+  let view = $state<"live" | "transcript">("live");
+  let userPicked = $state(false);
+  let lastSid = "";
+  $effect(() => {
+    if (s && s.id !== lastSid) {
+      lastSid = s.id;
+      userPicked = false;
+      view = active ? "live" : "transcript";
+    } else if (!userPicked) {
+      view = active ? "live" : "transcript";
+    }
+  });
+  function pickView(v: "live" | "transcript") {
+    userPicked = true;
+    view = v;
+  }
 </script>
 
 <section class="detail">
@@ -63,7 +84,21 @@
     {/if}
 
     <BrainLine session={s} {active} />
-    <TerminalScreen {screen} {active} />
+
+    <div class="otabs">
+      <button class="otab" class:on={view === "live"} onclick={() => pickView("live")}>
+        <span class="odot" class:livedot={active}></span> Live
+      </button>
+      <button class="otab" class:on={view === "transcript"} onclick={() => pickView("transcript")}>
+        <Icon name="clock" size={12} /> Transcript
+      </button>
+    </div>
+
+    {#if view === "live"}
+      <TerminalScreen {screen} {active} />
+    {:else}
+      <Transcript sessionId={s.id} reloadKey={`${s.status}:${s.turns}`} />
+    {/if}
   {/if}
 </section>
 
@@ -141,7 +176,54 @@
     margin: 0 auto 12px;
     opacity: 0.5;
   }
+  .otabs {
+    flex: none;
+    display: flex;
+    gap: 4px;
+    padding: 8px 20px 0;
+    background: var(--color-base-100);
+  }
+  .otab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-neutral-content);
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 6px 12px;
+    cursor: pointer;
+    transition:
+      background 0.15s,
+      color 0.15s;
+  }
+  .otab:hover {
+    color: var(--color-base-content);
+    background: var(--color-base-200);
+  }
+  .otab.on {
+    color: var(--color-base-content);
+    background: var(--color-base-200);
+    border-color: var(--border-soft);
+  }
+  .odot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--st-idle);
+  }
+  .odot.livedot {
+    background: var(--color-primary);
+    box-shadow: 0 0 6px var(--color-primary);
+  }
   @media (max-width: 640px) {
+    .otabs {
+      padding: 8px 14px 0;
+    }
     /* page scrolls as one column on mobile — let the detail flow, not clip */
     .detail {
       overflow: visible;
