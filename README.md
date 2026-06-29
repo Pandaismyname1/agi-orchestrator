@@ -156,6 +156,10 @@ Validated features:
   **timeline replay** (injected prompt → claude's reply → brain decision, with the event sequence),
   and **metrics** (runs, turns, avg turns/run, "needed you" intervention rate, status breakdown).
   Read-only `/api/runs`, `/api/run`, `/api/metrics` endpoints back it.
+- **Concurrency cap + queue (Tier 2)** — `maxConcurrent` limits how many sessions run at once;
+  "Start all" launches up to the cap and **queues** the rest, which auto-start as slots free
+  (so a fleet can't hammer the rate limit). Queued sessions show a `queued` badge and can be
+  cancelled before they run.
 
 ### Hook-attach mode (optional)
 
@@ -170,7 +174,7 @@ To drive a session you start by hand instead of a daemon-owned one:
 
 ### Not built yet
 - Per-turn file diff viewer (needs per-turn git snapshots — a Tier 3 git-integration piece).
-- Multi-session orchestration: concurrency cap, queue/scheduler, session dependencies, templates.
+- Session dependencies + templates (concurrency cap + queue are done; these are the remaining orchestration bits).
 - Stuck/oscillation detection (no files changed for N turns → escalate).
 - Dashboard UI panel for attach/detach (routes exist; wire a form like the session CRUD).
 - Brain history is last-N messages, not summarized — fine for now, may need trimming on very long runs.

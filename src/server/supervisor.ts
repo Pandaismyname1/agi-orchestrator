@@ -21,8 +21,12 @@ import type {
   SessionConfig,
 } from "../types.js";
 
+/** The session-runner the supervisor drives (real one is runSession; tests inject a stub). */
+export type RunFn = (session: SessionConfig, opts: RunOptions) => Promise<void>;
+
 export type SessionStatus =
   | "idle"
+  | "queued"
   | "running"
   | "needs-input"
   | "rate-limited"
@@ -63,15 +67,21 @@ export class Supervisor {
   private readonly llm: LocalLLM;
   private readonly recorder?: Recorder;
   private readonly budget: BudgetTracker;
+  private readonly running = new Set<string>();
+  private readonly queue: string[] = [];
+  private readonly maxConcurrent: number;
 
   constructor(
     private readonly cfg: AppConfig,
     private readonly store?: Store,
     /** Optional brain override (e.g. a faster model, or a test stub). */
     private readonly decide?: RunOptions["decide"],
+    /** Optional session-runner override (defaults to the real orchestrator). */
+    private readonly runner: RunFn = runSession,
   ) {
     this.llm = new LocalLLM(cfg.provider);
     this.budget = new BudgetTracker(store, cfg.budget);
+    this.maxConcurrent = cfg.maxConcurrent && cfg.maxConcurrent > 0 ? cfg.maxConcurrent : Infinity;
     if (store) this.recorder = new Recorder(store);
     for (const s of cfg.sessions) {
       this.sessions.set(s.id, {
@@ -124,14 +134,35 @@ export class Supervisor {
     return this.budget.status(this.liveUsage());
   }
 
+  /** Request a session to run: launch now if a slot is free, else queue it. */
   start(id: string): void {
     const m = this.sessions.get(id);
-    if (!m || m.status === "running") return;
+    if (!m || m.status === "running" || m.status === "queued" || m.status === "needs-input") return;
     const b = this.budgetStatus();
     if (b.exceeded) {
       m.lastDecision = `blocked — ${b.reason}`;
       return; // refuse to start: daily budget spent
     }
+    if (this.running.size >= this.maxConcurrent) {
+      m.status = "queued";
+      m.lastDecision = "queued — waiting for a free slot";
+      if (!this.queue.includes(id)) this.queue.push(id);
+      return;
+    }
+    this.launch(m);
+  }
+
+  /** Start enough queued sessions to fill the concurrency cap. */
+  private pump(): void {
+    while (this.running.size < this.maxConcurrent && this.queue.length > 0) {
+      const next = this.queue.shift()!;
+      const nm = this.sessions.get(next);
+      if (nm && nm.status === "queued") this.launch(nm);
+    }
+  }
+
+  private launch(m: Managed): void {
+    this.running.add(m.id);
     m.status = "running";
     m.stopRequested = false;
     m.error = undefined;
@@ -141,7 +172,7 @@ export class Supervisor {
     m.attention = null;
     m.startedAt = Date.now();
 
-    void runSession(m.config, {
+    void this.runner(m.config, {
       llm: this.llm,
       limits: this.cfg.limits,
       decide: this.decide,
@@ -196,6 +227,8 @@ export class Supervisor {
       // If the loop ended without an explicit stop/error event, mark done.
       if (m.status === "running") m.status = "done";
       m.sess = undefined;
+      this.running.delete(m.id);
+      this.pump(); // free slot -> start the next queued session
     });
   }
 
@@ -338,6 +371,14 @@ export class Supervisor {
   stop(id: string): void {
     const m = this.sessions.get(id);
     if (!m) return;
+    // Queued but not yet running: just remove it from the queue.
+    if (m.status === "queued") {
+      const i = this.queue.indexOf(id);
+      if (i >= 0) this.queue.splice(i, 1);
+      m.status = "idle";
+      m.lastDecision = "";
+      return;
+    }
     // Paused on a dangerous gate: deny it and stop the run.
     if (m.status === "needs-input" && m.resolveGate) {
       m.stopRequested = true;

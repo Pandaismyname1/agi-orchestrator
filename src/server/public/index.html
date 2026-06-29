@@ -73,6 +73,7 @@
         padding: 2px 7px; border-radius: 20px; border: 1px solid var(--border); color: var(--muted);
       }
       .badge.running { color: var(--green); border-color: var(--green); }
+      .badge.queued { color: var(--blue); border-color: var(--blue); opacity: 0.7; }
       .badge.done { color: var(--blue); border-color: var(--blue); }
       .badge.stopped { color: var(--amber); border-color: var(--amber); }
       .badge.error { color: var(--red); border-color: var(--red); }
@@ -464,6 +465,7 @@
         .pdot.running{background:var(--green);} .pdot.done{background:var(--blue);}
         .pdot.stopped{background:var(--amber);} .pdot.error{background:var(--red);}
         .pdot.needs-input{background:var(--amber);} .pdot.rate-limited{background:var(--amber);}
+        .pdot.queued{background:var(--blue);opacity:.6;}
         .pname{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
         .pstat{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);}
         .pturn{font-size:10px;color:var(--muted);}

@@ -58,6 +58,11 @@ export interface AppConfig {
   dbPath?: string;
   /** Daily usage budget across all sessions (protects the subscription cap). */
   budget?: Budget;
+  /**
+   * Max sessions running at once. Extra started sessions queue and auto-start as
+   * slots free up — so a fleet can't hammer the rate limit. Omit for no cap.
+   */
+  maxConcurrent?: number;
 }
 
 /**
