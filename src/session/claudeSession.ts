@@ -9,6 +9,7 @@
  *   - the assistant's MESSAGE TEXT is read from the transcript JSONL (clean, stable)
  */
 import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import * as pty from "node-pty";
 import { VirtualScreen } from "../terminal/screen.js";
 import { classifyScreen, detectAuthError, detectRateLimit } from "../terminal/state.js";
@@ -31,6 +32,8 @@ const MIN_THINK_MS = 1500; // ignore "ready" for this long after injecting (avoi
 export class AuthError extends Error {}
 export class TimeoutError extends Error {}
 export class RateLimitError extends Error {}
+/** The session's working directory is missing or unusable. */
+export class CwdError extends Error {}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -59,19 +62,27 @@ export class ClaudeSession {
 
   /** Spawn claude and wait until it's booted and idle (boot gates auto-cleared). */
   async start(): Promise<void> {
+    this.ensureCwd();
+
     // Resume an existing session, or start a fresh one with a forced id.
     const idArgs = this.cfg.resumeId
       ? ["--resume", this.sessionId]
       : ["--session-id", this.sessionId];
     const args = [...idArgs, "--permission-mode", this.cfg.permissionMode ?? "acceptEdits"];
-    this.term = pty.spawn("claude.exe", args, {
-      name: "xterm-256color",
-      cols: COLS,
-      rows: ROWS,
-      cwd: this.cfg.cwd,
-      env: scrubbedEnv(),
-      useConptyDll: true,
-    });
+    try {
+      this.term = pty.spawn("claude.exe", args, {
+        name: "xterm-256color",
+        cols: COLS,
+        rows: ROWS,
+        cwd: this.cfg.cwd,
+        env: scrubbedEnv(),
+        useConptyDll: true,
+      });
+    } catch (e) {
+      // ConPTY surfaces a missing/invalid cwd as a cryptic
+      // "Cannot create process, error code: 267" (ERROR_DIRECTORY). Make it clear.
+      throw new CwdError(`could not start claude in "${this.cfg.cwd}": ${(e as Error).message}`);
+    }
     this.term.onData((d) => this.screen.write(d));
     this.term.onExit(({ exitCode }) => {
       this.exited = true;
@@ -79,6 +90,28 @@ export class ClaudeSession {
     });
 
     await this.waitForReady(BOOT_TIMEOUT_MS, /*requireThink*/ false);
+  }
+
+  /**
+   * The working directory must exist before ConPTY can spawn into it. For this
+   * tool the cwd is the deliberate workspace you point an agent at, so create it
+   * if it's missing rather than failing with a cryptic OS error. A path that
+   * exists but isn't a directory (or can't be created) is a hard, clear error.
+   */
+  private ensureCwd(): void {
+    const cwd = this.cfg.cwd;
+    if (existsSync(cwd)) {
+      if (!statSync(cwd).isDirectory()) {
+        throw new CwdError(`project path is not a directory: "${cwd}"`);
+      }
+      return;
+    }
+    try {
+      mkdirSync(cwd, { recursive: true });
+      console.log(`[session ${this.cfg.id}] created missing cwd: ${cwd}`);
+    } catch (e) {
+      throw new CwdError(`project directory does not exist and could not be created: "${cwd}" (${(e as Error).message})`);
+    }
   }
 
   /** Inject a prompt and drive the turn to completion; return claude's reply text. */
