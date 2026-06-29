@@ -1,0 +1,155 @@
+<script lang="ts">
+  import { untrack } from "svelte";
+  import type { PermissionMode, Autonomy, SessionMode, SessionView, SessionInput } from "../../lib/types";
+  import { wsStore } from "../../lib/ws.svelte";
+  import { ui } from "../../lib/ui.svelte";
+  import Modal from "../Modal.svelte";
+
+  interface Props {
+    /** Provide `session` to edit; or `adopt` {cwd, resumeId} to resume; else new. */
+    session?: SessionView;
+    adopt?: { cwd: string; resumeId: string };
+  }
+  let { session, adopt }: Props = $props();
+
+  let editing = $derived(!!session);
+  let adopting = $derived(!!adopt);
+
+  // The modal is remounted per open, so these intentionally seed once from props.
+  let id = $state(untrack(() => session?.id ?? ""));
+  let cwd = $state(untrack(() => session?.cwd ?? adopt?.cwd ?? ""));
+  let goal = $state(untrack(() => session?.goal ?? ""));
+  let doneCriteria = $state(untrack(() => session?.doneCriteria ?? ""));
+  let permissionMode = $state<PermissionMode>(untrack(() => session?.permissionMode ?? "acceptEdits"));
+  let autonomy = $state<Autonomy>(untrack(() => session?.autonomy ?? "balanced"));
+  let startMode = $state<SessionMode>(untrack(() => session?.mode ?? (adopt ? "manual" : "autopilot")));
+  let err = $state("");
+
+  const title = $derived(editing ? "Edit session" : adopting ? "Adopt existing session" : "New session");
+
+  function save() {
+    const c = cwd.trim(),
+      g = goal.trim(),
+      d = doneCriteria.trim();
+    if (!c || !g || !d) {
+      err = "cwd, goal, and done criteria are all required.";
+      return;
+    }
+    if (editing && session) {
+      wsStore.send({
+        type: "update",
+        id: session.id,
+        patch: { cwd: c, goal: g, doneCriteria: d, permissionMode, autonomy, startMode },
+      });
+    } else {
+      const payload: SessionInput = {
+        cwd: c,
+        goal: g,
+        doneCriteria: d,
+        permissionMode,
+        autonomy,
+        startMode,
+      };
+      if (id.trim()) payload.id = id.trim();
+      if (adopt) payload.resumeId = adopt.resumeId;
+      wsStore.send({ type: "add", session: payload });
+    }
+    ui.closeModal();
+  }
+</script>
+
+<Modal {title} onclose={() => ui.closeModal()}>
+  {#if adopting}
+    <div class="hint">resuming {adopt!.resumeId.slice(0, 8)}… — give it a goal and pick a mode</div>
+  {/if}
+
+  <label for="f_id">id / label (optional)</label>
+  <input id="f_id" bind:value={id} disabled={editing} placeholder="auto-generated if blank" />
+
+  <label for="f_cwd">cwd (project directory)</label>
+  <input id="f_cwd" bind:value={cwd} placeholder="C:\path\to\project" />
+
+  <label for="f_goal">goal</label>
+  <textarea id="f_goal" bind:value={goal} placeholder="what claude should accomplish"></textarea>
+
+  <label for="f_done">done criteria</label>
+  <textarea id="f_done" bind:value={doneCriteria} placeholder="you are done when…"></textarea>
+
+  <label for="f_perm">permission mode</label>
+  <select id="f_perm" bind:value={permissionMode}>
+    <option value="default">default</option>
+    <option value="acceptEdits">acceptEdits</option>
+    <option value="auto">auto</option>
+    <option value="bypassPermissions">bypassPermissions</option>
+  </select>
+
+  <label for="f_auto">autonomy (how often the brain asks you)</label>
+  <select id="f_auto" bind:value={autonomy}>
+    <option value="cautious">cautious — asks more</option>
+    <option value="balanced">balanced</option>
+    <option value="autonomous">autonomous — asks less</option>
+  </select>
+
+  <label for="f_mode">start mode</label>
+  <select id="f_mode" bind:value={startMode}>
+    <option value="autopilot">autopilot — Qwen drives from the goal</option>
+    <option value="manual">manual — you seed context first, then flip</option>
+  </select>
+
+  <div class="ferr">{err}</div>
+  <div class="facts">
+    <button class="btn btn-sm" onclick={() => ui.closeModal()}>Cancel</button>
+    <button class="btn btn-primary btn-sm" onclick={save}>{editing ? "Save" : "Create"}</button>
+  </div>
+</Modal>
+
+<style>
+  label {
+    display: block;
+    font-size: 11px;
+    color: var(--color-neutral-content);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 13px 0 5px;
+    font-weight: 600;
+  }
+  input,
+  textarea,
+  select {
+    width: 100%;
+    font: inherit;
+    font-size: 13px;
+    color: var(--color-base-content);
+    background: var(--color-base-200);
+    border: 1px solid var(--border-strong);
+    border-radius: 9px;
+    padding: 8px 10px;
+  }
+  textarea {
+    resize: vertical;
+    min-height: 54px;
+  }
+  input:focus,
+  textarea:focus,
+  select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+  .hint {
+    font-size: 12px;
+    color: var(--color-neutral-content);
+    margin-bottom: 10px;
+  }
+  .ferr {
+    color: var(--color-error);
+    font-size: 12px;
+    min-height: 16px;
+    margin-top: 10px;
+  }
+  .facts {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 16px;
+  }
+</style>

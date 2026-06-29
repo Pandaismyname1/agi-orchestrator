@@ -9,7 +9,11 @@
     "dashboard": "tsx src/server/index.ts",
     "dev": "tsx watch src/server/index.ts",
     "pty-smoke": "tsx scripts/pty-smoke.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "web:install": "npm --prefix web install",
+    "web:dev": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build",
+    "web:check": "npm --prefix web run check"
   },
   "dependencies": {
     "@xterm/headless": "^5.5.0",

@@ -8,6 +8,7 @@
  */
 import http from "node:http";
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -101,7 +102,35 @@ async function main(): Promise<void> {
 
   const discovery = new SessionDiscovery();
 
-  const indexHtml = await readFile(path.join(__dirname, "public", "index.html"), "utf8");
+  // Frontend: serve the built Svelte SPA from web/dist when present (run
+  // `npm run web:build`), else fall back to the legacy single-file dashboard.
+  // __dirname = src/server → repo root is two levels up.
+  const repoRoot = path.resolve(__dirname, "..", "..");
+  const webDist = path.join(repoRoot, "web", "dist");
+  const hasSpa = existsSync(path.join(webDist, "index.html"));
+  const staticRoot = hasSpa ? webDist : path.join(__dirname, "public");
+  console.log(hasSpa ? `serving Svelte SPA → ${webDist}` : `serving legacy dashboard (web/dist not built)`);
+
+  const CONTENT_TYPES: Record<string, string> = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".woff2": "font/woff2",
+    ".ico": "image/x-icon",
+  };
+
+  /** Serve a file from the static root, guarding against path traversal. */
+  const serveStatic = async (res: http.ServerResponse, urlPath: string): Promise<boolean> => {
+    const rel = urlPath.replace(/^\/+/, "");
+    const abs = path.join(staticRoot, rel);
+    if (!abs.startsWith(staticRoot) || !existsSync(abs)) return false;
+    const body = await readFile(abs);
+    res.writeHead(200, { "Content-Type": CONTENT_TYPES[path.extname(abs)] ?? "application/octet-stream" });
+    res.end(body);
+    return true;
+  };
 
   /** Read a request's JSON body (small payloads only). */
   const readJson = (req: http.IncomingMessage): Promise<unknown> =>
@@ -125,14 +154,21 @@ async function main(): Promise<void> {
   const server = http.createServer((req, res) => {
     void (async () => {
       if (req.url === "/" || req.url === "/index.html") {
+        const html = await readFile(path.join(staticRoot, "index.html"), "utf8");
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(indexHtml);
+        res.end(html);
         return;
       }
       if (req.url === "/favicon.ico") {
         res.writeHead(204);
         res.end();
         return;
+      }
+
+      // Built SPA assets (hashed JS/CSS/fonts under /assets/, etc.).
+      if (req.method === "GET" && req.url && !req.url.startsWith("/api/")) {
+        const urlPath = req.url.split("?")[0] ?? "/";
+        if (urlPath !== "/" && (await serveStatic(res, urlPath))) return;
       }
 
       // Stop-hook notifier for an attached, hand-started claude session.
