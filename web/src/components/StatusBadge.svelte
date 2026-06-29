@@ -8,10 +8,10 @@
   let { status }: Props = $props();
 </script>
 
-<span class="badge {status}" class:pulse={status === "needs-input"}>{statusLabel(status)}</span>
+<span class="sbadge {status}" class:pulse={status === "needs-input"}>{statusLabel(status)}</span>
 
 <style>
-  .badge {
+  .sbadge {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.6px;

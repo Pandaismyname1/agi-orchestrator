@@ -49,7 +49,7 @@
 {#if openRun}
   {@const decByN = new Map(openRun.decisions.map((d) => [d.n, d]))}
   <Modal title={`run #${openRunId}`} width={620} onclose={() => ui.closeModal()}>
-    <div class="back"><button class="link" onclick={backToList}>← runs</button></div>
+    <div class="back"><button class="backlink" onclick={backToList}>← runs</button></div>
     <div class="events">{openRun.events.map((e) => e.type).join(" → ")}</div>
     {#if openRun.turns.length === 0}
       <div class="empty">no turns recorded</div>
@@ -86,7 +86,7 @@
       {#each runs as r (r.id)}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div class="row" onclick={() => showRun(r.id)}>
-          <span class="badge {r.status === 'ended' ? 'done' : r.status}">{r.status}</span>
+          <span class="sbadge {r.status === 'ended' ? 'done' : r.status}">{r.status}</span>
           <span class="rid">#{r.id}</span>
           <span>turns {r.turns} · {minutes(r.elapsed_min)}</span>
           <span class="reason">{r.stop_reason ?? ""}</span>
@@ -156,7 +156,7 @@
     white-space: nowrap;
     max-width: 240px;
   }
-  .badge {
+  .sbadge {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.6px;
@@ -166,18 +166,18 @@
     border: 1px solid var(--border-soft);
     color: var(--color-neutral-content);
   }
-  .badge.done {
+  .sbadge.done {
     color: var(--st-done);
     border-color: rgba(96, 165, 250, 0.5);
   }
-  .badge.error {
+  .sbadge.error {
     color: var(--st-error);
     border-color: rgba(248, 113, 113, 0.5);
   }
   .back {
     margin-bottom: 8px;
   }
-  .link {
+  .backlink {
     background: none;
     border: none;
     color: var(--color-primary);

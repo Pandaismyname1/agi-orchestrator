@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Provider, Budget } from "../lib/types";
+  import type { Provider, Budget, SessionView } from "../lib/types";
   import { wsStore } from "../lib/ws.svelte";
   import { ui } from "../lib/ui.svelte";
   import { pip } from "../lib/pip.svelte";
@@ -9,8 +9,19 @@
   interface Props {
     provider: Provider | undefined;
     budget: Budget | null | undefined;
+    sessions: SessionView[];
   }
-  let { provider, budget }: Props = $props();
+  let { provider, budget, sessions }: Props = $props();
+
+  let needsYou = $derived(sessions.filter((s) => s.status === "needs-input"));
+  let running = $derived(sessions.filter((s) => s.status === "running" || s.status === "manual").length);
+
+  function jumpToNeedsYou() {
+    const target = needsYou[0];
+    if (!target) return;
+    ui.focusId = target.id;
+    wsStore.send({ type: "focus", id: target.id });
+  }
 </script>
 
 <header>
@@ -22,7 +33,20 @@
     </div>
   </div>
 
+  {#if running > 0}
+    <div class="live" title="Sessions actively running">
+      <span class="pulse-dot"></span>{running} live
+    </div>
+  {/if}
+
   <div class="spacer"></div>
+
+  {#if needsYou.length > 0}
+    <button class="needsyou" onclick={jumpToNeedsYou}>
+      <Icon name="alert" size={14} />
+      {needsYou.length} {needsYou.length === 1 ? "needs" : "need"} you
+    </button>
+  {/if}
 
   <button class="btn btn-primary btn-sm" onclick={() => wsStore.send({ type: "startAll" })}>
     <Icon name="play" size={13} /> Start all
@@ -90,8 +114,64 @@
     color: var(--faint);
     letter-spacing: 0.4px;
   }
+  .live {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-primary);
+    padding: 3px 9px;
+    border: 1px solid rgba(34, 197, 94, 0.35);
+    border-radius: 20px;
+    background: rgba(34, 197, 94, 0.06);
+  }
+  .pulse-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6);
+    animation: ping 1.6s ease-out infinite;
+  }
+  @keyframes ping {
+    0% {
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5);
+    }
+    70%,
+    100% {
+      box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+    }
+  }
   .spacer {
     flex: 1;
+  }
+  .needsyou {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-accent-content);
+    background: var(--color-warning);
+    border: 1px solid var(--color-warning);
+    border-radius: 9px;
+    padding: 6px 12px;
+    cursor: pointer;
+    animation: nag 1.1s ease-in-out infinite;
+  }
+  .needsyou:hover {
+    filter: brightness(1.05);
+  }
+  @keyframes nag {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.5);
+    }
+    50% {
+      box-shadow: 0 0 0 5px rgba(251, 191, 36, 0);
+    }
   }
   .ml {
     margin-left: 8px;

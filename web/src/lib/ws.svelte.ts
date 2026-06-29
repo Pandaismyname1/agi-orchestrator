@@ -21,6 +21,13 @@ class WsStore {
   }
 
   connect(): void {
+    // Design/demo mode: `?mock` paints a fixed snapshot and skips the socket.
+    if (new URLSearchParams(location.search).has("mock")) {
+      this.connected = true;
+      void import("./mock").then((m) => (this.snapshot = m.MOCK));
+      return;
+    }
+
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${proto}://${location.host}/ws`);
     this.#ws = ws;

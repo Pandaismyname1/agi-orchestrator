@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { fade, scale } from "svelte/transition";
   import Icon from "./Icon.svelte";
 
   interface Props {
@@ -21,8 +22,15 @@
 <svelte:window onkeydown={onKey} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="back" onclick={onBackdrop}>
-  <div class="modal" style="width:{width}px" role="dialog" aria-modal="true" aria-label={title}>
+<div class="back" onclick={onBackdrop} transition:fade={{ duration: 120 }}>
+  <div
+    class="dialog"
+    style="width:{width}px"
+    role="dialog"
+    aria-modal="true"
+    aria-label={title}
+    in:scale={{ start: 0.97, duration: 160 }}
+  >
     <div class="head">
       <h2>{title}</h2>
       <button class="btn btn-ghost btn-xs btn-square" onclick={onclose} aria-label="Close">
@@ -44,7 +52,7 @@
     justify-content: center;
     z-index: 50;
   }
-  .modal {
+  .dialog {
     max-width: calc(100vw - 32px);
     max-height: calc(100vh - 48px);
     overflow-y: auto;

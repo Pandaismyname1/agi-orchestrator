@@ -45,10 +45,10 @@
         </button>
       </div>
       <div class="goal">{s.goal}</div>
-      <div class="stats">
-        <span class="stat">turns <b class="tnum">{s.turns}</b></span>
-        <span class="stat">elapsed <b class="tnum">{minutes(s.elapsedMin)}</b></span>
-        <span class="stat">cwd <b>{s.cwd}</b></span>
+      <div class="statrow">
+        <span class="dstat">turns <b class="tnum">{s.turns}</b></span>
+        <span class="dstat">elapsed <b class="tnum">{minutes(s.elapsedMin)}</b></span>
+        <span class="dstat">cwd <b>{s.cwd}</b></span>
       </div>
     </div>
 
@@ -96,17 +96,17 @@
     margin-top: 6px;
     max-width: 80ch;
   }
-  .stats {
+  .statrow {
     margin-top: 10px;
   }
-  .stat {
+  .dstat {
     display: inline-flex;
     gap: 6px;
     margin-right: 18px;
     font-size: 12px;
     color: var(--faint);
   }
-  .stat b {
+  .dstat b {
     color: var(--color-base-content);
     font-weight: 600;
   }

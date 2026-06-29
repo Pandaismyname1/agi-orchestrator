@@ -32,7 +32,7 @@
 </script>
 
 <div class="shell">
-  <Header provider={snap?.provider} budget={snap?.budget} />
+  <Header provider={snap?.provider} budget={snap?.budget} {sessions} />
   <main>
     <Fleet {sessions} />
     <Detail session={focused} focus={snap?.focus} />
