@@ -1,0 +1,108 @@
+/**
+ * The autopilot loop for one session:
+ *
+ *   inject goal -> claude works -> turn ends -> read reply
+ *     -> local brain decides next step (or STOP)
+ *       -> guards check (turns / time / ping-pong)
+ *         -> inject next step -> repeat
+ *
+ * This is the whole point of the project: the brain stands in for the human so
+ * claude never sits idle waiting for you to answer "ok, continue".
+ */
+import { ClaudeSession, AuthError } from "./session/claudeSession.js";
+import { decideNextStep } from "./brain/decide.js";
+import { readRecentMessages } from "./transcript/reader.js";
+import { LocalLLM } from "./brain/provider.js";
+import { Guards } from "./policy/guards.js";
+import type { Decision, Limits, SessionConfig, TurnResult } from "./types.js";
+
+export type OrchestratorEvent =
+  | { type: "start"; sessionId: string; goal: string }
+  | { type: "turn"; sessionId: string; turnNumber: number; result: TurnResult }
+  | { type: "decision"; sessionId: string; turnNumber: number; decision: Decision }
+  | { type: "stop"; sessionId: string; reason: string; turns: number; elapsedMin: number }
+  | { type: "error"; sessionId: string; error: string };
+
+export type EventSink = (e: OrchestratorEvent) => void;
+
+export interface RunOptions {
+  llm: LocalLLM;
+  limits: Limits;
+  onEvent?: EventSink;
+  /** Hands the live session to the caller (for dashboard screen reads + stop). */
+  onSession?: (sess: ClaudeSession) => void;
+  /** Checked at the top of each loop iteration; return true to stop gracefully. */
+  shouldStop?: () => boolean;
+}
+
+export async function runSession(session: SessionConfig, opts: RunOptions): Promise<void> {
+  const { llm, onEvent } = opts;
+  const emit: EventSink = onEvent ?? (() => {});
+  const limits: Limits = { ...opts.limits, ...(session.limits ?? {}) };
+  const guards = new Guards(limits);
+  const sess = new ClaudeSession(session);
+  opts.onSession?.(sess);
+
+  emit({ type: "start", sessionId: session.id, goal: session.goal });
+
+  try {
+    await sess.start();
+
+    let prompt = session.goal;
+    while (true) {
+      if (opts.shouldStop?.()) {
+        emit({
+          type: "stop",
+          sessionId: session.id,
+          reason: "stopped by operator",
+          turns: guards.turnCount,
+          elapsedMin: guards.elapsedMin,
+        });
+        break;
+      }
+      const guard = guards.check(prompt);
+      if (guard.stop) {
+        emit({
+          type: "stop",
+          sessionId: session.id,
+          reason: guard.reason,
+          turns: guards.turnCount,
+          elapsedMin: guards.elapsedMin,
+        });
+        break;
+      }
+
+      const result = await sess.runTurn(prompt);
+      emit({ type: "turn", sessionId: session.id, turnNumber: guards.turnCount, result });
+
+      // Feed the brain recent history (our injected prompts + claude's replies) so
+      // its decisions stay anchored on long projects, not just the last message.
+      const history = await readRecentMessages(session.cwd, sess.sessionId, 8);
+      const decision = await decideNextStep(
+        llm,
+        session,
+        result.assistantText,
+        guards.turnCount,
+        history,
+      );
+      emit({ type: "decision", sessionId: session.id, turnNumber: guards.turnCount, decision });
+
+      if (decision.action === "stop") {
+        emit({
+          type: "stop",
+          sessionId: session.id,
+          reason: decision.reason,
+          turns: guards.turnCount,
+          elapsedMin: guards.elapsedMin,
+        });
+        break;
+      }
+      prompt = decision.prompt!;
+    }
+  } catch (e) {
+    const msg = e instanceof AuthError ? e.message : (e as Error).message;
+    emit({ type: "error", sessionId: session.id, error: msg });
+  } finally {
+    await sess.dispose();
+  }
+}

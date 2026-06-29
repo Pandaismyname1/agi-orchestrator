@@ -1,0 +1,25 @@
+{
+  "name": "agi-orchestrator",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Local autopilot orchestrator: drives interactive Claude Code sessions via owned PTYs, using a local LLM (Qwen) as the human-surrogate decision-maker. Subscription-safe, no Agent SDK, no API key.",
+  "scripts": {
+    "daemon": "tsx src/daemon/index.ts",
+    "dashboard": "tsx src/server/index.ts",
+    "dev": "tsx watch src/server/index.ts",
+    "pty-smoke": "tsx scripts/pty-smoke.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@xterm/headless": "^5.5.0",
+    "node-pty": "^1.0.0",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

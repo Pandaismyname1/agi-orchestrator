@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AGI · autopilot orchestrator</title>
+    <style>
+      :root {
+        --bg: #0b0e14;
+        --panel: #11161f;
+        --panel-2: #161c28;
+        --border: #232b3a;
+        --text: #d7dce5;
+        --muted: #7c8699;
+        --accent: #ffc107;
+        --green: #3ddc84;
+        --blue: #5aa9ff;
+        --amber: #ffb454;
+        --red: #ff5f6e;
+        --gray: #5b6577;
+        font-synthesis: none;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.5 ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 12px 18px;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+      }
+      header h1 { font-size: 15px; margin: 0; letter-spacing: 0.5px; }
+      header h1 b { color: var(--accent); }
+      .provider { margin-left: auto; color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 8px; }
+      .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--gray); display: inline-block; }
+      .dot.ok { background: var(--green); }
+      .dot.bad { background: var(--red); }
+      button {
+        font: inherit;
+        font-size: 12px;
+        color: var(--text);
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        padding: 5px 11px;
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--accent); }
+      button.primary { background: var(--accent); color: #1a1300; border-color: var(--accent); font-weight: 600; }
+      main { flex: 1; display: grid; grid-template-columns: 320px 1fr; min-height: 0; }
+      aside { border-right: 1px solid var(--border); background: var(--panel); overflow-y: auto; }
+      .side-head { display: flex; align-items: center; padding: 12px 14px; gap: 8px; }
+      .side-head span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+      .scard {
+        margin: 0 10px 10px; padding: 11px 12px;
+        background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+        cursor: pointer;
+      }
+      .scard.sel { border-color: var(--accent); }
+      .scard .row1 { display: flex; align-items: center; gap: 8px; }
+      .scard .name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .badge {
+        margin-left: auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+        padding: 2px 7px; border-radius: 20px; border: 1px solid var(--border); color: var(--muted);
+      }
+      .badge.running { color: var(--green); border-color: var(--green); }
+      .badge.done { color: var(--blue); border-color: var(--blue); }
+      .badge.stopped { color: var(--amber); border-color: var(--amber); }
+      .badge.error { color: var(--red); border-color: var(--red); }
+      .scard .meta { color: var(--muted); font-size: 11px; margin-top: 5px; }
+      .scard .acts { display: flex; gap: 6px; margin-top: 9px; }
+      section.detail { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+      .dhead { padding: 14px 18px; border-bottom: 1px solid var(--border); }
+      .dhead .goal { color: var(--muted); font-size: 12px; margin-top: 4px; }
+      .stat { display: inline-flex; gap: 5px; margin-right: 16px; font-size: 12px; color: var(--muted); }
+      .stat b { color: var(--text); }
+      .brain { padding: 10px 18px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 12px; }
+      .brain .lbl { color: var(--accent); font-weight: 600; margin-right: 8px; }
+      .screen-wrap { flex: 1; min-height: 0; overflow: auto; padding: 14px 18px; }
+      pre.screen {
+        margin: 0; font: 12.5px/1.35 ui-monospace, "Cascadia Code", Consolas, monospace;
+        color: #c9d4e3; white-space: pre; tab-size: 2;
+      }
+      .empty { color: var(--muted); padding: 40px; text-align: center; }
+      button.danger:hover { border-color: var(--red); color: var(--red); }
+
+      /* modal */
+      .modal-back {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+        display: flex; align-items: center; justify-content: center; z-index: 50;
+      }
+      .modal {
+        width: 460px; max-width: calc(100vw - 32px); max-height: calc(100vh - 48px);
+        overflow-y: auto;
+        background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+        padding: 18px 20px;
+      }
+      .modal h2 { margin: 0 0 14px; font-size: 15px; }
+      .modal label { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 12px 0 4px; }
+      .modal input, .modal textarea, .modal select {
+        width: 100%; font: inherit; font-size: 13px; color: var(--text);
+        background: var(--panel-2); border: 1px solid var(--border); border-radius: 7px;
+        padding: 7px 9px;
+      }
+      .modal textarea { resize: vertical; min-height: 52px; }
+      .modal input:focus, .modal textarea:focus, .modal select:focus { outline: none; border-color: var(--accent); }
+      .modal .ferr { color: var(--red); font-size: 12px; min-height: 16px; margin-top: 10px; }
+      .modal .facts { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+
+      /* toast */
+      #toast {
+        position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+        background: var(--panel-2); border: 1px solid var(--red); color: var(--text);
+        padding: 9px 14px; border-radius: 8px; font-size: 13px; z-index: 60;
+        max-width: 70vw; box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+        opacity: 0; pointer-events: none; transition: opacity 0.2s;
+      }
+      #toast.show { opacity: 1; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1><b>AGI</b> · autopilot orchestrator</h1>
+      <button class="primary" id="startAll">▶ Start all</button>
+      <div class="provider">
+        <span class="dot" id="provdot"></span><span id="prov">connecting…</span>
+      </div>
+    </header>
+    <main>
+      <aside>
+        <div class="side-head">
+          <span>Sessions</span>
+          <button id="newSession" style="margin-left:auto">➕ New session</button>
+        </div>
+        <div id="list"></div>
+      </aside>
+      <section class="detail" id="detail">
+        <div class="empty">No session selected.</div>
+      </section>
+    </main>
+
+    <div id="modalRoot"></div>
+    <div id="toast"></div>
+
+    <script>
+      let focusId = null;
+      let last = null;
+      let ws;
+
+      function connect() {
+        ws = new WebSocket(`ws://${location.host}/ws`);
+        ws.onmessage = (ev) => {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === "error") { toast(msg.message); return; }
+          if (msg.type === "snapshot") { render(msg); return; }
+        };
+        ws.onclose = () => setTimeout(connect, 1000);
+      }
+      function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+      document.getElementById("startAll").onclick = () => send({ type: "startAll" });
+      document.getElementById("newSession").onclick = () => openForm(null);
+
+      let toastTimer = null;
+      function toast(message) {
+        const el = document.getElementById("toast");
+        el.textContent = message;
+        el.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => el.classList.remove("show"), 4000);
+      }
+
+      // Open the add/edit form. Pass null to add, or a session object to edit.
+      function openForm(sess) {
+        const editing = !!sess;
+        const root = document.getElementById("modalRoot");
+        root.innerHTML = `
+          <div class="modal-back" id="modalBack">
+            <div class="modal">
+              <h2>${editing ? "Edit session" : "New session"}</h2>
+              <label>id / label (optional)</label>
+              <input id="f_id" ${editing ? "disabled" : ""} value="${editing ? esc(sess.id) : ""}" placeholder="auto-generated if blank" />
+              <label>cwd (project directory)</label>
+              <input id="f_cwd" value="${editing ? esc(sess.cwd) : ""}" placeholder="C:\\path\\to\\project" />
+              <label>goal</label>
+              <textarea id="f_goal" placeholder="what claude should accomplish">${editing ? esc(sess.goal) : ""}</textarea>
+              <label>done criteria</label>
+              <textarea id="f_done" placeholder="you are done when…">${editing && sess.doneCriteria ? esc(sess.doneCriteria) : ""}</textarea>
+              <label>permission mode</label>
+              <select id="f_perm">
+                <option value="default">default</option>
+                <option value="acceptEdits">acceptEdits</option>
+                <option value="auto">auto</option>
+                <option value="bypassPermissions">bypassPermissions</option>
+              </select>
+              <div class="ferr" id="f_err"></div>
+              <div class="facts">
+                <button id="f_cancel">Cancel</button>
+                <button class="primary" id="f_save">${editing ? "Save" : "Create"}</button>
+              </div>
+            </div>
+          </div>`;
+
+        const permSel = document.getElementById("f_perm");
+        permSel.value = (editing && sess.permissionMode) ? sess.permissionMode : "acceptEdits";
+
+        const close = () => { root.innerHTML = ""; };
+        document.getElementById("f_cancel").onclick = close;
+        document.getElementById("modalBack").onclick = (e) => {
+          if (e.target.id === "modalBack") close();
+        };
+
+        document.getElementById("f_save").onclick = () => {
+          const cwd = document.getElementById("f_cwd").value.trim();
+          const goal = document.getElementById("f_goal").value.trim();
+          const doneCriteria = document.getElementById("f_done").value.trim();
+          const permissionMode = permSel.value;
+          const errEl = document.getElementById("f_err");
+          if (!cwd || !goal || !doneCriteria) {
+            errEl.textContent = "cwd, goal, and done criteria are all required.";
+            return;
+          }
+          if (editing) {
+            send({ type: "update", id: sess.id, patch: { cwd, goal, doneCriteria, permissionMode } });
+          } else {
+            const id = document.getElementById("f_id").value.trim();
+            const session = { cwd, goal, doneCriteria, permissionMode };
+            if (id) session.id = id;
+            send({ type: "add", session });
+          }
+          close();
+        };
+      }
+
+      function esc(s) {
+        return (s || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+      }
+
+      function render(snap) {
+        last = snap;
+        if (!focusId && snap.sessions[0]) focusId = snap.sessions[0].id;
+
+        const p = snap.provider;
+        document.getElementById("prov").textContent = `${p.model}`;
+        document.getElementById("provdot").className = "dot " + (p.ok ? "ok" : "bad");
+
+        // sidebar
+        const list = document.getElementById("list");
+        list.innerHTML = snap.sessions.map((s) => `
+          <div class="scard ${s.id === focusId ? "sel" : ""}" data-id="${esc(s.id)}">
+            <div class="row1">
+              <span class="name">${esc(s.id)}</span>
+              <span class="badge ${s.status}">${s.status}</span>
+            </div>
+            <div class="meta">turn ${s.turns} · ${s.elapsedMin ? s.elapsedMin.toFixed(1) + "m" : "—"}</div>
+            <div class="acts">
+              ${s.status === "running"
+                ? `<button data-act="stop" data-id="${esc(s.id)}">■ Stop</button>`
+                : `<button data-act="start" data-id="${esc(s.id)}">▶ Start</button>
+                   <button data-act="edit" data-id="${esc(s.id)}">✎ Edit</button>
+                   <button class="danger" data-act="delete" data-id="${esc(s.id)}">🗑 Delete</button>`}
+            </div>
+          </div>`).join("");
+
+        list.querySelectorAll(".scard").forEach((el) => {
+          el.onclick = (e) => {
+            if (e.target.dataset.act) return;
+            focusId = el.dataset.id;
+            send({ type: "focus", id: focusId });
+            render(last);
+          };
+        });
+        list.querySelectorAll("button[data-act]").forEach((b) => {
+          b.onclick = (e) => {
+            e.stopPropagation();
+            const id = b.dataset.id;
+            const act = b.dataset.act;
+            if (act === "edit") {
+              const target = snap.sessions.find((x) => x.id === id);
+              if (target) openForm(target);
+            } else if (act === "delete") {
+              if (confirm(`Delete session "${id}"? This removes it from config.json.`)) {
+                send({ type: "remove", id });
+              }
+            } else {
+              send({ type: act, id });
+            }
+          };
+        });
+
+        // detail
+        const s = snap.sessions.find((x) => x.id === focusId);
+        const detail = document.getElementById("detail");
+        if (!s) { detail.innerHTML = `<div class="empty">No session selected.</div>`; return; }
+        const screen = snap.focus && snap.focus.id === s.id ? snap.focus.screen : "";
+        detail.innerHTML = `
+          <div class="dhead">
+            <div class="row1">
+              <span class="name" style="font-weight:600">${esc(s.id)}</span>
+              <span class="badge ${s.status}" style="margin-left:10px">${s.status}</span>
+            </div>
+            <div class="goal">${esc(s.goal)}</div>
+            <div style="margin-top:8px">
+              <span class="stat">turns <b>${s.turns}</b></span>
+              <span class="stat">elapsed <b>${s.elapsedMin ? s.elapsedMin.toFixed(1) + "m" : "—"}</b></span>
+              <span class="stat">cwd <b>${esc(s.cwd)}</b></span>
+            </div>
+          </div>
+          <div class="brain">
+            <span class="lbl">brain</span>${esc(s.lastDecision) || '<span style="color:var(--muted)">—</span>'}
+            ${s.error ? `<div style="color:var(--red);margin-top:6px">${esc(s.error)}</div>` : ""}
+          </div>
+          <div class="screen-wrap">
+            ${screen
+              ? `<pre class="screen">${esc(screen)}</pre>`
+              : `<div class="empty">${s.status === "running" ? "waiting for screen…" : "session not running"}</div>`}
+          </div>`;
+      }
+
+      connect();
+    </script>
+  </body>
+</html>

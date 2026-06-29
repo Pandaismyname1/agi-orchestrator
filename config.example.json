@@ -1,0 +1,29 @@
+{
+  "provider": {
+    "baseUrl": "http://localhost:1234/v1",
+    "model": "qwen2.5-coder-14b-instruct",
+    "apiKey": "local",
+    "temperature": 0.3
+  },
+  "limits": {
+    "maxTurns": 25,
+    "maxWallClockMin": 60,
+    "pingPongThreshold": 3
+  },
+  "port": 4317,
+  "sessions": [
+    {
+      "id": "demo-website",
+      "cwd": "C:\\Users\\panda\\Desktop\\friend-website",
+      "goal": "Build a simple one-page marketing website for my friend's coffee shop: hero, menu, hours, location map embed, contact form. Plain HTML/CSS, no framework.",
+      "doneCriteria": "index.html exists and renders all five sections with placeholder content, looks reasonable, and has no obvious broken markup.",
+      "permissionMode": "acceptEdits"
+    }
+  ],
+  "_notes": {
+    "provider.baseUrl": "LM Studio = http://localhost:1234/v1 ; Ollama = http://localhost:11434/v1",
+    "provider.model": "must match what the local server reports under /v1/models",
+    "permissionMode": "acceptEdits auto-accepts file edits; 'bypassPermissions' = fully unattended (riskier); 'default' = prompts more",
+    "limits": "the real budget is rate-limit/turn burn, not money — keep maxTurns sane while testing"
+  }
+}

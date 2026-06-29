@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.log
+.env
+.DS_Store
+data/
+logs/
+.scratch/
+.playwright-mcp/
+*.png
+config.json
+
+# local Claude Code settings (personal, not shared)
+.claude/settings.local.json
