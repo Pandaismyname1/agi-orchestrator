@@ -18,6 +18,16 @@ import { decideNextStep, refineEscalation } from "../brain/decide.js";
 import { assessGoal, type IntakeInput, type IntakeResult } from "../brain/intake.js";
 import { suggestTemplates, suggestDependsOn } from "../policy/suggest.js";
 import { catalogWithInstalled, findCatalogTemplate, type CatalogEntry } from "../policy/catalog.js";
+import {
+  fetchRegistry,
+  publishRecipe,
+  recipeFromTemplate,
+  canBrowse,
+  canPublish,
+  type FetchLike,
+  type RemoteRecipe,
+  type PublishResult,
+} from "../registry/client.js";
 import { isDue, hasActiveTrigger, parseHHMM } from "../policy/schedule.js";
 import { restoreTo, type RestoreResult } from "../git/diff.js";
 import { openPullRequest, defaultRunner, type Runner as PrRunner } from "../git/pr.js";
@@ -174,6 +184,8 @@ export class Supervisor {
   private readonly prRunner: PrRunner;
   /** Structured logger for unattended-run lifecycle events. */
   private readonly log: Logger;
+  /** HTTP client for the remote template registry (injectable for offline tests). */
+  private readonly registryFetch: FetchLike;
 
   constructor(
     private readonly cfg: AppConfig,
@@ -188,8 +200,11 @@ export class Supervisor {
     prRunner?: PrRunner,
     /** Optional shared logger; defaults to a console-quiet one so tests stay silent. */
     log?: Logger,
+    /** Optional fetch for the remote registry (tests inject a stub; defaults to global fetch). */
+    registryFetch?: FetchLike,
   ) {
     this.prRunner = prRunner ?? defaultRunner;
+    this.registryFetch = registryFetch ?? ((url, init) => fetch(url, init));
     // When the server injects its logger we share it; otherwise default to a
     // file-only/quiet logger so unit tests don't print lifecycle chatter.
     this.log = log ?? createLogger({ ...(cfg.logging ?? {}), console: false });
@@ -897,6 +912,32 @@ export class Supervisor {
       startMode: entry.startMode,
       catalogId: entry.catalogId,
     });
+  }
+
+  // ---- remote template registry (marketplace network layer) ---------------
+
+  /** Whether browsing/publishing the remote registry is configured (UI gating). */
+  registryStatus(): { canBrowse: boolean; canPublish: boolean } {
+    return { canBrowse: canBrowse(this.cfg.registry), canPublish: canPublish(this.cfg.registry) };
+  }
+
+  /** Fetch community recipes from the configured registry (never throws). */
+  async fetchRegistry(): Promise<{ canBrowse: boolean; canPublish: boolean; recipes: RemoteRecipe[]; error?: string }> {
+    const status = this.registryStatus();
+    const res = await fetchRegistry(this.cfg.registry, this.registryFetch);
+    if (res.ok) this.log.info("registry fetched", { count: res.recipes.length });
+    else if (status.canBrowse) this.log.warn("registry fetch failed", { error: res.error });
+    return { ...status, recipes: res.recipes, error: res.ok ? undefined : res.error };
+  }
+
+  /** Publish a local template to the configured registry. */
+  async publishTemplate(id: string): Promise<PublishResult> {
+    const tpl = this.cfg.templates?.find((t) => t.id === id);
+    if (!tpl) return { ok: false, error: `no template with id "${id}".` };
+    const res = await publishRecipe(this.cfg.registry, recipeFromTemplate(tpl), this.registryFetch);
+    if (res.ok) this.log.info("template published", { template: tpl.name, url: res.url });
+    else this.log.warn("template publish failed", { template: tpl.name, error: res.error });
+    return res;
   }
 
   /** Snapshot an existing session's settings into a new reusable template. */

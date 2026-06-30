@@ -245,6 +245,28 @@ export interface CatalogEntry {
   installed: boolean;
 }
 
+/** A community recipe fetched from the remote registry. */
+export interface RemoteRecipe {
+  catalogId: string;
+  name: string;
+  description?: string;
+  goal?: string;
+  doneCriteria?: string;
+  permissionMode?: PermissionMode;
+  autonomy?: Autonomy;
+  startMode?: SessionMode;
+  author?: string;
+  version?: string;
+}
+
+/** Remote registry browse result (GET /api/registry) + opt-in capability flags. */
+export interface RegistryResult {
+  canBrowse: boolean;
+  canPublish: boolean;
+  recipes: RemoteRecipe[];
+  error?: string;
+}
+
 /** A session lifecycle event a webhook can fire on. */
 export type WebhookEvent = "done" | "error" | "stopped" | "needs-input" | "rate-limited";
 
@@ -409,6 +431,7 @@ export type ClientMsg =
   | { type: "templateSave"; template: TemplateInput }
   | { type: "templateDelete"; id: string }
   | { type: "catalogInstall"; catalogId: string }
+  | { type: "registryPublish"; id: string }
   | { type: "saveAsTemplate"; id: string; name: string }
   | { type: "webhookSave"; webhook: WebhookInput }
   | { type: "webhookDelete"; id: string }

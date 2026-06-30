@@ -166,6 +166,22 @@ export interface AppConfig {
   reliability?: ReliabilityOptions;
   /** Structured logging (level + optional rotating file). Console-only if omitted. */
   logging?: LoggingOptions;
+  /** Remote template registry (browse/install community recipes; publish your own). Off unless a url is set. */
+  registry?: RegistryOptions;
+}
+
+/**
+ * Remote template registry config (the "marketplace" network layer). Entirely
+ * opt-in: with no `url`, browsing is disabled; with no `publishUrl`, publishing
+ * is disabled. This is template DATA only — it never touches the local-only brain.
+ */
+export interface RegistryOptions {
+  /** URL returning a JSON array of recipes (GET). Omit to disable browsing. */
+  url?: string;
+  /** URL a recipe is POSTed to when publishing. Omit to disable publishing. */
+  publishUrl?: string;
+  /** Optional bearer token sent on registry requests (publish, and fetch if needed). */
+  token?: string;
 }
 
 /** Structured-logging config (see src/util/logger.ts). */

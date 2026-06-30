@@ -6,6 +6,8 @@
     SessionTemplate,
     TemplateInput,
     CatalogEntry,
+    RemoteRecipe,
+    RegistryResult,
   } from "../../lib/types";
   import { wsStore } from "../../lib/ws.svelte";
   import { ui } from "../../lib/ui.svelte";
@@ -28,6 +30,36 @@
   function install(c: CatalogEntry): void {
     wsStore.send({ type: "catalogInstall", catalogId: c.catalogId });
     ui.toast(`installed “${c.name}”`);
+  }
+
+  // Remote community registry (opt-in network layer). Fetched once when the modal
+  // opens; capability flags decide whether the browse/publish UI shows at all.
+  let registry = $state<RegistryResult | null>(null);
+  $effect(() => {
+    api.registry().then((r) => (registry = r)).catch(() => (registry = null));
+  });
+  // Install a remote recipe via the normal (validated) template path.
+  function installRemote(r: RemoteRecipe): void {
+    wsStore.send({
+      type: "templateSave",
+      template: {
+        name: r.name,
+        description: r.description,
+        goal: r.goal,
+        doneCriteria: r.doneCriteria,
+        permissionMode: r.permissionMode,
+        autonomy: r.autonomy,
+        startMode: r.startMode,
+        catalogId: r.catalogId,
+      },
+    });
+    ui.toast(`installed “${r.name}”`);
+  }
+  // Publish a local template to the registry (sends content to an external service).
+  function publish(t: SessionTemplate): void {
+    if (!confirm(`Publish “${t.name}” to the configured registry? It will be sent to an external service.`)) return;
+    wsStore.send({ type: "registryPublish", id: t.id });
+    ui.toast("publishing…");
   }
 
   // Export a template to a shareable JSON file (recipe only — no ids/timestamps).
@@ -202,6 +234,16 @@
               >
                 <Icon name="download" size={13} />
               </button>
+              {#if registry?.canPublish}
+                <button
+                  class="btn btn-xs btn-square"
+                  aria-label={`Publish template ${t.name}`}
+                  title="Publish to the remote registry"
+                  onclick={() => publish(t)}
+                >
+                  <Icon name="send" size={13} />
+                </button>
+              {/if}
               <button
                 class="btn btn-xs btn-square"
                 aria-label={`Edit template ${t.name}`}
@@ -250,6 +292,43 @@
                 </div>
                 <button class="btn btn-xs" title={`Install “${c.name}”`} onclick={() => install(c)}>
                   <Icon name="plus" size={12} /> Install
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Community registry: opt-in remote recipes (only shown when configured). -->
+    {#if registry?.canBrowse}
+      {@const remoteAvail = registry.recipes.filter((r) => !installedIds.has(r.catalogId))}
+      <div class="tm-section">
+        <div class="tm-section-head">
+          <Icon name="plug" size={13} />
+          <span>Community registry</span>
+          <span class="tm-section-sub">recipes shared from a remote source</span>
+        </div>
+        {#if registry.error}
+          <div class="tm-lib-empty">Couldn't reach the registry — {registry.error}</div>
+        {:else if remoteAvail.length === 0}
+          <div class="tm-lib-empty">Nothing new in the registry right now.</div>
+        {:else}
+          <div class="tm-lib">
+            {#each remoteAvail as r (r.catalogId)}
+              <div class="tm-lib-row">
+                <div class="tm-main">
+                  <div class="tm-name">{r.name}</div>
+                  {#if r.description}<div class="tm-desc">{r.description}</div>{/if}
+                  <div class="tm-badges">
+                    {#if r.author}<span class="tm-badge">by {r.author}</span>{/if}
+                    {#if r.version}<span class="tm-badge">v{r.version}</span>{/if}
+                    {#if r.startMode}<span class="tm-badge">{r.startMode}</span>{/if}
+                    {#if r.autonomy}<span class="tm-badge">{r.autonomy}</span>{/if}
+                  </div>
+                </div>
+                <button class="btn btn-xs" title={`Install “${r.name}”`} onclick={() => installRemote(r)}>
+                  <Icon name="download" size={12} /> Install
                 </button>
               </div>
             {/each}

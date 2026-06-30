@@ -86,6 +86,12 @@
     "maxBytes": 5242880,
     "maxFiles": 5
   },
+  "_registry_note": "OPTIONAL remote template registry (the marketplace network layer). OFF unless you set a url. 'url' (GET) returns a JSON array of recipes (or {\"recipes\":[…]}) to browse + install in the Templates manager; 'publishUrl' (POST) is where 'Publish' sends a local template; 'token' is an optional bearer token sent on both. This carries TEMPLATE DATA ONLY and is entirely separate from the local-only decision brain — it never affects subscription-safety. Publishing sends content to an external service, so it's always a deliberate, confirmed click. Omit this whole block to keep everything local.",
+  "registry": {
+    "url": "",
+    "publishUrl": "",
+    "token": ""
+  },
   "sessions": [
     {
       "id": "demo-website",

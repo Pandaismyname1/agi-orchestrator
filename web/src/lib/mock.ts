@@ -15,7 +15,19 @@ import type {
   RunningClaude,
   Analytics,
   CatalogEntry,
+  RegistryResult,
 } from "./types";
+
+/** Demo remote registry for the Templates modal under `?mock`. */
+export const MOCK_REGISTRY: RegistryResult = {
+  canBrowse: true,
+  canPublish: true,
+  recipes: [
+    { catalogId: "gdpr-audit", name: "GDPR data-flow audit", description: "Map personal-data flows and flag compliance gaps.", goal: "Audit where personal data is collected, stored, and shared; report gaps.", doneCriteria: "A data-flow map + prioritized gap list is written.", permissionMode: "default", autonomy: "cautious", startMode: "autopilot", author: "community", version: "1.2.0" },
+    { catalogId: "a11y-sweep", name: "Accessibility sweep", description: "Find and fix WCAG issues across the UI.", goal: "Audit the UI for WCAG 2.1 AA issues and fix the straightforward ones.", doneCriteria: "Automated a11y checks pass; remaining issues are logged.", permissionMode: "acceptEdits", autonomy: "balanced", startMode: "autopilot", author: "a11y-guild", version: "0.4.1" },
+    { catalogId: "i18n-extract", name: "i18n string extraction", description: "Extract hardcoded UI strings into a locale file.", goal: "Extract hardcoded user-facing strings into the i18n catalog and wire them up.", doneCriteria: "Strings are externalized; the app builds and renders unchanged.", permissionMode: "acceptEdits", autonomy: "balanced", startMode: "autopilot", author: "community" },
+  ],
+};
 
 /** Demo starter catalog for the Templates modal under `?mock`. */
 export const MOCK_CATALOG: CatalogEntry[] = [

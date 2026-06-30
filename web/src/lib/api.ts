@@ -6,6 +6,7 @@ import type {
   Analytics,
   AttachInput,
   CatalogEntry,
+  RegistryResult,
   RunningClaude,
   DiscoveredSession,
   DraftProposal,
@@ -102,6 +103,9 @@ export const api = {
   /** Built-in starter-template catalog with installed flags (GET /api/catalog). */
   catalog: (): Promise<CatalogEntry[]> =>
     isMock() ? import("./mock").then((m) => m.MOCK_CATALOG) : getJson<CatalogEntry[]>("/api/catalog"),
+  /** Remote community recipe registry (GET /api/registry). */
+  registry: (): Promise<RegistryResult> =>
+    isMock() ? import("./mock").then((m) => m.MOCK_REGISTRY) : getJson<RegistryResult>("/api/registry"),
   /** Fleet + per-session performance analytics (GET /api/analytics). */
   analytics: (): Promise<Analytics> =>
     isMock() ? import("./mock").then((m) => m.MOCK_ANALYTICS) : getJson<Analytics>("/api/analytics"),

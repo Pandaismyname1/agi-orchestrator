@@ -89,7 +89,7 @@ interface ClientMsg {
     | "start" | "stop" | "startAll" | "stopAll" | "focus" | "add" | "update" | "remove" | "resolve"
     | "setMode" | "sendMessage" | "updateSettings" | "continue"
     | "learnSynthesize" | "learnApprove" | "learnReject" | "learnRevert"
-    | "templateSave" | "templateDelete" | "saveAsTemplate" | "catalogInstall"
+    | "templateSave" | "templateDelete" | "saveAsTemplate" | "catalogInstall" | "registryPublish"
     | "webhookSave" | "webhookDelete" | "webhookTest"
     | "rollback" | "detach"
     | "decisionFeedback" | "decisionFeedbackAt";
@@ -392,6 +392,7 @@ async function main(): Promise<void> {
           return;
         }
         if (u.pathname === "/api/catalog") return sendJson(res, 200, sup.listCatalog());
+        if (u.pathname === "/api/registry") return sendJson(res, 200, await sup.fetchRegistry());
         if (u.pathname === "/api/learning") return sendJson(res, 200, sup.learningSummary());
         if (u.pathname === "/api/learning/draft") {
           return sendJson(res, 200, sup.learningDraft(u.searchParams.get("scope") ?? undefined));
@@ -565,6 +566,24 @@ async function main(): Promise<void> {
           } catch (e) {
             sendError(e instanceof Error ? e.message : String(e));
           }
+          break;
+        case "registryPublish":
+          // Publish a local template to the remote registry. Sends content to an
+          // external service — strictly a user-initiated action, gated on the
+          // registry being configured (publishTemplate fails soft otherwise).
+          if (!msg.id) {
+            sendError("missing template id.");
+            break;
+          }
+          sup
+            .publishTemplate(msg.id)
+            .then((r) => {
+              const note = r.ok
+                ? `✓ published${r.url ? ` — ${r.url}` : ""}`
+                : `✗ publish failed: ${r.error ?? "unknown error"}`;
+              if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: r.ok ? "notice" : "error", message: note }));
+            })
+            .catch((e) => sendError(e instanceof Error ? e.message : String(e)));
           break;
         case "webhookSave":
           try {
