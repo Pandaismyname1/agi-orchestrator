@@ -28,6 +28,7 @@
     chevronRight: "M9 18l6-6-6-6",
     layers: "M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
     pulse: "M3 12h4l2 5 4-13 2 8h4",
+    search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3",
     graph: "",
     chart: "",
     thumbsUp:

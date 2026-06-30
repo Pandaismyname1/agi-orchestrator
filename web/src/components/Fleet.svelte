@@ -2,6 +2,7 @@
   import type { SessionView } from "../lib/types";
   import { ui } from "../lib/ui.svelte";
   import { wsStore } from "../lib/ws.svelte";
+  import { filterSessions } from "../lib/filter";
   import Icon from "./Icon.svelte";
   import AgentCard from "./AgentCard.svelte";
   import AttachedPanel from "./AttachedPanel.svelte";
@@ -12,6 +13,17 @@
   let { sessions }: Props = $props();
 
   let attached = $derived(wsStore.snapshot?.attached ?? []);
+
+  // Fleet search: a debounced query filters the list (id/goal/cwd/status/mode/…).
+  let query = $state("");
+  let debounced = $state("");
+  $effect(() => {
+    const q = query;
+    const t = setTimeout(() => (debounced = q), 150);
+    return () => clearTimeout(t);
+  });
+  let filtered = $derived(filterSessions(sessions, debounced));
+  let filtering = $derived(debounced.trim().length > 0);
 
   // Compact status breakdown shown under the section title.
   const BREAKDOWN: { key: string; label: string; match: (s: SessionView) => boolean }[] = [
@@ -68,11 +80,30 @@
   <div class="full">
     <div class="head">
       <span class="title">Fleet</span>
-      <span class="count tnum">{sessions.length}</span>
+      <span class="count tnum">{filtering ? `${filtered.length}/${sessions.length}` : sessions.length}</span>
       <button class="iconbtn collapse" title="Collapse fleet" aria-label="Collapse fleet panel" onclick={() => ui.toggleFleet()}>
         <Icon name="chevronLeft" size={16} />
       </button>
     </div>
+
+    {#if sessions.length > 0}
+      <div class="search">
+        <Icon name="search" size={13} />
+        <input
+          type="text"
+          placeholder="Filter by name, status, type…"
+          bind:value={query}
+          aria-label="Filter sessions"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        {#if query}
+          <button class="clear" title="Clear filter" aria-label="Clear filter" onclick={() => (query = "")}>
+            <Icon name="x" size={13} />
+          </button>
+        {/if}
+      </div>
+    {/if}
 
     {#if counts.length}
       <div class="breakdown">
@@ -96,9 +127,15 @@
           </button>
         </div>
       </div>
+    {:else if filtering && filtered.length === 0}
+      <div class="nomatch">
+        <Icon name="search" size={20} />
+        <p>No sessions match “{debounced}”.</p>
+        <button class="btn btn-sm" onclick={() => (query = "")}>Clear filter</button>
+      </div>
     {:else}
       <div class="stack">
-        {#each sessions as s (s.id)}
+        {#each filtered as s (s.id)}
           <AgentCard session={s} selected={s.id === ui.focusId} />
         {/each}
       </div>
@@ -265,6 +302,54 @@
   }
   .collapse {
     margin-left: auto;
+  }
+  .search {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 16px 10px;
+    padding: 6px 10px;
+    border: 1px solid var(--border-soft);
+    border-radius: 9px;
+    background: var(--color-base-200);
+    color: var(--faint);
+  }
+  .search:focus-within {
+    border-color: var(--color-primary);
+    color: var(--color-neutral-content);
+  }
+  .search input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    color: var(--color-base-content);
+    font: inherit;
+    font-size: 12.5px;
+    outline: none;
+    padding: 0;
+  }
+  .search .clear {
+    display: inline-grid;
+    place-items: center;
+    border: none;
+    background: transparent;
+    color: var(--faint);
+    cursor: pointer;
+    padding: 0;
+  }
+  .search .clear:hover {
+    color: var(--color-base-content);
+  }
+  .nomatch {
+    text-align: center;
+    padding: 28px 16px;
+    color: var(--color-neutral-content);
+  }
+  .nomatch p {
+    margin: 10px 0 14px;
+    font-size: 12.5px;
+    overflow-wrap: anywhere;
   }
   .breakdown {
     display: flex;
