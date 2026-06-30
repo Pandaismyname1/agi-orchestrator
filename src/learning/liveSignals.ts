@@ -83,6 +83,92 @@ export function deriveCorrections(store: Store, runId: number): ExampleBankItem[
 }
 
 /**
+ * Escalation-CHOICE examples — the purest "what would I decide" signal.
+ *
+ * When the brain escalated, it offered the human a set of options (each with an
+ * exact `prompt`). The human picked one (`chosen_option` = that option's label).
+ * That is the owner explicitly deciding, among real alternatives, what to do in a
+ * given agent state — so we mine it as `{situation: agent state, instruction:
+ * the chosen option's prompt}` and weight it heavily (count 3) so it ranks above
+ * ordinary overrides and surfaces as a few-shot demonstration.
+ *
+ * Pure derivation; never throws. Skips "stop" choices (no instruction to learn)
+ * and any choice whose label no longer matches an offered option.
+ */
+export function deriveEscalationChoices(store: Store, runLimit = 50): ExampleBankItem[] {
+  let runs: ReturnType<Store["getRuns"]>;
+  try {
+    runs = store.getRuns(undefined, runLimit);
+  } catch {
+    return [];
+  }
+
+  const byHash = new Map<string, ExampleBankItem>();
+
+  for (const run of runs) {
+    let atts: ReturnType<Store["getAttentions"]>;
+    let turns: TurnRow[];
+    try {
+      atts = store.getAttentions(run.id);
+      turns = store.getTurns(run.id);
+    } catch {
+      continue;
+    }
+
+    // turn_id → the agent message the human was reacting to.
+    const textById = new Map<number, string>();
+    for (const t of turns) if (t.assistant_text) textById.set(t.id, t.assistant_text);
+
+    const when = run.ended_at ?? run.started_at ?? lastSeenFallback(turns);
+
+    for (const a of atts) {
+      if (a.status !== "resolved" || !a.chosen_option || a.chosen_option === "stop") continue;
+
+      let options: Array<{ label?: string; prompt?: string }>;
+      try {
+        options = JSON.parse(a.options ?? "[]");
+      } catch {
+        continue;
+      }
+      if (!Array.isArray(options)) continue;
+
+      const picked = options.find((o) => o && o.label === a.chosen_option);
+      const instruction = picked?.prompt?.trim();
+      if (!instruction) continue;
+
+      const situation =
+        (a.turn_id != null ? textById.get(a.turn_id) : undefined)?.trim() ||
+        a.summary?.trim();
+      if (!situation) continue;
+
+      const hash = hashExample(situation, instruction);
+      const existing = byHash.get(hash);
+      if (existing) {
+        existing.count += 1;
+        existing.lastSeen = Math.max(existing.lastSeen, when);
+        continue;
+      }
+      byHash.set(hash, {
+        situation: truncate(situation, 300),
+        instruction: truncate(instruction, 300),
+        source: "live",
+        hash,
+        count: 3,
+        lastSeen: when,
+      });
+    }
+  }
+
+  return [...byHash.values()];
+}
+
+/** Best-effort timestamp when a run has neither ended_at nor started_at. */
+function lastSeenFallback(turns: TurnRow[]): number {
+  const last = turns[turns.length - 1];
+  return last?.created_at ?? Date.now();
+}
+
+/**
  * Override examples across the most recent `runLimit` runs, deduped by hash
  * (count bumped, max lastSeen kept). Per-run derivation is wrapped so one bad
  * run can never sink the batch.

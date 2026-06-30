@@ -17,20 +17,31 @@ import { truncate } from "./util.js";
 
 const DEFAULT_MAX_EXAMPLES = 30;
 const DEFAULT_MAX_FEWSHOT = 6;
-const DEFAULT_GUIDANCE_BUDGET = 800;
+const DEFAULT_GUIDANCE_BUDGET = 1600;
 
 /** Per-field clamp when rendering an example for the LLM (defensive). */
 const SITUATION_CHARS = 400;
 const INSTRUCTION_CHARS = 400;
 
 const SYSTEM_PROMPT =
-  "You tune the SYSTEM PROMPT of an autonomous coding-agent OPERATOR — a stand-in " +
-  "who tells the agent what to do next. Given REAL examples of how THIS user steered " +
-  "the agent, write 4-8 short imperative GUIDANCE bullets that capture the user's " +
-  "operating STYLE and PREFERENCES: tone/wording, when to continue vs. escalate vs. " +
-  "stop, scope discipline, naming/format conventions, verbosity. Capture preferences, " +
-  "NOT task specifics. Do NOT restate generic safety rules. Output ONLY the bullet " +
-  "lines (each starting with '- '), ≤120 words total, no preamble, no headers.";
+  "You are writing the OPERATOR PROFILE for an autonomous coding-agent operator — a " +
+  "stand-in who, after every agent turn, decides what THIS user would say next: " +
+  "continue (and exactly how to phrase it), escalate to the human, or stop. You are " +
+  "given REAL examples of how this user actually steered agents (the agent's state → " +
+  "the user's reply, or the option the user chose when asked to decide).\n\n" +
+  "Infer the user's durable OPERATING STYLE and write it as FIRST-PERSON instructions " +
+  "the operator will follow (e.g. \"I keep instructions to one line\", \"I escalate before " +
+  "spending money\"). Use these headings; OMIT any heading the examples show no signal for:\n" +
+  "VOICE: how I phrase instructions — length, tone, directness, formatting, words I reuse.\n" +
+  "CONTINUE: what I tell the agent to push work forward — how big a step, what I stress " +
+  "(tests, commits, scope), what I want done before moving on.\n" +
+  "ESCALATE: which calls I want handed back to me vs. decided without me — my risk tolerance.\n" +
+  "STOP: my bar for 'done' / 'good enough' — when I end a session.\n" +
+  "VALUES: what I repeatedly push for or push back on — priorities, quality bars, things I forbid.\n\n" +
+  "Be concrete and specific to THIS user; quote characteristic phrasings. Capture durable " +
+  "PREFERENCES, never task specifics, never generic safety rules. Short first-person " +
+  "bullets under each heading, ≤220 words total. Output ONLY the headed bullets — no " +
+  "preamble, no closing remarks.";
 
 const NO_SIGNAL_GUIDANCE =
   "Not enough signal yet — keep using sessions to build a profile.";

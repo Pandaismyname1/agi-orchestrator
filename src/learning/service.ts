@@ -13,7 +13,7 @@ import { LocalLLM } from "../brain/provider.js";
 import type { LearningOptions } from "../types.js";
 import { ProfileStore } from "./profileStore.js";
 import { mineExamples } from "./miner.js";
-import { deriveRecentCorrections } from "./liveSignals.js";
+import { deriveRecentCorrections, deriveEscalationChoices } from "./liveSignals.js";
 import { synthesizeProfile } from "./synthesize.js";
 import { replayEval } from "./eval.js";
 import { truncate } from "./util.js";
@@ -145,7 +145,8 @@ export class LearningService implements ILearningService {
     // populated and a global synthesize also seeds per-project banks.
     const mined = await mineExamples({ scanLimit: this.opts.scanLimit });
     const live = deriveRecentCorrections(this.store, 50);
-    this.profiles.appendExamples(GLOBAL_SCOPE, dedupe([...mined.global, ...live]));
+    const escalations = deriveEscalationChoices(this.store, 50);
+    this.profiles.appendExamples(GLOBAL_SCOPE, dedupe([...mined.global, ...live, ...escalations]));
     for (const [cwd, items] of mined.byCwd) {
       this.profiles.appendExamples(cwdScope(cwd), items);
     }
@@ -163,7 +164,7 @@ export class LearningService implements ILearningService {
       model: this.model,
       maxExamples: this.opts.maxExamples,
       maxFewShot: this.opts.maxFewShot,
-      guidanceCharBudget: 800,
+      guidanceCharBudget: 1600,
       baseVersion: activeVersion,
       pastCount,
       liveCount,

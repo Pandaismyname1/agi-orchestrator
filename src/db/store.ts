@@ -41,6 +41,15 @@ export interface TurnRow {
   created_at: number;
 }
 
+export interface AttentionRow {
+  id: number;
+  turn_id: number | null;
+  summary: string | null;
+  options: string | null;
+  chosen_option: string | null;
+  status: string;
+}
+
 export class Store {
   private readonly db: DatabaseSync;
 
@@ -138,6 +147,20 @@ export class Store {
     this.db
       .prepare(`UPDATE attention_requests SET status=?, chosen_option=?, resolved_at=? WHERE id=?`)
       .run(status, chosen, Date.now(), rowId);
+  }
+
+  /**
+   * A run's escalation rows (for the learning loop). `chosen_option` holds the
+   * label of the option the human picked; `options` is the JSON array the brain
+   * offered ({label, rationale, prompt}) — joined back together in liveSignals.
+   */
+  getAttentions(runId: number): AttentionRow[] {
+    return this.db
+      .prepare(
+        `SELECT id, turn_id, summary, options, chosen_option, status
+         FROM attention_requests WHERE run_id=? ORDER BY id ASC`,
+      )
+      .all(runId) as unknown as AttentionRow[];
   }
 
   // ---- events -------------------------------------------------------------

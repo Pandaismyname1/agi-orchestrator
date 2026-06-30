@@ -8,7 +8,7 @@
 import { rmSync, mkdirSync } from "node:fs";
 import { openStore } from "../src/db/store.js";
 import { ProfileStore } from "../src/learning/profileStore.js";
-import { deriveCorrections } from "../src/learning/liveSignals.js";
+import { deriveCorrections, deriveEscalationChoices } from "../src/learning/liveSignals.js";
 import { synthesizeProfile } from "../src/learning/synthesize.js";
 import { replayEval } from "../src/learning/eval.js";
 import { LearningService } from "../src/learning/service.js";
@@ -126,6 +126,28 @@ check("eval: total == held-out size", report.total === 2);
 check("eval: profile matches both", report.profileMatch === 2);
 check("eval: baseline matches none", report.baselineMatch === 0);
 check("eval: positive delta", report.delta === 2);
+
+// ── 7. deriveEscalationChoices: the human's pick becomes a high-weight example ─
+const erun = store.startRun("s1");
+const et1 = store.addTurn(erun, { n: 1, prompt: "g", assistantText: "two libs found: X and Y", durationMs: 1, gatesHandled: 0 });
+const aRow = store.addAttentionRequest(erun, et1, {
+  question: "Which HTTP library?",
+  options: [
+    { label: "Use X", rationale: "lighter", prompt: "use library X and continue" },
+    { label: "Use Y", rationale: "typed", prompt: "use library Y and continue" },
+  ],
+});
+store.resolveAttentionRequest(aRow, "Use Y");
+// A second escalation the human ended by stopping → no instruction to learn.
+const et2 = store.addTurn(erun, { n: 2, prompt: "p", assistantText: "blocked on creds", durationMs: 1, gatesHandled: 0 });
+const aRow2 = store.addAttentionRequest(erun, et2, { question: "creds?", options: [{ label: "stop", prompt: "" }] });
+store.resolveAttentionRequest(aRow2, "stop");
+
+const esc = deriveEscalationChoices(store, 50);
+check("escalation: one choice mined (stop skipped)", esc.length === 1);
+check("escalation: instruction = chosen option's prompt", esc[0]?.instruction === "use library Y and continue");
+check("escalation: situation = the agent state", esc[0]?.situation === "two libs found: X and Y");
+check("escalation: weighted above ordinary overrides", (esc[0]?.count ?? 0) === 3);
 
 store.close();
 rmSync(ROOT, { recursive: true, force: true });
