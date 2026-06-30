@@ -6,6 +6,7 @@
   import { filterSessions } from "../lib/filter";
   import { sortSessions, SORT_OPTIONS, type SortKey } from "../lib/sort";
   import { actionableIds, orderByDeps } from "../lib/selection";
+  import { loadFleetPrefs, saveFleetPrefs } from "../lib/prefs";
   import { planKey, isTypingTarget, type NavSession } from "../lib/keynav";
   import Icon from "./Icon.svelte";
   import AgentCard from "./AgentCard.svelte";
@@ -18,9 +19,12 @@
 
   let attached = $derived(wsStore.snapshot?.attached ?? []);
 
+  // Fleet view prefs (sort key + filter query) persist across reloads.
+  const initialPrefs = loadFleetPrefs();
+
   // Fleet search: a debounced query filters the list (id/goal/cwd/status/mode/…).
-  let query = $state("");
-  let debounced = $state("");
+  let query = $state(initialPrefs.query);
+  let debounced = $state(initialPrefs.query);
   $effect(() => {
     const q = query;
     const t = setTimeout(() => (debounced = q), 150);
@@ -28,9 +32,14 @@
   });
   // Sort key applies AFTER filtering. Default "attention" floats sessions that
   // need a human (error/needs-input/blocked) to the top of the list.
-  let sortKey = $state<SortKey>("attention");
+  let sortKey = $state<SortKey>(initialPrefs.sortKey);
   let filtered = $derived(sortSessions(filterSessions(sessions, debounced), sortKey));
   let filtering = $derived(debounced.trim().length > 0);
+
+  // Persist the sort key + settled query whenever they change.
+  $effect(() => {
+    saveFleetPrefs({ sortKey, query: debounced });
+  });
 
   // Bulk multi-select. Selection persists across snapshots; cleared on exit.
   let selectMode = $state(false);
