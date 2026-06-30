@@ -47,6 +47,13 @@ export interface SessionConfig {
    * session can be CONTINUED (resumed in the same conversation) across restarts.
    */
   lastClaudeSessionId?: string;
+  /**
+   * Workflow dependencies: ids of sessions that must reach status `done` before
+   * this one auto-starts. Empty/undefined = no dependencies (starts immediately).
+   * Used by `startAll` and by auto-promotion when a dependency finishes. A start
+   * request for a session with unmet dependencies parks it as `blocked`.
+   */
+  dependsOn?: string[];
 }
 
 /** Guard rails. The real "budget" here is rate-limit/turn burn, not dollars. */

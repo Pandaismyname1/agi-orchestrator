@@ -37,6 +37,7 @@ export type RunFn = (session: SessionConfig, opts: RunOptions) => Promise<void>;
 export type SessionStatus =
   | "idle"
   | "queued"
+  | "blocked" // waiting on workflow dependencies (a `dependsOn` session isn't done yet)
   | "running"
   | "manual" // active but waiting for the user to drive (Qwen paused)
   | "needs-input"
@@ -66,6 +67,10 @@ export interface SessionView {
   attention?: AttentionRequest | null;
   /** True when the session has run before (so it can be CONTINUED, not just started). */
   canContinue: boolean;
+  /** Workflow dependencies: ids this session runs after (empty = none). */
+  dependsOn?: string[];
+  /** Subset of `dependsOn` not yet `done` — non-empty only while waiting. */
+  blockedBy?: string[];
 }
 
 interface Managed extends SessionView {
@@ -231,10 +236,87 @@ export class Supervisor {
     this.budget = new BudgetTracker(this.store, this.cfg.budget);
   }
 
+  /** Effective `dependsOn` for a node, with one node's edges optionally overridden. */
+  private depsOf(nodeId: string, override: { id: string; deps: string[] }): string[] {
+    if (nodeId === override.id) return override.deps;
+    return this.sessions.get(nodeId)?.config.dependsOn ?? [];
+  }
+
+  /** True if `target` is reachable from `from` by following `dependsOn` edges. */
+  private reaches(from: string, target: string, override: { id: string; deps: string[] }): boolean {
+    const seen = new Set<string>();
+    const stack = [from];
+    while (stack.length) {
+      const cur = stack.pop()!;
+      if (cur === target) return true;
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      for (const d of this.depsOf(cur, override)) stack.push(d);
+    }
+    return false;
+  }
+
+  /**
+   * Clean a proposed `dependsOn` list for session `id`: trim, dedupe, drop self
+   * and unknown ids, then reject any edge that would create a cycle. Returns the
+   * sanitized list to store.
+   */
+  private normalizeDeps(id: string, deps: string[] | undefined): string[] {
+    const clean = [...new Set((deps ?? []).map((s) => String(s).trim()).filter(Boolean))].filter(
+      (d) => d !== id && this.sessions.has(d),
+    );
+    for (const d of clean) {
+      if (this.reaches(d, id, { id, deps: clean })) {
+        throw new Error(
+          `dependency cycle: "${shortLabel(this.sessions.get(d))}" already runs after this session.`,
+        );
+      }
+    }
+    return clean;
+  }
+
+  /**
+   * Workflow dependencies that are not yet satisfied for a session: the ids in
+   * `dependsOn` whose session exists and is not `done`. Unknown ids (deleted
+   * sessions) are ignored so a workflow can't wedge forever on a removed step.
+   */
+  private unmetDeps(m: Managed): string[] {
+    const deps = m.config.dependsOn ?? [];
+    return deps.filter((depId) => {
+      const dep = this.sessions.get(depId);
+      return dep ? dep.status !== "done" : false;
+    });
+  }
+
+  /**
+   * Start any `blocked` session whose dependencies have all finished. Called
+   * whenever a session reaches `done`, so a workflow chains forward by itself.
+   */
+  private promoteReady(): void {
+    for (const m of this.sessions.values()) {
+      if (m.status === "blocked" && this.unmetDeps(m).length === 0) {
+        m.status = "idle"; // clear the gate so start() will actually launch/queue it
+        m.blockedBy = undefined;
+        this.start(m.id);
+      }
+    }
+  }
+
   /** Request a session to run: launch now if a slot is free, else queue it. */
   start(id: string): void {
     const m = this.sessions.get(id);
     if (!m || ["running", "queued", "needs-input", "manual"].includes(m.status)) return;
+    // Workflow gate: hold the session as `blocked` until every session it
+    // depends on has finished. promoteReady() releases it when they're done.
+    const unmet = this.unmetDeps(m);
+    if (unmet.length > 0) {
+      m.status = "blocked";
+      m.blockedBy = unmet;
+      const names = unmet.map((d) => shortLabel(this.sessions.get(d))).join(", ");
+      m.lastDecision = `blocked — waiting on ${names}`;
+      return;
+    }
+    m.blockedBy = undefined;
     // Refuse to start when a REAL subscription limit is spent (the orchestrator
     // re-reads /usage at launch, so a stale spent reading just defers the start
     // until the next slot; it's cleared when an auto-resume fires after a reset).
@@ -398,6 +480,8 @@ export class Supervisor {
       m.sess = undefined;
       this.running.delete(m.id);
       this.pump(); // free slot -> start the next queued session
+      // If this session finished, release any workflow steps waiting on it.
+      if (m.status === "done") this.promoteReady();
     });
   }
 
@@ -432,6 +516,23 @@ export class Supervisor {
 
   startAll(): void {
     for (const id of this.sessions.keys()) this.start(id);
+  }
+
+  /**
+   * Fleet emergency stop: stop every session (running, queued, blocked, paused,
+   * or waiting on a decision/gate). A queued/blocked session just drops back to
+   * idle; an active one is torn down. Safe to call repeatedly.
+   */
+  stopAll(): void {
+    for (const m of this.sessions.values()) {
+      if (m.status === "blocked") {
+        m.status = "idle";
+        m.blockedBy = undefined;
+        m.lastDecision = "stopped by operator";
+        continue;
+      }
+      this.stop(m.id);
+    }
   }
 
   /** Switch a running session between manual (you drive) and autopilot (Qwen drives). */
@@ -534,6 +635,7 @@ export class Supervisor {
     autonomy?: SessionConfig["autonomy"];
     startMode?: SessionConfig["startMode"];
     resumeId?: SessionConfig["resumeId"];
+    dependsOn?: string[];
   }): SessionView {
     const cwd = (input.cwd ?? "").trim();
     const goal = (input.goal ?? "").trim();
@@ -545,6 +647,7 @@ export class Supervisor {
     const id = (input.id ?? "").trim() || randomUUID();
     if (this.sessions.has(id)) throw new Error(`a session with id "${id}" already exists.`);
 
+    const dependsOn = this.normalizeDeps(id, input.dependsOn);
     const config: SessionConfig = {
       id,
       cwd: path.resolve(cwd),
@@ -554,6 +657,7 @@ export class Supervisor {
       autonomy: input.autonomy ?? "balanced",
       startMode: input.startMode ?? "autopilot",
       resumeId: input.resumeId,
+      ...(dependsOn.length ? { dependsOn } : {}),
     };
     const m: Managed = {
       config,
@@ -587,6 +691,7 @@ export class Supervisor {
       permissionMode: SessionConfig["permissionMode"];
       autonomy: SessionConfig["autonomy"];
       startMode: SessionConfig["startMode"];
+      dependsOn: string[];
     }>,
   ): SessionView {
     const m = this.sessions.get(id);
@@ -632,6 +737,20 @@ export class Supervisor {
     if (patch.startMode !== undefined) {
       m.config.startMode = patch.startMode;
       m.mode = patch.startMode;
+    }
+    if (patch.dependsOn !== undefined) {
+      const dependsOn = this.normalizeDeps(id, patch.dependsOn);
+      if (dependsOn.length) m.config.dependsOn = dependsOn;
+      else delete m.config.dependsOn;
+      // If the session is parked as blocked, re-evaluate against the new edges.
+      if (m.status === "blocked") {
+        const unmet = this.unmetDeps(m);
+        m.blockedBy = unmet.length ? unmet : undefined;
+        if (!unmet.length) {
+          m.status = "idle";
+          m.lastDecision = "";
+        }
+      }
     }
     this.store?.upsertSession(m.config);
     this.persist();
@@ -802,5 +921,14 @@ function toView(m: Managed): SessionView {
     error: m.error,
     attention: m.attention ?? null,
     canContinue: !active && !!(m.claudeSessionId ?? m.config.lastClaudeSessionId),
+    dependsOn: m.config.dependsOn?.length ? m.config.dependsOn : undefined,
+    blockedBy: m.blockedBy?.length ? m.blockedBy : undefined,
   };
+}
+
+/** Short human label for a session in dependency messages (goal head, else id). */
+function shortLabel(m: Managed | undefined): string {
+  if (!m) return "(unknown)";
+  const g = m.goal.trim().replace(/\s+/g, " ");
+  return g.length > 40 ? g.slice(0, 40) + "…" : g || m.id.slice(0, 8);
 }

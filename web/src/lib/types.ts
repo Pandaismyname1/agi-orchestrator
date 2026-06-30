@@ -11,6 +11,7 @@ export type SessionStatus =
   | "needs-input"
   | "rate-limited"
   | "stopped"
+  | "blocked"
   | "done"
   | "error";
 
@@ -49,6 +50,10 @@ export interface SessionView {
   attention?: AttentionRequest | null;
   /** True when the session has run before and can be continued (resumed). */
   canContinue?: boolean;
+  /** ids of sessions this one runs after (auto-starts once they're all `done`). */
+  dependsOn?: string[];
+  /** subset of `dependsOn` not yet `done` (live-computed; non-empty only while waiting). */
+  blockedBy?: string[];
 }
 
 /** Continue a finished session: edited goal / next instruction / mode to resume with. */
@@ -194,6 +199,8 @@ export interface SessionInput {
   autonomy?: Autonomy;
   startMode?: SessionMode;
   resumeId?: string;
+  /** ids of sessions this one runs after (waits until they're all `done`). */
+  dependsOn?: string[];
 }
 
 export type SessionPatch = Partial<{
@@ -203,6 +210,7 @@ export type SessionPatch = Partial<{
   permissionMode: PermissionMode;
   autonomy: Autonomy;
   startMode: SessionMode;
+  dependsOn: string[];
 }>;
 
 /** How the user answered an open human-decision. */
@@ -217,6 +225,7 @@ export type ClientMsg =
   | { type: "start"; id: string }
   | { type: "stop"; id: string }
   | { type: "startAll" }
+  | { type: "stopAll" }
   | { type: "focus"; id: string }
   | { type: "add"; session: SessionInput }
   | { type: "update"; id: string; patch: SessionPatch }

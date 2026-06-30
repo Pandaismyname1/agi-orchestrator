@@ -18,5 +18,8 @@ config.json
 *.db-shm
 *.db-wal
 
+# per-run orchestrator state (handoff, restart logs) — regenerated at runtime
+.agi/
+
 # JetBrains IDE
 .idea/

@@ -54,6 +54,12 @@
     color: var(--st-rate-limited);
     border-color: rgba(251, 191, 36, 0.5);
   }
+  /* Waiting on unmet dependencies — neutral amber, distinct from the urgent needs-input. */
+  .blocked {
+    color: var(--st-stopped);
+    border-color: rgba(251, 191, 36, 0.4);
+    background: rgba(251, 191, 36, 0.06);
+  }
   .needs-input {
     color: var(--color-accent-content);
     background: var(--st-needs-input);

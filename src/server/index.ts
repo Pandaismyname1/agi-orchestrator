@@ -43,6 +43,7 @@ interface SessionInput {
   autonomy?: SessionConfig["autonomy"];
   startMode?: SessionConfig["startMode"];
   resumeId?: SessionConfig["resumeId"];
+  dependsOn?: string[];
 }
 
 type SessionPatch = Partial<{
@@ -52,6 +53,7 @@ type SessionPatch = Partial<{
   permissionMode: SessionConfig["permissionMode"];
   autonomy: SessionConfig["autonomy"];
   startMode: SessionConfig["startMode"];
+  dependsOn: string[];
 }>;
 
 /** Runtime-editable global settings patch (see the "updateSettings" handler). */
@@ -74,7 +76,7 @@ type ContinuePatch = Partial<{
 
 interface ClientMsg {
   type:
-    | "start" | "stop" | "startAll" | "focus" | "add" | "update" | "remove" | "resolve"
+    | "start" | "stop" | "startAll" | "stopAll" | "focus" | "add" | "update" | "remove" | "resolve"
     | "setMode" | "sendMessage" | "updateSettings" | "continue"
     | "learnSynthesize" | "learnApprove" | "learnReject" | "learnRevert";
   id?: string;
@@ -438,6 +440,9 @@ async function main(): Promise<void> {
           break;
         case "startAll":
           sup.startAll();
+          break;
+        case "stopAll":
+          sup.stopAll();
           break;
         case "focus":
           focusId = msg.id;

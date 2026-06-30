@@ -23,9 +23,20 @@
   let mode = $state<SessionMode>(untrack(() => (adopt ? "manual" : "autopilot")));
   let permissionMode = $state<PermissionMode>("acceptEdits");
   let autonomy = $state<Autonomy>("balanced");
+  let dependsOn = $state<string[]>([]);
   let err = $state("");
 
   let adopting = $derived(!!adopt);
+
+  // Existing sessions this new one can run after.
+  let others = $derived(wsStore.snapshot?.sessions ?? []);
+  function depShort(g: string): string {
+    const t = g.trim();
+    return t.length > 48 ? t.slice(0, 48) + "…" : t;
+  }
+  function toggleDep(id: string): void {
+    dependsOn = dependsOn.includes(id) ? dependsOn.filter((d) => d !== id) : [...dependsOn, id];
+  }
   let canNext = $derived(step !== 0 || (cwd.trim() && goal.trim() && doneCriteria.trim()));
 
   function next() {

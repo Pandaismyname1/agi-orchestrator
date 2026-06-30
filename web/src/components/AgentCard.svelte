@@ -14,6 +14,16 @@
 
   let isActive = $derived(["running", "manual", "needs-input"].includes(s.status));
 
+  /** Resolve a dependency id to a short, human label (its goal, else the id). */
+  function depLabel(id: string): string {
+    const dep = wsStore.snapshot?.sessions.find((x) => x.id === id);
+    const goal = dep?.goal?.trim();
+    return goal ? (goal.length > 40 ? goal.slice(0, 40) + "…" : goal) : id;
+  }
+  let blockers = $derived(s.blockedBy ?? []);
+  let waiting = $derived(s.status === "blocked" || blockers.length > 0);
+  let deps = $derived(s.dependsOn ?? []);
+
   function focus() {
     ui.focusId = s.id;
     wsStore.send({ type: "focus", id: s.id });
@@ -42,6 +52,21 @@
     <StatusBadge status={s.status} />
     <span class="metric tnum">turn {s.turns} · {minutes(s.elapsedMin)}</span>
   </div>
+
+  {#if waiting && blockers.length}
+    <div class="waiting">
+      <span aria-hidden="true">⏳</span> Waiting on: {blockers.map(depLabel).join(", ")}
+    </div>
+  {/if}
+
+  {#if deps.length}
+    <div class="deps">
+      <span class="runs-after">Runs after:</span>
+      {#each deps as d (d)}
+        <span class="dep-chip">{depLabel(d)}</span>
+      {/each}
+    </div>
+  {/if}
 
   {#if s.lastDecision}
     <div class="dec"><span class="k">brain</span> {s.lastDecision}</div>
@@ -180,6 +205,10 @@
     background: var(--st-queued);
     opacity: 0.5;
   }
+  .agent.blocked::before {
+    background: var(--st-stopped);
+    opacity: 0.7;
+  }
   .agent.needs-input::before {
     background: var(--st-needs-input);
   }
@@ -267,6 +296,35 @@
     margin-left: auto;
     font-size: 11px;
     color: var(--faint);
+  }
+  .waiting {
+    font-size: 11px;
+    color: var(--st-stopped);
+    margin-top: 9px;
+    line-height: 1.4;
+  }
+  .deps {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    margin-top: 9px;
+    font-size: 11px;
+    color: var(--faint);
+  }
+  .runs-after {
+    color: var(--faint);
+  }
+  .dep-chip {
+    font-size: 10px;
+    color: var(--color-neutral-content);
+    padding: 1px 7px;
+    border: 1px solid var(--border-soft);
+    border-radius: 20px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .dec {
     font-size: 11px;

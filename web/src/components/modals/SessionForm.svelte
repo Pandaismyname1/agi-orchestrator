@@ -28,9 +28,20 @@
   let permissionMode = $state<PermissionMode>(untrack(() => session?.permissionMode ?? "acceptEdits"));
   let autonomy = $state<Autonomy>(untrack(() => session?.autonomy ?? "balanced"));
   let startMode = $state<SessionMode>(untrack(() => session?.mode ?? (adopt ? "manual" : "autopilot")));
+  let dependsOn = $state<string[]>(untrack(() => session?.dependsOn ?? []));
   let err = $state("");
 
   const title = $derived(editing ? "Edit session" : adopting ? "Adopt existing session" : "New session");
+
+  // All OTHER sessions, selectable as "runs after" dependencies (exclude self).
+  let others = $derived((wsStore.snapshot?.sessions ?? []).filter((x) => x.id !== session?.id));
+  function depShort(g: string): string {
+    const t = g.trim();
+    return t.length > 48 ? t.slice(0, 48) + "…" : t;
+  }
+  function toggleDep(id: string): void {
+    dependsOn = dependsOn.includes(id) ? dependsOn.filter((d) => d !== id) : [...dependsOn, id];
+  }
 
   function save() {
     const c = cwd.trim(),
@@ -44,7 +55,7 @@
       wsStore.send({
         type: "update",
         id: session.id,
-        patch: { cwd: c, goal: g, doneCriteria: d, permissionMode, autonomy, startMode },
+        patch: { cwd: c, goal: g, doneCriteria: d, permissionMode, autonomy, startMode, dependsOn },
       });
     } else {
       const payload: SessionInput = {
@@ -54,6 +65,7 @@
         permissionMode,
         autonomy,
         startMode,
+        dependsOn,
       };
       if (id.trim()) payload.id = id.trim();
       if (adopt) payload.resumeId = adopt.resumeId;
@@ -108,6 +120,25 @@
     <option value="manual">manual — you seed context first, then flip</option>
   </select>
 
+  <span class="grouplabel" id="f_deps_label">runs after <span class="opt">(optional — waits until these are done)</span></span>
+  {#if others.length === 0}
+    <div class="hint">no other sessions to depend on yet.</div>
+  {:else}
+    <div class="depbox" role="group" aria-labelledby="f_deps_label">
+      {#each others as o (o.id)}
+        <label class="depitem">
+          <input
+            type="checkbox"
+            checked={dependsOn.includes(o.id)}
+            onchange={() => toggleDep(o.id)}
+          />
+          <span class="depname">{o.id}</span>
+          <span class="depgoal">{depShort(o.goal)}</span>
+        </label>
+      {/each}
+    </div>
+  {/if}
+
   <div class="ferr">{err}</div>
   <div class="facts">
     <button class="btn btn-sm" onclick={() => ui.closeModal()}>Cancel</button>
@@ -151,6 +182,71 @@
     font-size: 12px;
     color: var(--color-neutral-content);
     margin-bottom: 10px;
+  }
+  .grouplabel {
+    display: block;
+    font-size: 11px;
+    color: var(--color-neutral-content);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 13px 0 5px;
+    font-weight: 600;
+  }
+  .grouplabel .opt {
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--faint);
+    font-weight: 400;
+  }
+  .depbox {
+    max-height: 148px;
+    overflow-y: auto;
+    border: 1px solid var(--border-strong);
+    border-radius: 9px;
+    background: var(--color-base-200);
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .depitem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+    color: var(--color-base-content);
+  }
+  .depitem:hover {
+    background: var(--color-base-300);
+  }
+  .depitem input[type="checkbox"] {
+    width: auto;
+    flex: none;
+    margin: 0;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+  }
+  .depname {
+    font-size: 12px;
+    font-weight: 600;
+    flex: none;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .depgoal {
+    font-size: 11px;
+    color: var(--faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .livehint {
     font-size: 12px;

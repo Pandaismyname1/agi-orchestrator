@@ -15,6 +15,7 @@
     { key: "running", label: "running", match: (s) => s.status === "running" || s.status === "manual" },
     { key: "error", label: "error", match: (s) => s.status === "error" },
     { key: "needs-input", label: "needs you", match: (s) => s.status === "needs-input" },
+    { key: "blocked", label: "blocked", match: (s) => s.status === "blocked" },
     { key: "queued", label: "queued", match: (s) => s.status === "queued" },
     { key: "done", label: "done", match: (s) => s.status === "done" },
   ];
@@ -161,7 +162,8 @@
     background: var(--st-queued);
   }
   .dot.stopped,
-  .dot.rate-limited {
+  .dot.rate-limited,
+  .dot.blocked {
     background: var(--st-stopped);
   }
   .dot.needs-input {
@@ -264,6 +266,14 @@
   .chip.queued {
     color: var(--st-queued);
     border-color: rgba(96, 165, 250, 0.35);
+  }
+  .chip.blocked {
+    color: var(--st-stopped);
+    border-color: rgba(251, 191, 36, 0.4);
+    background: rgba(251, 191, 36, 0.06);
+  }
+  .chip.blocked b {
+    color: var(--st-stopped);
   }
   .chip.error {
     color: var(--st-error);
