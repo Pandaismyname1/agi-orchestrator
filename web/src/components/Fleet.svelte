@@ -4,6 +4,7 @@
   import { ui } from "../lib/ui.svelte";
   import { wsStore } from "../lib/ws.svelte";
   import { filterSessions } from "../lib/filter";
+  import { sortSessions, SORT_OPTIONS, type SortKey } from "../lib/sort";
   import { actionableIds } from "../lib/selection";
   import Icon from "./Icon.svelte";
   import AgentCard from "./AgentCard.svelte";
@@ -24,7 +25,10 @@
     const t = setTimeout(() => (debounced = q), 150);
     return () => clearTimeout(t);
   });
-  let filtered = $derived(filterSessions(sessions, debounced));
+  // Sort key applies AFTER filtering. Default "attention" floats sessions that
+  // need a human (error/needs-input/blocked) to the top of the list.
+  let sortKey = $state<SortKey>("attention");
+  let filtered = $derived(sortSessions(filterSessions(sessions, debounced), sortKey));
   let filtering = $derived(debounced.trim().length > 0);
 
   // Bulk multi-select. Selection persists across snapshots; cleared on exit.
@@ -142,21 +146,31 @@
     {/if}
 
     {#if sessions.length > 0}
-      <div class="search">
-        <Icon name="search" size={13} />
-        <input
-          type="text"
-          placeholder="Filter by name, status, type…"
-          bind:value={query}
-          aria-label="Filter sessions"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        {#if query}
-          <button class="clear" title="Clear filter" aria-label="Clear filter" onclick={() => (query = "")}>
-            <Icon name="x" size={13} />
-          </button>
-        {/if}
+      <div class="controls">
+        <div class="search">
+          <Icon name="search" size={13} />
+          <input
+            type="text"
+            placeholder="Filter by name, status, type…"
+            bind:value={query}
+            aria-label="Filter sessions"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          {#if query}
+            <button class="clear" title="Clear filter" aria-label="Clear filter" onclick={() => (query = "")}>
+              <Icon name="x" size={13} />
+            </button>
+          {/if}
+        </div>
+        <label class="sort" title="Sort the fleet list">
+          <Icon name="sort" size={13} />
+          <select bind:value={sortKey} aria-label="Sort sessions">
+            {#each SORT_OPTIONS as o (o.key)}
+              <option value={o.key}>{o.label}</option>
+            {/each}
+          </select>
+        </label>
       </div>
     {/if}
 
@@ -390,16 +404,57 @@
   .bulkspace {
     flex: 1;
   }
+  .controls {
+    display: flex;
+    align-items: stretch;
+    gap: 7px;
+    margin: 0 16px 10px;
+  }
   .search {
+    flex: 1 1 auto;
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: 7px;
-    margin: 0 16px 10px;
     padding: 6px 10px;
     border: 1px solid var(--border-soft);
     border-radius: 9px;
     background: var(--color-base-200);
     color: var(--faint);
+  }
+  .sort {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 8px;
+    border: 1px solid var(--border-soft);
+    border-radius: 9px;
+    background: var(--color-base-200);
+    color: var(--faint);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .sort:hover,
+  .sort:focus-within {
+    color: var(--color-neutral-content);
+    border-color: var(--border-strong);
+  }
+  .sort select {
+    border: none;
+    background: transparent;
+    color: var(--color-base-content);
+    font: inherit;
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+    padding: 6px 0;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .sort select option {
+    background: var(--color-base-200);
+    color: var(--color-base-content);
   }
   .search:focus-within {
     border-color: var(--color-primary);

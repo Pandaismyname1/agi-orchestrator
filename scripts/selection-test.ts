@@ -2,7 +2,7 @@
  * Deterministic tests for the bulk-action selection helpers
  * (web/src/lib/selection.ts). Pure logic, imported directly via tsx.
  */
-import { canStart, canStop, canDo, actionableIds, type SelectableSession } from "../web/src/lib/selection.ts";
+import { canStart, canStop, canDo, actionableIds, type SelectableSession } from "../web/src/lib/selection.js";
 
 let pass = true;
 const check = (n: string, c: boolean) => {

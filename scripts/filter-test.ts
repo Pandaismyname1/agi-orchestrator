@@ -3,7 +3,7 @@
  * Pure logic, no Svelte runtime — imported directly. AND-across-terms, case-
  * insensitive substring across id/goal/cwd/status/mode/autonomy/permissionMode.
  */
-import { matchesQuery, filterSessions, queryTerms, type FilterableSession } from "../web/src/lib/filter.ts";
+import { matchesQuery, filterSessions, queryTerms, type FilterableSession } from "../web/src/lib/filter.js";
 
 let pass = true;
 const check = (n: string, c: boolean) => {
