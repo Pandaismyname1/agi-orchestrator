@@ -10,6 +10,11 @@ billing preflight). Every feature below must respect that.
 PiP status window; per-gate safety; usage budget + rate-limit guard; observability
 (history/replay/metrics); concurrency cap + queue; stuck detection. Tier 3: operator personas done.
 
+**Commercial-grade track (DONE):** session **dependencies** (workflow DAG) + fleet stop-all;
+reusable **session templates**; outbound **webhooks** (Slack/Discord/JSON) on lifecycle events;
+**scheduled / recurring** sessions (every N min · daily HH:MM); a **goal intake assistant** (local
+brain sharpens a vague goal before a run); a **⌘K command palette**; and a **workflow graph** view.
+
 > **The next priority is the Product & UX track below — it supersedes the remaining Tier 3
 > extras.** A brilliant design (UX + UI) is the goal; the design dictates the backend work.
 

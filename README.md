@@ -209,6 +209,22 @@ Validated features:
   (`needs-input`), or hits a usage limit. Managed in the **Notifications & webhooks** modal
   (per-hook event filter, enable toggle, one-click **Test**). Best-effort and non-blocking — a slow
   or dead endpoint never stalls a run (`src/notify/notifier.ts`; covered by `notify-test.ts`).
+- **Scheduled / recurring sessions (automation suite)** — auto-start a session **every N minutes**
+  and/or **daily at HH:MM** (local). Firing goes through the normal queue, so the concurrency cap,
+  daily budget, real `/usage` limits, and workflow dependencies still apply, and an active session is
+  never double-started. Edit it in the session form; a clock chip shows it on the fleet card.
+  Timer-free, clock-injectable logic in `src/policy/schedule.ts`; covered by `schedule-test.ts`.
+- **Goal intake assistant (AI tooling)** — before a run, the local brain judges whether a goal +
+  done-criteria are specific enough to run unattended and, if not, asks a few sharpening questions and
+  proposes a tighter goal/done-criteria you accept with one click ("Refine with AI" in the wizard).
+  Fails open so a flaky call never blocks creation; local provider only (`src/brain/intake.ts`,
+  `POST /api/intake`; covered by `intake-test.ts`).
+- **Workflow graph** — a dependency-graph view (**Workflow** in the header / `⌘K`) lays the fleet out
+  by dependency depth and draws the `dependsOn` edges, with an amber dashed edge for an unsatisfied
+  prerequisite — so a chained workflow is legible at a glance.
+- **⌘K command palette (UX)** — one keystroke to open any modal, start/stop the whole fleet, or jump
+  to / start / stop / switch-mode / view-history of any session by name. Fuzzy filter, full keyboard
+  nav.
 
 ### Hook-attach mode (optional)
 
