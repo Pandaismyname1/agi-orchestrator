@@ -22,9 +22,14 @@ export type Modal =
   | { kind: "health" }
   | { kind: "continue"; session: SessionView };
 
+interface ToastAction {
+  label: string;
+  run: () => void;
+}
 interface Toast {
   id: number;
   message: string;
+  action?: ToastAction;
 }
 
 const FLEET_KEY = "agi.fleetCollapsed";
@@ -74,12 +79,20 @@ class UiState {
     }
   }
 
-  toast(message: string): void {
+  /** Show a transient toast. With an `action`, it lingers longer and shows a button. */
+  toast(message: string, action?: ToastAction): void {
     const id = ++this.#seq;
-    this.toasts = [...this.toasts, { id, message }];
-    setTimeout(() => {
-      this.toasts = this.toasts.filter((t) => t.id !== id);
-    }, 4000);
+    this.toasts = [...this.toasts, { id, message, action }];
+    setTimeout(
+      () => {
+        this.toasts = this.toasts.filter((t) => t.id !== id);
+      },
+      action ? 7000 : 4000,
+    );
+  }
+
+  dismissToast(id: number): void {
+    this.toasts = this.toasts.filter((t) => t.id !== id);
   }
 }
 

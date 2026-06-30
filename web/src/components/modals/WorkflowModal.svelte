@@ -303,6 +303,48 @@
     ui.closeModal();
   }
 
+  /**
+   * Delete a session node from the canvas. Captures its full config + position
+   * first so the deletion can be undone (re-added with the same id, which also
+   * restores any dependency edges that pointed at it — dependents keep their
+   * dependsOn entries). Only blocks while the session is actively running, which
+   * is the one case the backend rejects.
+   */
+  function delNode(s: SessionView, e: MouseEvent): void {
+    e.stopPropagation();
+    if (s.status === "running") {
+      ui.toast("stop the session before deleting it");
+      return;
+    }
+    const snap = { ...s };
+    const pos = posOf(s.id);
+    const name = label(s);
+    wsStore.send({ type: "remove", id: s.id });
+    ui.toast(`deleted "${name}"`, { label: "Undo", run: () => undoDelete(snap, pos, name) });
+  }
+
+  /** Re-create a just-deleted session node with its prior config + canvas position. */
+  function undoDelete(snap: SessionView, pos: { x: number; y: number }, name: string): void {
+    saved = { ...saved, [snap.id]: pos };
+    persist();
+    wsStore.send({
+      type: "add",
+      session: {
+        id: snap.id,
+        cwd: snap.cwd,
+        goal: snap.goal,
+        doneCriteria: snap.doneCriteria,
+        permissionMode: snap.permissionMode,
+        autonomy: snap.autonomy,
+        startMode: snap.mode,
+        dependsOn: snap.dependsOn,
+        schedule: snap.schedule,
+        autoPr: snap.autoPr,
+      },
+    });
+    ui.toast(`restored "${name}"`);
+  }
+
   // Edge geometry from live positions (so edges follow dragged nodes).
   let edgeGeo = $derived.by(() =>
     edges.map((e) => {
@@ -498,6 +540,15 @@
               title="Drag onto a session that should run AFTER this one"
               onpointerdown={(e) => startConn(e, s.id)}
             ></span>
+            <button
+              class="wf-del"
+              title="Delete this session node"
+              aria-label={`Delete ${s.id}`}
+              onpointerdown={(e) => e.stopPropagation()}
+              onclick={(e) => delNode(s, e)}
+            >
+              <Icon name="x" size={11} />
+            </button>
           </div>
         {/each}
 
@@ -929,5 +980,30 @@
   }
   .wf-handle:hover {
     transform: translateY(-50%) scale(1.25);
+  }
+  .wf-del {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    background: var(--color-base-200);
+    color: var(--color-neutral-content);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s, color 0.12s, border-color 0.12s, background 0.12s;
+  }
+  .wf-node:hover .wf-del {
+    opacity: 1;
+  }
+  .wf-del:hover {
+    color: var(--color-error);
+    border-color: var(--color-error);
+    background: rgba(248, 113, 113, 0.12);
   }
 </style>
