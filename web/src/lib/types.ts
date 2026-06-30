@@ -232,6 +232,23 @@ export type WebhookInput = {
   enabled?: boolean;
 };
 
+/** A hand-started `claude` session the daemon drives via the Stop hook. */
+export interface AttachedView {
+  sessionId: string;
+  goal: string;
+  doneCriteria: string;
+  /** Number of continue decisions injected so far (turns we've driven). */
+  turns: number;
+  /** Epoch ms the session was registered. */
+  registeredAt: number;
+  /** Epoch ms the Stop hook last fired (undefined until the first turn). */
+  lastActivity?: number;
+  /** Last decision we returned for this session. */
+  lastAction?: "continue" | "stop";
+  /** Reason text for the last decision. */
+  lastReason?: string;
+}
+
 export interface Snapshot {
   type: "snapshot";
   provider: Provider;
@@ -245,6 +262,8 @@ export interface Snapshot {
   templates?: SessionTemplate[];
   /** Outbound event webhooks (newest-updated first). */
   webhooks?: WebhookConfig[];
+  /** Hand-started sessions driven via the Stop hook (newest-registered first). */
+  attached?: AttachedView[];
 }
 
 /** Goal intake assessment (POST /api/intake) — does the local brain think the goal is runnable? */
@@ -322,7 +341,8 @@ export type ClientMsg =
   | { type: "webhookSave"; webhook: WebhookInput }
   | { type: "webhookDelete"; id: string }
   | { type: "webhookTest"; id: string }
-  | { type: "rollback"; id: string; snapshot: string };
+  | { type: "rollback"; id: string; snapshot: string }
+  | { type: "detach"; id: string };
 
 /** Discovered on-disk Claude Code session (GET /api/discover). */
 export interface DiscoveredSession {

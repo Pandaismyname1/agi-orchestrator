@@ -4,11 +4,14 @@
   import { wsStore } from "../lib/ws.svelte";
   import Icon from "./Icon.svelte";
   import AgentCard from "./AgentCard.svelte";
+  import AttachedPanel from "./AttachedPanel.svelte";
 
   interface Props {
     sessions: SessionView[];
   }
   let { sessions }: Props = $props();
+
+  let attached = $derived(wsStore.snapshot?.attached ?? []);
 
   // Compact status breakdown shown under the section title.
   const BREAKDOWN: { key: string; label: string; match: (s: SessionView) => boolean }[] = [
@@ -48,6 +51,17 @@
         ></button>
       {/each}
     </div>
+    {#if attached.length}
+      <button
+        class="railplug"
+        title="{attached.length} attached session{attached.length === 1 ? '' : 's'} — expand to manage"
+        aria-label="{attached.length} attached sessions"
+        onclick={() => ui.toggleFleet()}
+      >
+        <Icon name="plug" size={14} />
+        <span class="tnum">{attached.length}</span>
+      </button>
+    {/if}
   </div>
 
   <!-- Expanded: full fleet list. -->
@@ -89,6 +103,10 @@
         {/each}
       </div>
     {/if}
+
+    {#if attached.length}
+      <AttachedPanel {attached} />
+    {/if}
   </div>
 </aside>
 
@@ -128,6 +146,23 @@
     font-size: 11px;
     color: var(--faint);
     font-weight: 700;
+  }
+  .railplug {
+    margin-top: auto;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 0;
+    border: none;
+    background: transparent;
+    color: var(--color-neutral-content);
+    cursor: pointer;
+    font-size: 10px;
+    transition: color 0.15s;
+  }
+  .railplug:hover {
+    color: var(--color-base-content);
   }
   .dots {
     display: flex;
@@ -284,6 +319,8 @@
     color: var(--st-error);
   }
   .stack {
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
     padding: 2px 16px 16px;
     display: flex;

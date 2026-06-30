@@ -83,7 +83,7 @@ interface ClientMsg {
     | "learnSynthesize" | "learnApprove" | "learnReject" | "learnRevert"
     | "templateSave" | "templateDelete" | "saveAsTemplate"
     | "webhookSave" | "webhookDelete" | "webhookTest"
-    | "rollback";
+    | "rollback" | "detach";
   id?: string;
   session?: SessionInput;
   patch?: SessionPatch;
@@ -450,6 +450,7 @@ async function main(): Promise<void> {
           learning: sup.learningSummary(),
           templates: sup.listTemplates(),
           webhooks: sup.listWebhooks(),
+          attached: attach.list(),
           sessions: sup.list(),
           focus: focusId ? { id: focusId, screen: sup.screen(focusId) } : undefined,
         }),
@@ -536,6 +537,23 @@ async function main(): Promise<void> {
             if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "notice", message: note }));
           } catch (e) {
             sendError(e instanceof Error ? e.message : String(e));
+          }
+          break;
+        case "detach":
+          // Stop driving a hand-started session. The hook then fails open, so
+          // the user's claude simply runs unmanaged from here on.
+          if (msg.id) {
+            const was = attach.isRegistered(msg.id);
+            attach.unregister(msg.id);
+            if (ws.readyState === ws.OPEN) {
+              ws.send(
+                JSON.stringify({
+                  type: "notice",
+                  message: was ? `✓ detached ${msg.id} — no longer driving it` : `${msg.id} was not attached`,
+                }),
+              );
+            }
+            push();
           }
           break;
         case "focus":

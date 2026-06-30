@@ -410,6 +410,25 @@ export const MOCK: Snapshot = {
       updatedAt: 1_780_500_000_000,
     },
   ],
+  attached: [
+    {
+      sessionId: "a1b2c3d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
+      goal: "Refactor the billing module to use the new pricing API and keep tests green.",
+      doneCriteria: "All billing tests pass and the legacy pricing client is removed.",
+      turns: 7,
+      registeredAt: Date.now() - 26 * 60_000,
+      lastActivity: Date.now() - 90_000,
+      lastAction: "continue",
+      lastReason: "Tests still failing in pricing.spec — asked it to fix the rounding case.",
+    },
+    {
+      sessionId: "f9e8d7c6-b5a4-3210-9876-543210fedcba",
+      goal: "Write end-to-end docs for the public SDK.",
+      doneCriteria: "Every public method has an example; the docs site builds.",
+      turns: 0,
+      registeredAt: Date.now() - 40_000,
+    },
+  ],
 };
 
 /** Demo history/transcript data (api.ts serves these when `?mock`). */

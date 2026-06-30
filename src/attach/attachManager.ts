@@ -37,6 +37,23 @@ export type AttachBrain = (input: AttachBrainInput) => Promise<AttachBrainResult
 /** Injected dependency: read claude's last assistant message from its transcript. */
 export type ReadLastMessage = (cwd: string, sessionId: string) => Promise<string>;
 
+/** A dashboard-facing view of one attached, hand-started session. */
+export interface AttachedView {
+  sessionId: string;
+  goal: string;
+  doneCriteria: string;
+  /** Number of continue decisions injected so far (turns we've driven). */
+  turns: number;
+  /** Epoch ms the session was registered. */
+  registeredAt: number;
+  /** Epoch ms the Stop hook last fired for this session (undefined until first turn). */
+  lastActivity?: number;
+  /** Last decision we returned ("continue" | "stop"). */
+  lastAction?: "continue" | "stop";
+  /** Reason text for the last decision. */
+  lastReason?: string;
+}
+
 /** Guard limits for an attached session. Mirrors the shape `Guards` needs. */
 export interface AttachLimits {
   maxTurns: number;
@@ -48,6 +65,8 @@ export interface AttachManagerDeps {
   brain: AttachBrain;
   readLastMessage: ReadLastMessage;
   limits: AttachLimits;
+  /** Clock, injectable for deterministic tests. Defaults to Date.now. */
+  now?: () => number;
 }
 
 /** The body the Stop hook POSTs to `/hook` (a subset of Claude's hook payload). */
@@ -69,18 +88,25 @@ interface AttachedSession {
   goal: string;
   doneCriteria: string;
   guards: Guards;
+  registeredAt: number;
+  turns: number;
+  lastActivity?: number;
+  lastAction?: "continue" | "stop";
+  lastReason?: string;
 }
 
 export class AttachManager {
   private readonly brain: AttachBrain;
   private readonly readLastMessage: ReadLastMessage;
   private readonly limits: AttachLimits;
+  private readonly now: () => number;
   private readonly sessions = new Map<string, AttachedSession>();
 
   constructor(deps: AttachManagerDeps) {
     this.brain = deps.brain;
     this.readLastMessage = deps.readLastMessage;
     this.limits = deps.limits;
+    this.now = deps.now ?? Date.now;
   }
 
   /**
@@ -94,6 +120,8 @@ export class AttachManager {
       doneCriteria: cfg.doneCriteria,
       // Guards wants a full Limits; our AttachLimits is structurally identical.
       guards: new Guards(this.limits),
+      registeredAt: this.now(),
+      turns: 0,
     });
   }
 
@@ -105,6 +133,22 @@ export class AttachManager {
   /** True if the session id is currently attached. */
   isRegistered(sessionId: string): boolean {
     return this.sessions.has(sessionId);
+  }
+
+  /** Dashboard view of every attached session, newest-registered first. */
+  list(): AttachedView[] {
+    return [...this.sessions.entries()]
+      .map(([sessionId, s]) => ({
+        sessionId,
+        goal: s.goal,
+        doneCriteria: s.doneCriteria,
+        turns: s.turns,
+        registeredAt: s.registeredAt,
+        lastActivity: s.lastActivity,
+        lastAction: s.lastAction,
+        lastReason: s.lastReason,
+      }))
+      .sort((a, b) => b.registeredAt - a.registeredAt);
   }
 
   /**
@@ -129,6 +173,19 @@ export class AttachManager {
         };
       }
 
+      // Every hook firing for an attached session counts as activity, whatever
+      // we end up deciding — record it so the dashboard shows a live heartbeat.
+      sess.lastActivity = this.now();
+
+      // Record the final decision on the session (drives the dashboard view),
+      // then return it. A "continue" also advances the driven-turn counter.
+      const record = (d: HookDecision): HookDecision => {
+        sess.lastAction = d.action;
+        sess.lastReason = d.reason;
+        if (d.action === "continue") sess.turns += 1;
+        return d;
+      };
+
       const lastAssistantText = await this.readLastMessage(body.cwd, sessionId);
 
       // Brain decides FIRST so we know the candidate next prompt, then the
@@ -141,28 +198,28 @@ export class AttachManager {
       });
 
       if (decision.action === "stop") {
-        return {
+        return record({
           action: "stop",
           prompt: null,
           reason: decision.reason || "brain decided to stop",
-        };
+        });
       }
 
       const prompt = (decision.prompt ?? "").trim();
       if (!prompt) {
-        return {
+        return record({
           action: "stop",
           prompt: null,
           reason: "brain said continue but gave no prompt",
-        };
+        });
       }
 
       const guard = sess.guards.check(prompt);
       if (guard.stop) {
-        return { action: "stop", prompt: null, reason: guard.reason };
+        return record({ action: "stop", prompt: null, reason: guard.reason });
       }
 
-      return { action: "continue", prompt, reason: decision.reason || "continuing" };
+      return record({ action: "continue", prompt, reason: decision.reason || "continuing" });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       return { action: "stop", prompt: null, reason: `attach handler error: ${msg}` };
