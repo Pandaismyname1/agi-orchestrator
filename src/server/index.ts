@@ -45,6 +45,7 @@ interface SessionInput {
   resumeId?: SessionConfig["resumeId"];
   dependsOn?: string[];
   schedule?: SessionConfig["schedule"];
+  autoPr?: SessionConfig["autoPr"];
 }
 
 type SessionPatch = Partial<{
@@ -56,6 +57,7 @@ type SessionPatch = Partial<{
   startMode: SessionConfig["startMode"];
   dependsOn: string[];
   schedule: SessionConfig["schedule"] | null;
+  autoPr: SessionConfig["autoPr"] | null;
 }>;
 
 /** Runtime-editable global settings patch (see the "updateSettings" handler). */

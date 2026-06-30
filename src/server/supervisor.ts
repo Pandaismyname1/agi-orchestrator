@@ -18,6 +18,7 @@ import { decideNextStep, refineEscalation } from "../brain/decide.js";
 import { assessGoal, type IntakeInput, type IntakeResult } from "../brain/intake.js";
 import { isDue, hasActiveTrigger, parseHHMM } from "../policy/schedule.js";
 import { restoreTo, type RestoreResult } from "../git/diff.js";
+import { openPullRequest, defaultRunner, type Runner as PrRunner } from "../git/pr.js";
 import { LearningService, emptyLearningSummary } from "../learning/service.js";
 import { Notifier, type DeliveryResult, type NotifyContext } from "../notify/notifier.js";
 import type {
@@ -30,6 +31,7 @@ import type { Store } from "../db/store.js";
 import type {
   AppConfig,
   AttentionRequest,
+  AutoPrConfig,
   GateResolution,
   Resolution,
   SessionConfig,
@@ -108,6 +110,12 @@ export interface SessionView {
   blockedBy?: string[];
   /** Auto-start schedule (every N minutes / daily HH:MM), if configured. */
   schedule?: SessionSchedule;
+  /** Auto-open-a-PR-on-done setting, if configured. */
+  autoPr?: AutoPrConfig;
+  /** URL of the PR opened for this session's last completed run, if any. */
+  prUrl?: string;
+  /** Lifecycle of the auto-PR for the current/last run. */
+  prState?: "opening" | "open" | "failed" | "skipped";
 }
 
 interface Managed extends SessionView {
@@ -156,6 +164,8 @@ export class Supervisor {
   private readonly notifier: Notifier;
   /** Periodic tick that auto-starts sessions whose schedule is due. */
   private scheduleTimer?: ReturnType<typeof setInterval>;
+  /** Git/gh runner for auto-PR (injectable so it's testable without a real repo). */
+  private readonly prRunner: PrRunner;
 
   constructor(
     private readonly cfg: AppConfig,
@@ -166,7 +176,10 @@ export class Supervisor {
     private readonly runner: RunFn = runSession,
     /** Optional notifier override (tests inject one with a recording transport). */
     notifier?: Notifier,
+    /** Optional git/gh runner for auto-PR (tests inject a recording stub). */
+    prRunner?: PrRunner,
   ) {
+    this.prRunner = prRunner ?? defaultRunner;
     this.llm = new LocalLLM(cfg.provider);
     if (cfg.escalationProvider) this.heavyLlm = new LocalLLM(cfg.escalationProvider);
     this.budget = new BudgetTracker(store, cfg.budget);
@@ -508,6 +521,9 @@ export class Supervisor {
     m.attention = null;
     m.mode = m.config.startMode ?? "autopilot";
     m.startedAt = Date.now();
+    // A fresh run supersedes any PR from the previous one.
+    m.prState = undefined;
+    m.prUrl = undefined;
 
     // One-shot "continue" parameters (consumed by this launch only).
     const resumeId = m.continueResumeId;
@@ -635,6 +651,8 @@ export class Supervisor {
       if (m.status === "done") this.notify(m, "done", undefined);
       else if (m.status === "stopped") this.notify(m, "stopped", undefined);
       else if (m.status === "error") this.notify(m, "error", m.error);
+      // Auto-open a PR if this session met its done-criteria and opted in.
+      if (m.status === "done" && m.config.autoPr) void this.maybeOpenPr(m);
     });
   }
 
@@ -821,6 +839,47 @@ export class Supervisor {
     void this.notifier.fire(event, ctx).catch(() => {});
   }
 
+  /**
+   * Open a PR for a session that just hit its done-criteria (Tier 3 #10). Reflects
+   * progress in the live view (`prState`/`prUrl`/`lastDecision`) so the dashboard
+   * shows it. Best-effort: any failure or skip is recorded, never thrown.
+   */
+  private async maybeOpenPr(m: Managed): Promise<void> {
+    const autoPr = m.config.autoPr;
+    if (!autoPr) return;
+    m.prState = "opening";
+    m.prUrl = undefined;
+    m.lastDecision = `opening ${autoPr.mode === "draft" ? "draft " : ""}PR…`;
+    try {
+      const res = await openPullRequest(
+        m.cwd,
+        {
+          mode: autoPr.mode,
+          base: autoPr.base,
+          sessionId: m.id,
+          goal: m.goal,
+          doneCriteria: m.doneCriteria,
+          turns: m.turns,
+        },
+        this.prRunner,
+      );
+      if (res.ok && res.url) {
+        m.prState = "open";
+        m.prUrl = res.url;
+        m.lastDecision = `✅ opened PR: ${res.url}`;
+      } else if (res.skipped) {
+        m.prState = "skipped";
+        m.lastDecision = `PR skipped — ${res.reason ?? "nothing to open"}`;
+      } else {
+        m.prState = "failed";
+        m.lastDecision = `PR failed — ${res.reason ?? "unknown error"}`;
+      }
+    } catch (e) {
+      m.prState = "failed";
+      m.lastDecision = `PR failed — ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+
   /** All configured webhooks, most-recently-updated first. */
   listWebhooks(): WebhookConfig[] {
     return [...(this.cfg.webhooks ?? [])].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -920,6 +979,7 @@ export class Supervisor {
     resumeId?: SessionConfig["resumeId"];
     dependsOn?: string[];
     schedule?: SessionSchedule;
+    autoPr?: AutoPrConfig;
   }): SessionView {
     const cwd = (input.cwd ?? "").trim();
     const goal = (input.goal ?? "").trim();
@@ -933,6 +993,7 @@ export class Supervisor {
 
     const dependsOn = this.normalizeDeps(id, input.dependsOn);
     const schedule = normalizeSchedule(input.schedule);
+    const autoPr = normalizeAutoPr(input.autoPr);
     const config: SessionConfig = {
       id,
       cwd: path.resolve(cwd),
@@ -944,6 +1005,7 @@ export class Supervisor {
       resumeId: input.resumeId,
       ...(dependsOn.length ? { dependsOn } : {}),
       ...(schedule ? { schedule } : {}),
+      ...(autoPr ? { autoPr } : {}),
     };
     const m: Managed = {
       config,
@@ -980,6 +1042,7 @@ export class Supervisor {
       startMode: SessionConfig["startMode"];
       dependsOn: string[];
       schedule: SessionSchedule | null;
+      autoPr: AutoPrConfig | null;
     }>,
   ): SessionView {
     const m = this.sessions.get(id);
@@ -1046,6 +1109,11 @@ export class Supervisor {
       else delete m.config.schedule;
       // Reset the schedule clock so an edit doesn't fire instantly on the next tick.
       m.lastFire = Date.now();
+    }
+    if (patch.autoPr !== undefined) {
+      const autoPr = patch.autoPr === null ? undefined : normalizeAutoPr(patch.autoPr);
+      if (autoPr) m.config.autoPr = autoPr;
+      else delete m.config.autoPr;
     }
     this.store?.upsertSession(m.config);
     this.persist();
@@ -1239,6 +1307,9 @@ function toView(m: Managed): SessionView {
     dependsOn: m.config.dependsOn?.length ? m.config.dependsOn : undefined,
     blockedBy: m.blockedBy?.length ? m.blockedBy : undefined,
     schedule: m.config.schedule,
+    autoPr: m.config.autoPr,
+    prUrl: m.prUrl,
+    prState: m.prState,
   };
 }
 
@@ -1266,5 +1337,18 @@ function normalizeSchedule(s: SessionSchedule | undefined): SessionSchedule | un
   }
   if (out.everyMinutes === undefined && out.dailyAt === undefined) return undefined;
   out.enabled = s.enabled !== false;
+  return out;
+}
+
+/**
+ * Sanitize a proposed auto-PR setting: keep only a valid mode and a clean base
+ * branch; undefined (or an unknown mode) disables it rather than storing junk.
+ */
+function normalizeAutoPr(a: AutoPrConfig | undefined | null): AutoPrConfig | undefined {
+  if (!a || (a.mode !== "draft" && a.mode !== "ready")) return undefined;
+  const out: AutoPrConfig = { mode: a.mode };
+  const base = typeof a.base === "string" ? a.base.trim() : "";
+  // A branch ref can't contain spaces or most punctuation; keep it conservative.
+  if (base && /^[\w./-]+$/.test(base)) out.base = base;
   return out;
 }

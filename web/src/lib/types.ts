@@ -29,6 +29,13 @@ export interface SessionSchedule {
   dailyAt?: string;
 }
 
+/** Auto-open a PR when a session hits its done-criteria (opt-in). */
+export interface AutoPrConfig {
+  mode: "draft" | "ready";
+  /** Base branch (default: origin's default branch). */
+  base?: string;
+}
+
 export interface AttentionOption {
   label: string;
   rationale?: string;
@@ -68,6 +75,12 @@ export interface SessionView {
   blockedBy?: string[];
   /** auto-start schedule (every N minutes / daily HH:MM), if configured. */
   schedule?: SessionSchedule;
+  /** auto-open-a-PR-on-done setting, if configured. */
+  autoPr?: AutoPrConfig;
+  /** URL of the PR opened for the last completed run, if any. */
+  prUrl?: string;
+  /** lifecycle of the auto-PR for the current/last run. */
+  prState?: "opening" | "open" | "failed" | "skipped";
 }
 
 /** Continue a finished session: edited goal / next instruction / mode to resume with. */
@@ -300,6 +313,8 @@ export interface SessionInput {
   dependsOn?: string[];
   /** auto-start schedule (every N minutes / daily HH:MM). */
   schedule?: SessionSchedule;
+  /** auto-open-a-PR-on-done setting. */
+  autoPr?: AutoPrConfig;
 }
 
 export type SessionPatch = Partial<{
@@ -311,6 +326,7 @@ export type SessionPatch = Partial<{
   startMode: SessionMode;
   schedule: SessionSchedule | null;
   dependsOn: string[];
+  autoPr: AutoPrConfig | null;
 }>;
 
 /** How the user answered an open human-decision. */

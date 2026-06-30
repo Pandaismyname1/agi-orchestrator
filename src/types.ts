@@ -60,6 +60,22 @@ export interface SessionConfig {
    * daily budget, real usage limits, and dependencies). Omit for manual-only.
    */
   schedule?: SessionSchedule;
+  /**
+   * Auto-open a pull request when the session reaches its done-criteria. Opt-in;
+   * omit to disable. Requires the cwd to be a git repo with an "origin" remote and
+   * the GitHub CLI (`gh`) installed + authenticated. The orchestrator commits the
+   * agent's pending changes onto a fresh `agi/<id>-<slug>` branch, pushes it, and
+   * opens the PR against `base` (default: origin's default branch).
+   */
+  autoPr?: AutoPrConfig;
+}
+
+/** Auto-PR-on-done settings (see SessionConfig.autoPr). */
+export interface AutoPrConfig {
+  /** "draft" opens a draft PR; "ready" opens a normal PR. */
+  mode: "draft" | "ready";
+  /** Base branch to target. Defaults to origin's default branch, else "main". */
+  base?: string;
 }
 
 /**

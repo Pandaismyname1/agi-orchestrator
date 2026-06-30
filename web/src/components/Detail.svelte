@@ -115,6 +115,17 @@
             <Icon name="thumbsDown" size={12} /> <b class="tnum">{s.feedback.down}</b>
           </span>
         {/if}
+        {#if s.prState === "open" && s.prUrl}
+          <a class="prchip open" href={s.prUrl} target="_blank" rel="noopener noreferrer" title="Open the pull request on GitHub">
+            <Icon name="graph" size={12} /> View PR ↗
+          </a>
+        {:else if s.prState === "opening"}
+          <span class="prchip opening" title="Opening a pull request…">opening PR…</span>
+        {:else if s.prState === "failed"}
+          <span class="prchip failed" title={s.lastDecision}>PR failed</span>
+        {:else if s.prState === "skipped"}
+          <span class="prchip skipped" title={s.lastDecision}>PR skipped</span>
+        {/if}
       </div>
     </div>
 
@@ -215,6 +226,37 @@
   }
   .dstat.fb :global(svg) {
     opacity: 0.75;
+  }
+  .prchip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    padding: 2px 9px;
+    border-radius: 20px;
+    border: 1px solid var(--border-soft);
+    color: var(--faint);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .prchip.open {
+    color: var(--st-running);
+    border-color: rgba(34, 197, 94, 0.5);
+    background: rgba(34, 197, 94, 0.08);
+  }
+  .prchip.open:hover {
+    border-color: var(--st-running);
+  }
+  .prchip.opening {
+    color: var(--st-manual);
+    border-color: rgba(96, 165, 250, 0.5);
+  }
+  .prchip.failed {
+    color: var(--st-error);
+    border-color: rgba(248, 113, 113, 0.5);
+  }
+  .prchip.skipped {
+    color: var(--faint);
   }
   .empty {
     color: var(--faint);

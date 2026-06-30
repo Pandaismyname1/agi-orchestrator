@@ -7,6 +7,7 @@
     SessionView,
     SessionInput,
     SessionSchedule,
+    AutoPrConfig,
   } from "../../lib/types";
   import { wsStore } from "../../lib/ws.svelte";
   import { ui } from "../../lib/ui.svelte";
@@ -48,6 +49,15 @@
     return { enabled: schedEnabled, everyMinutes: every, dailyAt: daily };
   }
 
+  // Auto-open a PR when the session hits its done-criteria.
+  let prMode = $state<"off" | "draft" | "ready">(untrack(() => session?.autoPr?.mode ?? "off"));
+  let prBase = $state(untrack(() => session?.autoPr?.base ?? ""));
+  function buildAutoPr(): AutoPrConfig | null {
+    if (prMode === "off") return null;
+    const base = prBase.trim();
+    return { mode: prMode, ...(base ? { base } : {}) };
+  }
+
   let err = $state("");
 
   const title = $derived(editing ? "Edit session" : adopting ? "Adopt existing session" : "New session");
@@ -71,11 +81,12 @@
       return;
     }
     const schedule = buildSchedule();
+    const autoPr = buildAutoPr();
     if (editing && session) {
       wsStore.send({
         type: "update",
         id: session.id,
-        patch: { cwd: c, goal: g, doneCriteria: d, permissionMode, autonomy, startMode, dependsOn, schedule },
+        patch: { cwd: c, goal: g, doneCriteria: d, permissionMode, autonomy, startMode, dependsOn, schedule, autoPr },
       });
     } else {
       const payload: SessionInput = {
@@ -88,6 +99,7 @@
         dependsOn,
       };
       if (schedule) payload.schedule = schedule;
+      if (autoPr) payload.autoPr = autoPr;
       if (id.trim()) payload.id = id.trim();
       if (adopt) payload.resumeId = adopt.resumeId;
       wsStore.send({ type: "add", session: payload });
@@ -187,6 +199,27 @@
       Auto-start runs through the queue — concurrency cap, daily budget, and usage limits still apply.
       Set either field (or both); clear both to remove the schedule.
     </p>
+  </div>
+
+  <span class="grouplabel" id="f_pr_label">auto-PR on done <span class="opt">(optional — open a pull request when the goal is met)</span></span>
+  <div class="schedbox" role="group" aria-labelledby="f_pr_label">
+    <label for="f_pr_mode" class="visually-hidden">auto-PR mode</label>
+    <select id="f_pr_mode" bind:value={prMode}>
+      <option value="off">off — don't open a PR</option>
+      <option value="draft">draft PR — open as a draft</option>
+      <option value="ready">ready PR — open for review</option>
+    </select>
+    {#if prMode !== "off"}
+      <div class="prbaserow">
+        <label for="f_pr_base">base branch <span class="opt">(optional)</span></label>
+        <input id="f_pr_base" bind:value={prBase} placeholder="default branch (e.g. main)" autocomplete="off" spellcheck="false" />
+      </div>
+      <p class="schedhint">
+        On done, the orchestrator commits the agent's changes to an <span class="mono">agi/…</span> branch,
+        pushes, and opens the PR. Needs a git repo with an <span class="mono">origin</span> remote and the
+        GitHub CLI (<span class="mono">gh</span>) authenticated.
+      </p>
+    {/if}
   </div>
 
   <div class="ferr">{err}</div>
@@ -333,6 +366,24 @@
     color: var(--faint);
     line-height: 1.45;
     margin: 8px 2px 0;
+  }
+  .prbaserow {
+    margin-top: 10px;
+  }
+  .prbaserow label {
+    margin-top: 0;
+  }
+  .mono {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    color: var(--color-base-content);
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
   .livehint {
     font-size: 12px;
