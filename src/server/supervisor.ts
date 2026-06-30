@@ -33,7 +33,7 @@ import { inQuietHours } from "../policy/quiethours.js";
 import { restoreTo, type RestoreResult } from "../git/diff.js";
 import { openPullRequest, defaultRunner, type Runner as PrRunner } from "../git/pr.js";
 import { retryOptsFrom, brainPollMsFrom } from "../policy/reliability.js";
-import { planAutomations, countEnabled } from "../policy/automation.js";
+import { planAutomations, countEnabled, chainGuard, DEFAULT_CHAIN_CAP } from "../policy/automation.js";
 import { LearningService, emptyLearningSummary } from "../learning/service.js";
 import { Notifier, type DeliveryResult, type NotifyContext } from "../notify/notifier.js";
 import { createLogger, type Logger } from "../util/logger.js";
@@ -176,6 +176,12 @@ interface Managed extends SessionView {
   usage?: UsageStatus;
   /** Epoch ms this session last auto-fired from its schedule (seeds isDue). */
   lastFire?: number;
+  /**
+   * Causal generation of this session's current run for the automation chain-depth
+   * guard: 0 when started by a user/schedule/dependency (a root), or parent+1 when
+   * an automation started/affected it. Reset on every non-automation start.
+   */
+  autoGen?: number;
 }
 
 export class Supervisor {
@@ -562,9 +568,13 @@ export class Supervisor {
   }
 
   /** Request a session to run: launch now if a slot is free, else queue it. */
-  start(id: string): void {
+  start(id: string, opts?: { gen?: number }): void {
     const m = this.sessions.get(id);
     if (!m || ["running", "queued", "needs-input", "manual", "paused"].includes(m.status)) return;
+    // Record the causal generation for the chain-depth guard. No `gen` = a root
+    // start (user / schedule / dependency release) → generation 0. An automation
+    // passes its hop generation so the resulting run is capped against runaways.
+    m.autoGen = opts?.gen ?? 0;
     // Workflow gate: hold the session as `blocked` until every session it
     // depends on has finished. promoteReady() releases it when they're done.
     const unmet = this.unmetDeps(m);
@@ -1079,6 +1089,23 @@ export class Supervisor {
     const rules = this.cfg.automations;
     if (!rules || rules.length === 0) return;
     const plan = planAutomations(event, { id: m.id, cwd: m.cwd, goal: m.goal, mode: m.mode }, rules);
+    if (plan.length === 0) return;
+
+    // Chain-depth guard: if running this hop would exceed the cap, drop the whole
+    // batch and log it (per action, so the rule attribution survives in history).
+    const cap = this.cfg.automationChainCap ?? DEFAULT_CHAIN_CAP;
+    const { gen, over } = chainGuard(m.autoGen, cap);
+    if (over) {
+      this.log.warn("automation chain depth cap reached", { from: m.id, on: event, gen, cap });
+      for (const a of plan) {
+        this.recordFiring({
+          ruleId: a.ruleId, ruleName: a.ruleName, event, kind: a.kind, from: m.id, target: a.target,
+          outcome: "skipped", note: `chain depth cap reached (${cap})`,
+        });
+      }
+      return;
+    }
+
     for (const a of plan) {
       const base = { ruleId: a.ruleId, ruleName: a.ruleName, event, kind: a.kind, from: m.id, target: a.target };
       try {
@@ -1089,15 +1116,17 @@ export class Supervisor {
             continue;
           }
           this.log.info("automation: start", { rule: a.ruleName, target: a.target, on: event, from: m.id });
-          this.start(a.target);
+          this.start(a.target, { gen });
           this.recordFiring({ ...base, outcome: "ok" });
         } else if (a.kind === "stop" && a.target) {
-          if (!this.sessions.has(a.target)) {
+          const tgt = this.sessions.get(a.target);
+          if (!tgt) {
             this.log.warn("automation stop: no such session", { rule: a.ruleName, target: a.target });
             this.recordFiring({ ...base, outcome: "skipped", note: "no such session" });
             continue;
           }
           this.log.info("automation: stop", { rule: a.ruleName, target: a.target, on: event, from: m.id });
+          tgt.autoGen = gen; // a resulting "stopped" event chains at the next generation
           this.stop(a.target);
           this.recordFiring({ ...base, outcome: "ok" });
         } else if (a.kind === "notify") {
@@ -1118,11 +1147,13 @@ export class Supervisor {
           void this.notifier.fire(event, ctx).catch(() => {});
           this.recordFiring({ ...base, outcome: "ok" });
         } else if (a.kind === "setMode" && a.target && a.mode) {
-          if (!this.sessions.has(a.target)) {
+          const tgt = this.sessions.get(a.target);
+          if (!tgt) {
             this.recordFiring({ ...base, outcome: "skipped", note: "no such session" });
             continue;
           }
           this.log.info("automation: setMode", { rule: a.ruleName, target: a.target, mode: a.mode, on: event });
+          tgt.autoGen = gen; // the target's continued run chains at the next generation
           this.setMode(a.target, a.mode);
           this.recordFiring({ ...base, outcome: "ok" });
         } else if (a.kind === "sendMessage" && a.target && a.message) {
@@ -1137,6 +1168,7 @@ export class Supervisor {
             continue;
           }
           this.log.info("automation: sendMessage", { rule: a.ruleName, target: a.target, on: event });
+          tgt.autoGen = gen; // the resumed run chains at the next generation
           this.sendMessage(a.target, a.message);
           this.recordFiring({ ...base, outcome: "ok" });
         } else if (a.kind === "webhook" && a.webhook) {

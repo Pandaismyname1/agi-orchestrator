@@ -119,6 +119,8 @@
   ],
   "_quietHours_note": "OPTIONAL notification quiet hours — silence the sound alarm and outbound webhooks during a daily LOCAL-time window. 'start'/'end' are 'HH:MM' (24h); an end earlier than the start spans midnight (e.g. 22:00 -> 07:00). 'days' (0=Sun..6=Sat, keyed by the window's start day) restricts which nights it applies to — omit/empty = every day. 'allowUrgent' lets 'error' notifications page you even while quiet. Operational automations are never affected (only the human-facing notification is gated). Edit this in the dashboard's Settings panel. Omit the block (or set enabled:false) for none.",
   "quietHours": { "enabled": false, "start": "22:00", "end": "07:00", "days": [], "allowUrgent": true },
+  "_automationChainCap_note": "OPTIONAL loop guard for cascading automation rules. When rule X starts B, B's completion fires rule Y that starts C, and so on, an accidental cycle would fire forever. Each session carries the causal 'generation' of its run (0 for a user/schedule/dependency start; parent+1 when an automation started/affected it); once a hop would exceed this many generations the whole batch is dropped and logged in the automation history. Default 8. Set <= 0 to disable the cap (not recommended).",
+  "automationChainCap": 8,
   "sessions": [
     {
       "id": "demo-website",

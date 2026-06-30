@@ -152,3 +152,34 @@ export function planAutomations(
 export function countEnabled(rules: AutomationRule[] | undefined): number {
   return (rules ?? []).filter(ruleEnabled).length;
 }
+
+// ── chain-depth guard ───────────────────────────────────────────────────────────
+//
+// Automation rules can cascade across lifecycle events: rule X starts session B,
+// B finishes, that fires rule Y which starts C, and so on. Because each hop is a
+// separate async event (not a call stack), an accidental loop ("when any session
+// is done, start deploy" + "when deploy is done, start tests" + …) would fire
+// forever. We tag each session with the causal *generation* of its current run —
+// a user/schedule/dependency start is generation 0 (a root), and any session an
+// automation starts/affects inherits generation = parent + 1. When the next hop
+// would exceed the cap, the supervisor drops those actions and records a firing.
+
+/** Default max automation hops in one causal chain before further actions drop. */
+export const DEFAULT_CHAIN_CAP = 8;
+
+/** The generation actions spawn from a session whose run is at `parentGen` (root → 1). */
+export function nextChainGen(parentGen: number | undefined): number {
+  const base = Number.isFinite(parentGen) && (parentGen as number) > 0 ? Math.floor(parentGen as number) : 0;
+  return base + 1;
+}
+
+/** True when a generation exceeds the cap. A cap ≤ 0 disables the guard (unlimited). */
+export function overChainCap(gen: number, cap: number): boolean {
+  return cap > 0 && gen > cap;
+}
+
+/** Combined decision the supervisor needs for one hop: the next generation + whether it's capped. */
+export function chainGuard(parentGen: number | undefined, cap: number): { gen: number; over: boolean } {
+  const gen = nextChainGen(parentGen);
+  return { gen, over: overChainCap(gen, cap) };
+}

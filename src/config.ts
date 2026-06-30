@@ -111,6 +111,7 @@ export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json")
     registry: parsed.registry,
     automations: Array.isArray(parsed.automations) ? parsed.automations : undefined,
     quietHours: parsed.quietHours,
+    automationChainCap: typeof parsed.automationChainCap === "number" ? parsed.automationChainCap : undefined,
   };
 }
 
@@ -147,6 +148,7 @@ export async function saveConfig(
     registry: cfg.registry,
     automations: cfg.automations,
     quietHours: cfg.quietHours,
+    automationChainCap: cfg.automationChainCap,
   };
   const json = JSON.stringify(out, null, 2) + "\n";
   // Write atomically (temp file + rename) so a crash or an interleaved write can

@@ -176,6 +176,11 @@ export interface AppConfig {
   automations?: AutomationRule[];
   /** Notification quiet hours: silence alerts/webhooks during a daily window. */
   quietHours?: QuietHours;
+  /**
+   * Max automation hops in one causal chain before further reactive actions are
+   * dropped (loop guard for cascading rules). Defaults to 8; ≤ 0 disables the cap.
+   */
+  automationChainCap?: number;
 }
 
 /**
