@@ -538,6 +538,19 @@ export const MOCK: Snapshot = {
       createdAt: 1_778_000_000_000,
       updatedAt: 1_779_500_000_000,
     },
+    {
+      id: "auto-handoff",
+      name: "Take the wheel when the DB migration needs review",
+      enabled: true,
+      on: ["needs-input"],
+      match: { sessionId: "refactor-db" },
+      actions: [
+        { kind: "setMode", target: "refactor-db", mode: "manual" },
+        { kind: "webhook", webhook: "Slack #builds" },
+      ],
+      createdAt: 1_781_500_000_000,
+      updatedAt: 1_782_200_000_000,
+    },
   ],
   automationLog: [
     { at: Date.now() - 4 * 60_000, ruleId: "auto-chain", ruleName: "Deploy after API build", event: "done", kind: "start", from: "api-server", target: "deploy-prod", outcome: "ok" },

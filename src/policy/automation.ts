@@ -35,10 +35,14 @@ export interface PlannedAction {
   ruleId: string;
   ruleName: string;
   kind: AutomationAction["kind"];
-  /** Resolved session id for start/stop (never `$self` — already resolved). */
+  /** Resolved session id for start/stop/setMode/sendMessage (never `$self`). */
   target?: string;
-  /** Custom message for notify (optional). */
+  /** Custom message for notify, or the body for sendMessage. */
   message?: string;
+  /** Target mode for setMode. */
+  mode?: "manual" | "autopilot";
+  /** Webhook name for a named-webhook action. */
+  webhook?: string;
 }
 
 const ci = (s: string | undefined): string => (s ?? "").toLowerCase();
@@ -102,10 +106,39 @@ export function planAutomations(
         continue;
       }
 
-      // start / stop
+      if (action.kind === "webhook") {
+        const webhook = action.webhook?.trim();
+        if (!webhook) continue;
+        const key = `webhook:${webhook}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        plan.push({ ruleId: rule.id, ruleName: rule.name, kind: "webhook", webhook });
+        continue;
+      }
+
+      // start / stop / setMode / sendMessage — all target a session
       const target = resolveTarget(action.target, firing);
       if (!target) continue; // unresolvable target
       if (action.kind === "start" && target === firing.id) continue; // self-start loop guard
+
+      if (action.kind === "setMode") {
+        const key = `setMode:${target}:${action.mode}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        plan.push({ ruleId: rule.id, ruleName: rule.name, kind: "setMode", target, mode: action.mode });
+        continue;
+      }
+      if (action.kind === "sendMessage") {
+        const message = action.message?.trim();
+        if (!message) continue; // an empty message is a no-op
+        const key = `sendMessage:${target}:${message}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        plan.push({ ruleId: rule.id, ruleName: rule.name, kind: "sendMessage", target, message });
+        continue;
+      }
+
+      // start / stop
       const key = `${action.kind}:${target}`;
       if (seen.has(key)) continue;
       seen.add(key);

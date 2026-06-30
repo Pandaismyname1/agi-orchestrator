@@ -156,6 +156,29 @@ export class Notifier {
       return 0;
     }
     const hooks = (this.getWebhooks() ?? []).filter((w) => subscribes(w, event));
+    return this.deliver(hooks, event, ctx);
+  }
+
+  /**
+   * Fire a SPECIFIC webhook by name (the automation "run webhook" action). Unlike
+   * `fire`, it ignores the webhook's event-subscription filter — the operator
+   * named it explicitly — but still respects quiet hours. Returns how many
+   * matching enabled webhooks were delivered to (0 if the name isn't found).
+   */
+  async fireNamed(name: string, event: WebhookEvent, ctx: NotifyContext): Promise<number> {
+    if (suppresses(this.getQuietHours(), event, this.now())) {
+      this.log(`🔕 quiet hours — suppressed named webhook "${name}"`);
+      return 0;
+    }
+    const want = name.trim().toLowerCase();
+    const hooks = (this.getWebhooks() ?? []).filter(
+      (w) => w.enabled !== false && (w.name ?? "").trim().toLowerCase() === want,
+    );
+    return this.deliver(hooks, event, ctx);
+  }
+
+  /** Build the payload and POST to each hook (best-effort; logs failures). */
+  private async deliver(hooks: WebhookConfig[], event: WebhookEvent, ctx: NotifyContext): Promise<number> {
     if (hooks.length === 0) return 0;
     const payload: NotifyPayload = {
       event,
@@ -181,6 +204,11 @@ export class Notifier {
       }),
     );
     return hooks.length;
+  }
+
+  /** Names of all enabled webhooks (for the automation editor + validation). */
+  enabledNames(): string[] {
+    return (this.getWebhooks() ?? []).filter((w) => w.enabled !== false).map((w) => w.name);
   }
 
   /** Send a sample payload to one webhook so the operator can verify it works. */

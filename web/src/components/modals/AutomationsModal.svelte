@@ -17,6 +17,7 @@
   let log = $derived(wsStore.snapshot?.automationLog ?? []);
   let summary = $derived(summarizeFirings(log));
   let recent = $derived(recentFirings(log, 12));
+  let webhookNames = $derived((wsStore.snapshot?.webhooks ?? []).filter((w) => w.enabled !== false).map((w) => w.name));
 
   const ALL_EVENTS: { id: AutomationTrigger; label: string }[] = [
     { id: "done", label: "done" },
@@ -88,16 +89,40 @@
   function removeAction(i: number): void {
     actions = actions.filter((_, idx) => idx !== i);
   }
+  function defaultAction(kind: AutomationAction["kind"]): AutomationAction {
+    switch (kind) {
+      case "notify":
+        return { kind: "notify", message: "" };
+      case "setMode":
+        return { kind: "setMode", target: "$self", mode: "manual" };
+      case "sendMessage":
+        return { kind: "sendMessage", target: "$self", message: "" };
+      case "webhook":
+        return { kind: "webhook", webhook: webhookNames[0] ?? "" };
+      default:
+        return { kind, target: "$self" };
+    }
+  }
   function setKind(i: number, kind: AutomationAction["kind"]): void {
-    const next: AutomationAction =
-      kind === "notify" ? { kind: "notify", message: "" } : { kind, target: "$self" };
-    actions = actions.map((a, idx) => (idx === i ? next : a));
+    actions = actions.map((a, idx) => (idx === i ? defaultAction(kind) : a));
   }
+  // Target applies to start/stop/setMode/sendMessage (everything but notify/webhook).
   function setTarget(i: number, target: string): void {
-    actions = actions.map((a, idx) => (idx === i && a.kind !== "notify" ? { ...a, target } : a));
+    actions = actions.map((a, idx) =>
+      idx === i && a.kind !== "notify" && a.kind !== "webhook" ? { ...a, target } : a,
+    );
   }
+  // Message applies to notify and sendMessage.
   function setMessage(i: number, message: string): void {
-    actions = actions.map((a, idx) => (idx === i && a.kind === "notify" ? { ...a, message } : a));
+    actions = actions.map((a, idx) =>
+      idx === i && (a.kind === "notify" || a.kind === "sendMessage") ? { ...a, message } : a,
+    );
+  }
+  function setActionMode(i: number, mode: "manual" | "autopilot"): void {
+    actions = actions.map((a, idx) => (idx === i && a.kind === "setMode" ? { ...a, mode } : a));
+  }
+  function setWebhook(i: number, webhook: string): void {
+    actions = actions.map((a, idx) => (idx === i && a.kind === "webhook" ? { ...a, webhook } : a));
   }
 
   function save(): void {
@@ -162,8 +187,18 @@
     return parts.length ? parts.join(" · ") : "any session";
   }
   function actionLabel(a: AutomationAction): string {
-    if (a.kind === "notify") return a.message ? `notify "${a.message}"` : "notify";
-    return `${a.kind} ${a.target}`;
+    switch (a.kind) {
+      case "notify":
+        return a.message ? `notify "${a.message}"` : "notify";
+      case "setMode":
+        return `set ${a.target} → ${a.mode}`;
+      case "sendMessage":
+        return `message ${a.target}`;
+      case "webhook":
+        return `webhook "${a.webhook}"`;
+      default:
+        return `${a.kind} ${a.target}`;
+    }
   }
 </script>
 
@@ -194,7 +229,7 @@
                 <span class="au-match">{matchLabel(r)}</span>
               </div>
               <div class="au-badges">
-                {#each r.actions as a (a.kind + (a.kind !== "notify" ? a.target : a.message ?? ""))}
+                {#each r.actions as a, ai (ai)}
                   <span class="au-badge au-{a.kind}">{actionLabel(a)}</span>
                 {/each}
                 {#if statsFor(summary, r.id).count > 0}
@@ -293,6 +328,9 @@
             <option value="notify">notify</option>
             <option value="start">start</option>
             <option value="stop">stop</option>
+            <option value="setMode">set mode</option>
+            <option value="sendMessage">send message</option>
+            <option value="webhook">run webhook</option>
           </select>
           {#if a.kind === "notify"}
             <input
@@ -301,6 +339,21 @@
               placeholder="custom message (optional)"
               aria-label="Notification message"
             />
+          {:else if a.kind === "webhook"}
+            {#if webhookNames.length}
+              <select value={a.webhook} onchange={(e) => setWebhook(i, (e.currentTarget as HTMLSelectElement).value)} aria-label="Webhook to run">
+                {#each webhookNames as wn (wn)}
+                  <option value={wn}>{wn}</option>
+                {/each}
+              </select>
+            {:else}
+              <input
+                value={a.webhook}
+                oninput={(e) => setWebhook(i, (e.currentTarget as HTMLInputElement).value)}
+                placeholder="webhook name (none configured yet)"
+                aria-label="Webhook name"
+              />
+            {/if}
           {:else}
             <select value={a.target} onchange={(e) => setTarget(i, (e.currentTarget as HTMLSelectElement).value)} aria-label="Target session">
               <option value="$self">$self (the firing session)</option>
@@ -308,6 +361,19 @@
                 <option value={s.id}>{s.id}</option>
               {/each}
             </select>
+            {#if a.kind === "setMode"}
+              <select value={a.mode} onchange={(e) => setActionMode(i, (e.currentTarget as HTMLSelectElement).value as "manual" | "autopilot")} aria-label="Target mode">
+                <option value="manual">manual</option>
+                <option value="autopilot">autopilot</option>
+              </select>
+            {:else if a.kind === "sendMessage"}
+              <input
+                value={a.message}
+                oninput={(e) => setMessage(i, (e.currentTarget as HTMLInputElement).value)}
+                placeholder="message to send"
+                aria-label="Message to send"
+              />
+            {/if}
           {/if}
           <button
             class="btn btn-xs btn-square au-del"
@@ -651,9 +717,12 @@
     flex: none;
     width: 110px;
   }
+  /* every control after the kind select (target / mode / message / webhook),
+     except the remove button, shares the remaining width evenly */
   .au-act > input,
-  .au-act > select:nth-child(2) {
+  .au-act > select:not(:first-child) {
     flex: 1;
+    min-width: 0;
   }
   .au-addact {
     width: fit-content;

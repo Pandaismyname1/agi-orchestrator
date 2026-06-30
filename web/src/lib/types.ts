@@ -324,7 +324,10 @@ export type AutomationTrigger = WebhookEvent;
 export type AutomationAction =
   | { kind: "notify"; message?: string }
   | { kind: "start"; target: string }
-  | { kind: "stop"; target: string };
+  | { kind: "stop"; target: string }
+  | { kind: "setMode"; target: string; mode: "manual" | "autopilot" }
+  | { kind: "sendMessage"; target: string; message: string }
+  | { kind: "webhook"; webhook: string };
 
 /** Narrows which firing session a rule applies to (all optional, AND-ed). */
 export interface AutomationMatch {
@@ -352,7 +355,7 @@ export interface AutomationFiring {
   ruleId: string;
   ruleName: string;
   event: WebhookEvent;
-  kind: "start" | "stop" | "notify";
+  kind: AutomationAction["kind"];
   from: string;
   target?: string;
   outcome: "ok" | "skipped" | "error";

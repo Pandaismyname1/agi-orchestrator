@@ -94,5 +94,27 @@ check("countEnabled ignores disabled", countEnabled([rule({}), rule({ enabled: f
 const scoped = rule({ on: ["error"], match: { sessionId: "web" }, actions: [{ kind: "stop", target: "x" }] });
 check("rule whose match fails contributes nothing", plan("error", [scoped]).length === 0);
 
+// ── richer actions: setMode / sendMessage / webhook ───────────────────────────────
+const sm = plan("done", [rule({ on: ["done"], actions: [{ kind: "setMode", target: "db", mode: "manual" }] })]);
+check("setMode planned with target + mode", sm.length === 1 && sm[0]!.kind === "setMode" && sm[0]!.target === "db" && sm[0]!.mode === "manual");
+check("setMode resolves $self", plan("done", [rule({ actions: [{ kind: "setMode", target: SELF, mode: "autopilot" }] })])[0]!.target === "api");
+
+const msg = plan("needs-input", [rule({ actions: [{ kind: "sendMessage", target: "db", message: "  proceed  " }] })]);
+check("sendMessage planned with trimmed message", msg.length === 1 && msg[0]!.kind === "sendMessage" && msg[0]!.message === "proceed" && msg[0]!.target === "db");
+check("sendMessage with empty message is dropped", plan("done", [rule({ actions: [{ kind: "sendMessage", target: "db", message: "   " }] })]).length === 0);
+
+const wh = plan("error", [rule({ actions: [{ kind: "webhook", webhook: "pager" }] })]);
+check("webhook planned by name (no target)", wh.length === 1 && wh[0]!.kind === "webhook" && wh[0]!.webhook === "pager" && wh[0]!.target === undefined);
+check("webhook with blank name is dropped", plan("done", [rule({ actions: [{ kind: "webhook", webhook: "  " }] })]).length === 0);
+
+// dedup across new kinds
+const dupMode = plan("done", [rule({ actions: [{ kind: "setMode", target: "db", mode: "manual" }, { kind: "setMode", target: "db", mode: "manual" }] })]);
+check("duplicate setMode collapses", dupMode.length === 1);
+check("setMode differing mode is NOT a dup", plan("done", [rule({ actions: [{ kind: "setMode", target: "db", mode: "manual" }, { kind: "setMode", target: "db", mode: "autopilot" }] })]).length === 2);
+
+// mixed action set keeps order
+const mixed = plan("done", [rule({ actions: [{ kind: "setMode", target: "db", mode: "manual" }, { kind: "webhook", webhook: "pager" }, { kind: "start", target: "deploy" }] })]);
+check("mixed actions all planned in order", mixed.map((p) => p.kind).join(",") === "setMode,webhook,start");
+
 console.log(`\n[automation] => ${pass ? "PASS ✅" : "FAIL ⚠️"}`);
 process.exit(pass ? 0 : 1);

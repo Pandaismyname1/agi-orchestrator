@@ -1117,6 +1117,49 @@ export class Supervisor {
           };
           void this.notifier.fire(event, ctx).catch(() => {});
           this.recordFiring({ ...base, outcome: "ok" });
+        } else if (a.kind === "setMode" && a.target && a.mode) {
+          if (!this.sessions.has(a.target)) {
+            this.recordFiring({ ...base, outcome: "skipped", note: "no such session" });
+            continue;
+          }
+          this.log.info("automation: setMode", { rule: a.ruleName, target: a.target, mode: a.mode, on: event });
+          this.setMode(a.target, a.mode);
+          this.recordFiring({ ...base, outcome: "ok" });
+        } else if (a.kind === "sendMessage" && a.target && a.message) {
+          const tgt = this.sessions.get(a.target);
+          if (!tgt) {
+            this.recordFiring({ ...base, outcome: "skipped", note: "no such session" });
+            continue;
+          }
+          if (!tgt.resolveUserInput) {
+            // sendMessage only lands while the target is awaiting input.
+            this.recordFiring({ ...base, outcome: "skipped", note: "target not awaiting input" });
+            continue;
+          }
+          this.log.info("automation: sendMessage", { rule: a.ruleName, target: a.target, on: event });
+          this.sendMessage(a.target, a.message);
+          this.recordFiring({ ...base, outcome: "ok" });
+        } else if (a.kind === "webhook" && a.webhook) {
+          const named = a.webhook.trim().toLowerCase();
+          const exists = (this.cfg.webhooks ?? []).some(
+            (w) => w.enabled !== false && (w.name ?? "").trim().toLowerCase() === named,
+          );
+          if (!exists) {
+            this.recordFiring({ ...base, outcome: "skipped", note: `no webhook named "${a.webhook}"` });
+            continue;
+          }
+          const ctx: NotifyContext = {
+            id: m.id,
+            label: shortLabel(m),
+            cwd: m.cwd,
+            goal: m.goal,
+            status: m.status,
+            turns: m.turns,
+            elapsedMin: m.elapsedMin,
+            detail: detail?.trim() || undefined,
+          };
+          void this.notifier.fireNamed(a.webhook, event, ctx).catch(() => {});
+          this.recordFiring({ ...base, outcome: "ok" });
         }
       } catch (e) {
         this.recordFiring({ ...base, outcome: "error", note: e instanceof Error ? e.message : String(e) });
@@ -1160,8 +1203,17 @@ export class Supervisor {
     const actions = Array.isArray(input.actions) ? input.actions : [];
     if (actions.length === 0) throw new Error("an automation needs at least one action.");
     for (const a of actions) {
-      if ((a.kind === "start" || a.kind === "stop") && !(a.target ?? "").trim()) {
+      if ((a.kind === "start" || a.kind === "stop" || a.kind === "setMode" || a.kind === "sendMessage") && !(a.target ?? "").trim()) {
         throw new Error(`${a.kind} action needs a target session.`);
+      }
+      if (a.kind === "setMode" && a.mode !== "manual" && a.mode !== "autopilot") {
+        throw new Error("set-mode action needs a mode (manual or autopilot).");
+      }
+      if (a.kind === "sendMessage" && !(a.message ?? "").trim()) {
+        throw new Error("send-message action needs a message.");
+      }
+      if (a.kind === "webhook" && !(a.webhook ?? "").trim()) {
+        throw new Error("run-webhook action needs a webhook name.");
       }
     }
     const list = this.cfg.automations ?? (this.cfg.automations = []);

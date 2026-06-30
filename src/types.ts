@@ -210,10 +210,10 @@ export interface AutomationFiring {
   /** The lifecycle event that triggered the rule. */
   event: WebhookEvent;
   /** The action attempted. */
-  kind: "start" | "stop" | "notify";
+  kind: AutomationAction["kind"];
   /** Id of the session that fired the event. */
   from: string;
-  /** Target session for start/stop. */
+  /** Target session for start/stop/setMode/sendMessage. */
   target?: string;
   /** Whether the action ran, was skipped (e.g. missing target), or threw. */
   outcome: "ok" | "skipped" | "error";
@@ -232,7 +232,10 @@ export type AutomationTrigger = WebhookEvent;
 export type AutomationAction =
   | { kind: "notify"; message?: string }
   | { kind: "start"; target: string }
-  | { kind: "stop"; target: string };
+  | { kind: "stop"; target: string }
+  | { kind: "setMode"; target: string; mode: "manual" | "autopilot" }
+  | { kind: "sendMessage"; target: string; message: string }
+  | { kind: "webhook"; webhook: string };
 
 /** Narrows which firing session a rule applies to. All optional, AND-ed together. */
 export interface AutomationMatch {
