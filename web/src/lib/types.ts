@@ -213,6 +213,8 @@ export interface SessionTemplate {
   permissionMode?: PermissionMode;
   autonomy?: Autonomy;
   startMode?: SessionMode;
+  /** Set when installed from the built-in starter catalog. */
+  catalogId?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -227,7 +229,21 @@ export type TemplateInput = {
   permissionMode?: PermissionMode;
   autonomy?: Autonomy;
   startMode?: SessionMode;
+  catalogId?: string;
 };
+
+/** A built-in starter-catalog recipe, flagged with whether it's installed (GET /api/catalog). */
+export interface CatalogEntry {
+  catalogId: string;
+  name: string;
+  description: string;
+  goal: string;
+  doneCriteria: string;
+  permissionMode: PermissionMode;
+  autonomy: Autonomy;
+  startMode: SessionMode;
+  installed: boolean;
+}
 
 /** A session lifecycle event a webhook can fire on. */
 export type WebhookEvent = "done" | "error" | "stopped" | "needs-input" | "rate-limited";
@@ -392,6 +408,7 @@ export type ClientMsg =
   | { type: "learnRevert"; scope: string; version: number }
   | { type: "templateSave"; template: TemplateInput }
   | { type: "templateDelete"; id: string }
+  | { type: "catalogInstall"; catalogId: string }
   | { type: "saveAsTemplate"; id: string; name: string }
   | { type: "webhookSave"; webhook: WebhookInput }
   | { type: "webhookDelete"; id: string }

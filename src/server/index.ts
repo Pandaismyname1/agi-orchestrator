@@ -89,7 +89,7 @@ interface ClientMsg {
     | "start" | "stop" | "startAll" | "stopAll" | "focus" | "add" | "update" | "remove" | "resolve"
     | "setMode" | "sendMessage" | "updateSettings" | "continue"
     | "learnSynthesize" | "learnApprove" | "learnReject" | "learnRevert"
-    | "templateSave" | "templateDelete" | "saveAsTemplate"
+    | "templateSave" | "templateDelete" | "saveAsTemplate" | "catalogInstall"
     | "webhookSave" | "webhookDelete" | "webhookTest"
     | "rollback" | "detach"
     | "decisionFeedback" | "decisionFeedbackAt";
@@ -103,6 +103,8 @@ interface ClientMsg {
   n?: number;
   /** For "templateSave": the template to create/update. */
   template?: TemplateInput;
+  /** For "catalogInstall": the starter-catalog entry's stable id. */
+  catalogId?: string;
   /** For "webhookSave": the webhook to create/update. */
   webhook?: WebhookInput;
   /** For "saveAsTemplate": the new template's name. */
@@ -389,6 +391,7 @@ async function main(): Promise<void> {
           res.end(csv);
           return;
         }
+        if (u.pathname === "/api/catalog") return sendJson(res, 200, sup.listCatalog());
         if (u.pathname === "/api/learning") return sendJson(res, 200, sup.learningSummary());
         if (u.pathname === "/api/learning/draft") {
           return sendJson(res, 200, sup.learningDraft(u.searchParams.get("scope") ?? undefined));
@@ -550,6 +553,15 @@ async function main(): Promise<void> {
             if (!msg.id) throw new Error("missing session id.");
             if (!msg.name?.trim()) throw new Error("template name is required.");
             sup.saveSessionAsTemplate(msg.id, msg.name);
+          } catch (e) {
+            sendError(e instanceof Error ? e.message : String(e));
+          }
+          break;
+        case "catalogInstall":
+          try {
+            if (!msg.catalogId) throw new Error("missing catalog id.");
+            sup.installCatalogTemplate(msg.catalogId);
+            push(); // reflect the newly-installed template + its installed flag
           } catch (e) {
             sendError(e instanceof Error ? e.message : String(e));
           }

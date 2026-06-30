@@ -17,6 +17,7 @@ import { UsageGuard, type UsageStatus } from "../policy/usage.js";
 import { decideNextStep, refineEscalation } from "../brain/decide.js";
 import { assessGoal, type IntakeInput, type IntakeResult } from "../brain/intake.js";
 import { suggestTemplates, suggestDependsOn } from "../policy/suggest.js";
+import { catalogWithInstalled, findCatalogTemplate, type CatalogEntry } from "../policy/catalog.js";
 import { isDue, hasActiveTrigger, parseHHMM } from "../policy/schedule.js";
 import { restoreTo, type RestoreResult } from "../git/diff.js";
 import { openPullRequest, defaultRunner, type Runner as PrRunner } from "../git/pr.js";
@@ -54,6 +55,8 @@ export interface TemplateInput {
   permissionMode?: SessionConfig["permissionMode"];
   autonomy?: SessionConfig["autonomy"];
   startMode?: SessionConfig["startMode"];
+  /** Set when this template originates from a built-in catalog entry. */
+  catalogId?: string;
 }
 
 /** Fields accepted when creating/updating a webhook (id optional = create). */
@@ -843,14 +846,17 @@ export class Supervisor {
       autonomy: input.autonomy,
       startMode: input.startMode,
     };
+    // catalogId is an identity marker, not a user field — set it only when given
+    // (so editing an installed template's name doesn't strip its catalog link).
+    const catalogId = clean(input.catalogId);
     const id = (input.id ?? "").trim();
     const existing = id ? list.find((t) => t.id === id) : undefined;
     if (existing) {
-      Object.assign(existing, fields, { updatedAt: now });
+      Object.assign(existing, fields, catalogId ? { catalogId } : {}, { updatedAt: now });
       this.persist();
       return existing;
     }
-    const tpl: SessionTemplate = { id: id || randomUUID(), ...fields, createdAt: now, updatedAt: now };
+    const tpl: SessionTemplate = { id: id || randomUUID(), ...fields, ...(catalogId ? { catalogId } : {}), createdAt: now, updatedAt: now };
     list.push(tpl);
     this.persist();
     return tpl;
@@ -865,6 +871,32 @@ export class Supervisor {
       list.splice(i, 1);
       this.persist();
     }
+  }
+
+  /** The built-in starter catalog, each entry flagged with whether it's installed. */
+  listCatalog(): CatalogEntry[] {
+    return catalogWithInstalled(this.cfg.templates ?? []);
+  }
+
+  /**
+   * Install a built-in catalog template as a normal (editable) template. Idempotent:
+   * if it's already installed, returns the existing one rather than duplicating.
+   */
+  installCatalogTemplate(catalogId: string): SessionTemplate {
+    const entry = findCatalogTemplate(catalogId);
+    if (!entry) throw new Error(`no catalog template "${catalogId}".`);
+    const existing = this.cfg.templates?.find((t) => t.catalogId === catalogId);
+    if (existing) return existing;
+    return this.saveTemplate({
+      name: entry.name,
+      description: entry.description,
+      goal: entry.goal,
+      doneCriteria: entry.doneCriteria,
+      permissionMode: entry.permissionMode,
+      autonomy: entry.autonomy,
+      startMode: entry.startMode,
+      catalogId: entry.catalogId,
+    });
   }
 
   /** Snapshot an existing session's settings into a new reusable template. */

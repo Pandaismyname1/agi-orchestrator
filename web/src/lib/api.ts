@@ -5,6 +5,7 @@
 import type {
   Analytics,
   AttachInput,
+  CatalogEntry,
   RunningClaude,
   DiscoveredSession,
   DraftProposal,
@@ -98,6 +99,9 @@ export const api = {
           ],
         })
       : postJson<IntakeResult>("/api/intake", input),
+  /** Built-in starter-template catalog with installed flags (GET /api/catalog). */
+  catalog: (): Promise<CatalogEntry[]> =>
+    isMock() ? import("./mock").then((m) => m.MOCK_CATALOG) : getJson<CatalogEntry[]>("/api/catalog"),
   /** Fleet + per-session performance analytics (GET /api/analytics). */
   analytics: (): Promise<Analytics> =>
     isMock() ? import("./mock").then((m) => m.MOCK_ANALYTICS) : getJson<Analytics>("/api/analytics"),

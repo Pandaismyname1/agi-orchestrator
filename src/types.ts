@@ -240,6 +240,8 @@ export interface SessionTemplate {
   permissionMode?: SessionConfig["permissionMode"];
   autonomy?: SessionConfig["autonomy"];
   startMode?: SessionConfig["startMode"];
+  /** Set when installed from the built-in starter catalog (stable catalog id). */
+  catalogId?: string;
   /** Epoch ms. */
   createdAt: number;
   updatedAt: number;

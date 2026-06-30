@@ -5,14 +5,86 @@
     SessionMode,
     SessionTemplate,
     TemplateInput,
+    CatalogEntry,
   } from "../../lib/types";
   import { wsStore } from "../../lib/ws.svelte";
   import { ui } from "../../lib/ui.svelte";
+  import { api } from "../../lib/api";
   import { ago } from "../../lib/format";
   import Modal from "../Modal.svelte";
   import Icon from "../Icon.svelte";
 
   let templates = $derived(wsStore.snapshot?.templates ?? []);
+
+  // Built-in starter catalog (the "marketplace" foundation). Fetched once; the
+  // installed state is derived LIVE from the snapshot so an install flips instantly.
+  let catalog = $state<CatalogEntry[]>([]);
+  let installedIds = $derived(
+    new Set(templates.map((t) => t.catalogId).filter((x): x is string => !!x)),
+  );
+  $effect(() => {
+    api.catalog().then((c) => (catalog = c)).catch(() => (catalog = []));
+  });
+  function install(c: CatalogEntry): void {
+    wsStore.send({ type: "catalogInstall", catalogId: c.catalogId });
+    ui.toast(`installed “${c.name}”`);
+  }
+
+  // Export a template to a shareable JSON file (recipe only — no ids/timestamps).
+  function exportTemplate(t: SessionTemplate): void {
+    const recipe = {
+      name: t.name,
+      description: t.description,
+      goal: t.goal,
+      doneCriteria: t.doneCriteria,
+      permissionMode: t.permissionMode,
+      autonomy: t.autonomy,
+      startMode: t.startMode,
+    };
+    const slug = (t.name || "template").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "template";
+    const blob = new Blob([JSON.stringify(recipe, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slug}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    ui.toast("template exported");
+  }
+
+  // Import a template from pasted JSON.
+  let importing = $state(false);
+  let importText = $state("");
+  let importErr = $state("");
+  function doImport(): void {
+    importErr = "";
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(importText);
+    } catch {
+      importErr = "that's not valid JSON.";
+      return;
+    }
+    const name = typeof obj.name === "string" ? obj.name.trim() : "";
+    if (!name) {
+      importErr = "the imported template needs a name.";
+      return;
+    }
+    const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+    const payload: TemplateInput = {
+      name,
+      description: str(obj.description),
+      goal: str(obj.goal),
+      doneCriteria: str(obj.doneCriteria),
+      permissionMode: str(obj.permissionMode) as PermissionMode | undefined,
+      autonomy: str(obj.autonomy) as Autonomy | undefined,
+      startMode: str(obj.startMode) as SessionMode | undefined,
+    };
+    wsStore.send({ type: "templateSave", template: payload });
+    ui.toast(`imported “${name}”`);
+    importText = "";
+    importing = false;
+  }
 
   // "list" = browse/manage; "form" = create or edit one template.
   let view = $state<"list" | "form">("list");
@@ -124,6 +196,14 @@
               </button>
               <button
                 class="btn btn-xs btn-square"
+                aria-label={`Export template ${t.name}`}
+                title="Export template as JSON"
+                onclick={() => exportTemplate(t)}
+              >
+                <Icon name="download" size={13} />
+              </button>
+              <button
+                class="btn btn-xs btn-square"
                 aria-label={`Edit template ${t.name}`}
                 title="Edit template"
                 onclick={() => editTemplate(t)}
@@ -144,8 +224,67 @@
       </div>
     {/if}
 
+    <!-- Starter library: built-in recipes you can install with one click. -->
+    {#if catalog.length}
+      {@const available = catalog.filter((c) => !installedIds.has(c.catalogId))}
+      <div class="tm-section">
+        <div class="tm-section-head">
+          <Icon name="layers" size={13} />
+          <span>Starter library</span>
+          <span class="tm-section-sub">ready-made agent recipes — installs as an editable template</span>
+        </div>
+        {#if available.length === 0}
+          <div class="tm-lib-empty">All starter templates installed. 🎉</div>
+        {:else}
+          <div class="tm-lib">
+            {#each available as c (c.catalogId)}
+              <div class="tm-lib-row">
+                <div class="tm-main">
+                  <div class="tm-name">{c.name}</div>
+                  <div class="tm-desc">{c.description}</div>
+                  <div class="tm-badges">
+                    <span class="tm-badge">{c.startMode}</span>
+                    <span class="tm-badge">{c.permissionMode}</span>
+                    <span class="tm-badge">{c.autonomy}</span>
+                  </div>
+                </div>
+                <button class="btn btn-xs" title={`Install “${c.name}”`} onclick={() => install(c)}>
+                  <Icon name="plus" size={12} /> Install
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    {#if importing}
+      <div class="tm-section">
+        <div class="tm-section-head">
+          <Icon name="download" size={13} />
+          <span>Import a template</span>
+          <span class="tm-section-sub">paste a template's exported JSON</span>
+        </div>
+        <textarea
+          class="tm-import"
+          bind:value={importText}
+          placeholder={'{\n  "name": "My recipe",\n  "goal": "…",\n  "doneCriteria": "…"\n}'}
+        ></textarea>
+        {#if importErr}<div class="tm-err">{importErr}</div>{/if}
+        <div class="tm-import-acts">
+          <button class="btn btn-xs" onclick={() => { importing = false; importErr = ""; }}>Cancel</button>
+          <button class="btn btn-primary btn-xs" onclick={doImport} disabled={!importText.trim()}>Import</button>
+        </div>
+      </div>
+    {/if}
+
     <div class="tm-foot">
       <button class="btn btn-sm" onclick={() => ui.closeModal()}>Close</button>
+      {#if !importing}
+        <button class="btn btn-sm" onclick={() => (importing = true)}>
+          <Icon name="download" size={13} /> Import
+        </button>
+      {/if}
       <button class="btn btn-primary btn-sm" onclick={newTemplate}>
         <Icon name="plus" size={13} /> New template
       </button>
@@ -319,6 +458,58 @@
     gap: 8px;
     justify-content: flex-end;
     margin-top: 16px;
+  }
+
+  .tm-section {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .tm-section-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-base-content);
+    margin-bottom: 10px;
+  }
+  .tm-section-sub {
+    font-weight: 400;
+    font-size: 11px;
+    color: var(--faint);
+  }
+  .tm-lib {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .tm-lib-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--color-base-200);
+    border: 1px solid var(--border-soft);
+    border-radius: 11px;
+    padding: 10px 12px;
+  }
+  .tm-lib-empty {
+    font-size: 12px;
+    color: var(--faint);
+    padding: 6px 2px;
+  }
+  .tm-import {
+    width: 100%;
+    min-height: 96px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 12px;
+    resize: vertical;
+  }
+  .tm-import-acts {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 8px;
   }
 
   @media (max-width: 560px) {

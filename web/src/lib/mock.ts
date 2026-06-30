@@ -14,7 +14,18 @@ import type {
   DiscoveredSession,
   RunningClaude,
   Analytics,
+  CatalogEntry,
 } from "./types";
+
+/** Demo starter catalog for the Templates modal under `?mock`. */
+export const MOCK_CATALOG: CatalogEntry[] = [
+  { catalogId: "bugfix-sprint", name: "Bug-fix sprint", description: "Triage and fix open bugs until the test suite is green.", goal: "Find and fix the failing tests and open bugs.", doneCriteria: "The full test suite passes.", permissionMode: "acceptEdits", autonomy: "balanced", startMode: "autopilot", installed: true },
+  { catalogId: "test-coverage", name: "Test-coverage push", description: "Raise automated test coverage on under-tested code.", goal: "Add meaningful tests for the least-covered modules.", doneCriteria: "New tests pass; critical paths covered.", permissionMode: "acceptEdits", autonomy: "balanced", startMode: "autopilot", installed: false },
+  { catalogId: "dep-upgrade", name: "Dependency upgrade", description: "Bump dependencies and fix any resulting breakage.", goal: "Upgrade outdated dependencies and fix breakage.", doneCriteria: "Builds, type-checks, and all tests pass.", permissionMode: "acceptEdits", autonomy: "balanced", startMode: "autopilot", installed: false },
+  { catalogId: "docs-polish", name: "Docs & README polish", description: "Improve the README and developer docs for clarity.", goal: "Improve the README and developer documentation.", doneCriteria: "Docs are accurate and examples run.", permissionMode: "acceptEdits", autonomy: "balanced", startMode: "autopilot", installed: false },
+  { catalogId: "security-audit", name: "Security audit", description: "Review the codebase for vulnerabilities and report findings.", goal: "Audit the codebase for security issues and report them.", doneCriteria: "A prioritized findings report is written.", permissionMode: "default", autonomy: "cautious", startMode: "autopilot", installed: false },
+  { catalogId: "refactor-cleanup", name: "Refactor & cleanup", description: "Reduce duplication and dead code without changing behavior.", goal: "Refactor for clarity with no behavior changes.", doneCriteria: "Tests still pass; duplication reduced.", permissionMode: "acceptEdits", autonomy: "balanced", startMode: "autopilot", installed: false },
+];
 
 /** Demo analytics report for the Analytics modal under `?mock`. */
 export const MOCK_ANALYTICS: Analytics = {
