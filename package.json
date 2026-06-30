@@ -14,6 +14,7 @@
     "dev": "tsx watch src/server/index.ts",
     "test": "tsx scripts/context-test.ts && tsx scripts/learn-test.ts && tsx scripts/discovery-test.ts && tsx scripts/desktop-test.ts && tsx scripts/dispatch-test.ts && tsx scripts/screen-classify-test.ts && tsx scripts/ratelimit-test.ts && tsx scripts/usage-test.ts && tsx scripts/live-edit-test.ts",
     "pty-smoke": "tsx scripts/pty-smoke.ts",
+    "smoke": "tsx scripts/spinloop-smoke.ts && tsx scripts/agent-turn-smoke.ts && tsx scripts/usage-smoke.ts",
     "typecheck": "tsc --noEmit",
     "web:install": "npm --prefix web install",
     "web:dev": "npm --prefix web run dev",
