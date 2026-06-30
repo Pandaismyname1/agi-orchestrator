@@ -59,7 +59,7 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="agent {s.status}" class:sel={selected} class:picked={selectMode && checked} onclick={focus}>
+<div class="agent {s.status}" class:sel={selected} class:picked={selectMode && checked} data-fleet-id={s.id} onclick={focus}>
   <div class="top">
     {#if selectMode}
       <input

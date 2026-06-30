@@ -6,6 +6,7 @@
   import { filterSessions } from "../lib/filter";
   import { sortSessions, SORT_OPTIONS, type SortKey } from "../lib/sort";
   import { actionableIds } from "../lib/selection";
+  import { planKey, isTypingTarget, type NavSession } from "../lib/keynav";
   import Icon from "./Icon.svelte";
   import AgentCard from "./AgentCard.svelte";
   import AttachedPanel from "./AttachedPanel.svelte";
@@ -74,7 +75,57 @@
     ui.focusId = id;
     wsStore.send({ type: "focus", id });
   }
+
+  // --- Keyboard navigation (j/k move · s/x start·stop · Enter history · n new · / search) ---
+  let searchInput = $state<HTMLInputElement | null>(null);
+  let stackEl = $state<HTMLDivElement | null>(null);
+
+  function scrollFocusedIntoView(): void {
+    const id = ui.focusId;
+    if (!id || !stackEl) return;
+    requestAnimationFrame(() => {
+      const el = stackEl?.querySelector(`[data-fleet-id="${CSS.escape(id)}"]`);
+      el?.scrollIntoView({ block: "nearest" });
+    });
+  }
+
+  function onKey(e: KeyboardEvent): void {
+    // A modal or the command palette owns the keyboard while open.
+    if (ui.modal || ui.paletteOpen) return;
+    const ae = document.activeElement as HTMLElement | null;
+    // Never steal keystrokes from a text field…
+    if (isTypingTarget(ae?.tagName, ae?.isContentEditable ?? false)) return;
+    // …or from any other focused control (let it handle Enter/space itself).
+    if (ae && ae !== document.body) return;
+
+    const navList: NavSession[] = filtered.map((s) => ({ id: s.id, status: s.status }));
+    const intent = planKey(e, { list: navList, focusId: ui.focusId });
+    if (intent.type === "none") return;
+    e.preventDefault();
+    switch (intent.type) {
+      case "focus":
+        focus(intent.id);
+        scrollFocusedIntoView();
+        break;
+      case "start":
+      case "stop":
+        wsStore.send({ type: intent.type, id: intent.id });
+        break;
+      case "history":
+        ui.openModal({ kind: "history", sessionId: intent.id });
+        break;
+      case "new":
+        ui.openModal({ kind: "new" });
+        break;
+      case "search":
+        searchInput?.focus();
+        searchInput?.select();
+        break;
+    }
+  }
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <aside class="fleet" class:collapsed={ui.fleetCollapsed}>
   <!-- Collapsed: a thin rail of status dots so fleet health stays visible
@@ -150,6 +201,7 @@
         <div class="search">
           <Icon name="search" size={13} />
           <input
+            bind:this={searchInput}
             type="text"
             placeholder="Filter by name, status, type…"
             bind:value={query}
@@ -203,7 +255,7 @@
         <button class="btn btn-sm" onclick={() => (query = "")}>Clear filter</button>
       </div>
     {:else}
-      <div class="stack">
+      <div class="stack" bind:this={stackEl}>
         {#each filtered as s (s.id)}
           <AgentCard
             session={s}
