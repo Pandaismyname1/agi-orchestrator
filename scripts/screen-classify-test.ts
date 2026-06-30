@@ -7,7 +7,7 @@
  * WITH background-agent chrome must classify as WORKING (wait), and only a truly
  * idle box (no in-flight chrome) is READY.
  */
-import { classifyScreen } from "../src/terminal/state.js";
+import { classifyScreen, detectChoicePrompt } from "../src/terminal/state.js";
 
 let pass = true;
 const check = (name: string, cond: boolean) => {
@@ -81,6 +81,29 @@ check(
 
 // Nothing recognizable.
 check("blank => unknown", classifyScreen("\n\n   \n") === "unknown");
+
+// --- AskUserQuestion choice menu (the "agent stuck on options" bug) -------------
+// REAL footer from the choice menu: "Enter to select · Tab/Arrow keys to navigate
+// · Esc to cancel", with a "← [ ] Question  ∫ Submit →" carousel header.
+const choiceMenu = `
+ ← [ ] R6 scope  [ ] Finalize record  ∫ Submit  →
+
+ How much should the v1 manifest cover?
+ ❯ 1. Manifest from existing data (recommended)
+   2. Manifest + per-region basis UI
+   3. Defer R6
+ Enter to select · Tab/Arrow keys to navigate · Esc to cancel
+`;
+check("AskUserQuestion choice menu => detected", detectChoicePrompt(choiceMenu) === true);
+// A permission gate ("Enter to confirm") must NOT be mistaken for a choice menu —
+// it stays on the gate/approval path, not the brain-answers path.
+check(
+  "permission gate => NOT a choice menu",
+  detectChoicePrompt("Do you want to proceed?\n❯ 1. Yes\n  2. No\n Enter to confirm · Esc to cancel") ===
+    false,
+);
+check("idle box => NOT a choice menu", detectChoicePrompt("> \n  ? for shortcuts · /effort") === false);
+check("blank => NOT a choice menu", detectChoicePrompt("\n\n   \n") === false);
 
 console.log(`\n[screen] => ${pass ? "PASS ✅" : "FAIL ⚠️"}`);
 process.exit(pass ? 0 : 1);

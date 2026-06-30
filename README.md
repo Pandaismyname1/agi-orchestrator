@@ -159,6 +159,13 @@ Validated features:
   you pick an option (or type your own / stop) and it resumes. Persisted to `attention_requests`.
   The brain is pluggable (`decide` override) — use a fast model: **qwen3.5:9b ≈ 2–3s/decision, 88%**
   on the decision eval (the 35B was 27–52s; see `scripts/brain-eval.ts`).
+- **Choice-menu interception** — when Claude pops its interactive `AskUserQuestion` menu
+  (`Enter to select · Tab/Arrow keys to navigate`), the session no longer freezes on it until
+  the stuck-timeout. The modal is detected (`src/terminal/state.ts`), **Esc-dismissed** so the
+  turn ends, and the question + options are surfaced to the brain from the transcript
+  (`src/transcript/reader.ts` renders the tool call) — so the brain answers it in plain text on
+  the next turn, escalating to a human only when its autonomy persona says so. Covered by
+  `screen-classify-test.ts` + `choice-test.ts`.
 - **Always-on PiP status window (Tier 1)** — a "⧉ Pop out" button opens a compact always-on-top
   window (Chrome/Edge Document Picture-in-Picture) with a live status chip per session; the
   **needs-input** chip pulses amber and is click-to-focus. Desktop notifications fire when a

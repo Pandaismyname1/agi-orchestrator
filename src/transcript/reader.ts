@@ -24,6 +24,45 @@ export function transcriptPath(cwd: string, sessionId: string): string {
   return path.join(os.homedir(), ".claude", "projects", encodeProjectDir(cwd), `${sessionId}.jsonl`);
 }
 
+/**
+ * Render an `AskUserQuestion` tool call into readable text so the brain (acting as
+ * the operator) can answer it. The interactive menu never settles to a turn-end on
+ * its own — the session Esc-dismisses it — so surfacing the question here is how the
+ * brain learns what decision Claude wanted. Shape (Claude Code internal):
+ *   { questions: [{ question, header, multiSelect, options: [{ label, description }] }] }
+ * Parsed defensively: any missing/odd field is skipped, never throws.
+ */
+function renderAskUserQuestion(input: unknown): string {
+  if (!input || typeof input !== "object") return "";
+  const questions = (input as Record<string, unknown>).questions;
+  if (!Array.isArray(questions) || questions.length === 0) return "";
+  const blocks: string[] = [];
+  questions.forEach((q, qi) => {
+    if (!q || typeof q !== "object") return;
+    const qr = q as Record<string, unknown>;
+    const header = typeof qr.header === "string" && qr.header ? ` (${qr.header})` : "";
+    const text = typeof qr.question === "string" ? qr.question : "";
+    const multi = qr.multiSelect === true ? " [choose one or more]" : "";
+    const lines = [`Q${qi + 1}${header}: ${text}${multi}`];
+    const opts = Array.isArray(qr.options) ? qr.options : [];
+    opts.forEach((o, oi) => {
+      if (!o || typeof o !== "object") return;
+      const or = o as Record<string, unknown>;
+      const label = typeof or.label === "string" ? or.label : "";
+      const desc =
+        typeof or.description === "string" && or.description ? ` — ${or.description}` : "";
+      lines.push(`   ${oi + 1}. ${label}${desc}`);
+    });
+    blocks.push(lines.join("\n"));
+  });
+  if (blocks.length === 0) return "";
+  return (
+    "[Claude opened a choice menu and is asking you to decide. Reply in plain language — " +
+    "name the option(s) you want, or give a different instruction.]\n" +
+    blocks.join("\n")
+  );
+}
+
 /** Pull concatenated text from a content array of mixed blocks. */
 function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
@@ -33,6 +72,12 @@ function textFromContent(content: unknown): string {
     if (block && typeof block === "object") {
       const b = block as Record<string, unknown>;
       if (b.type === "text" && typeof b.text === "string") parts.push(b.text);
+      // Surface a pending operator question (AskUserQuestion) as text so the brain
+      // can answer it — the menu itself never reaches a normal turn-end.
+      else if (b.type === "tool_use" && b.name === "AskUserQuestion") {
+        const rendered = renderAskUserQuestion(b.input);
+        if (rendered) parts.push(rendered);
+      }
     }
   }
   return parts.join("\n").trim();
@@ -87,6 +132,18 @@ export async function readRecentMessages(
   } catch {
     return [];
   }
+  return messagesFromRaw(raw, maxMessages);
+}
+
+/**
+ * Pure parse of transcript JSONL into the last `maxMessages` user/assistant
+ * messages (oldest→newest), each truncated to ~600 chars. Exported so it can be
+ * unit-tested without touching the real `~/.claude` transcript tree.
+ */
+export function messagesFromRaw(
+  raw: string,
+  maxMessages = 8,
+): Array<{ role: "user" | "assistant"; text: string }> {
   const all: Array<{ role: "user" | "assistant"; text: string }> = [];
   const lines = raw.split(/\r?\n/);
   for (const rawLine of lines) {
@@ -117,6 +174,16 @@ export async function readLastAssistantMessage(cwd: string, sessionId: string): 
   } catch {
     return "";
   }
+  return lastAssistantFromRaw(raw);
+}
+
+/**
+ * Pure parse of transcript JSONL: the last non-empty assistant text, or "" if
+ * none. A trailing `AskUserQuestion` (a tool_use-only assistant message) now
+ * renders as text, so a pending operator question is returned here too. Exported
+ * for unit testing without disk I/O.
+ */
+export function lastAssistantFromRaw(raw: string): string {
   const lines = raw.split(/\r?\n/);
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]?.trim();

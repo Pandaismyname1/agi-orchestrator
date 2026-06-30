@@ -12,7 +12,13 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import * as pty from "node-pty";
 import { VirtualScreen } from "../terminal/screen.js";
-import { classifyScreen, detectAuthError, detectRateLimit, detectFeedbackSurvey } from "../terminal/state.js";
+import {
+  classifyScreen,
+  detectAuthError,
+  detectRateLimit,
+  detectFeedbackSurvey,
+  detectChoicePrompt,
+} from "../terminal/state.js";
 import { parseContextFraction } from "../policy/context.js";
 import { classifyGate } from "../terminal/gates.js";
 import { readLastAssistantMessage } from "../transcript/reader.js";
@@ -41,6 +47,10 @@ const TURN_TIMEOUT_MS = 90 * 60_000; // hard cap per single turn
 const TURN_STUCK_MS = 8 * 60_000; // …unless the screen is frozen this long
 const GATE_COOLDOWN_MS = 900;
 const MIN_THINK_MS = 1500; // ignore "ready" for this long after injecting (avoid premature turn-end)
+// An AskUserQuestion menu is Esc-dismissed so the turn can end; if Claude keeps
+// reopening one within a single turn, bail with a clear error instead of spinning
+// (or silently re-dismissing) until the multi-minute turn timeout.
+const MAX_CHOICE_DISMISSALS = 6;
 
 export class AuthError extends Error {}
 export class TimeoutError extends Error {}
@@ -182,6 +192,7 @@ export class ClaudeSession {
     let readySince: number | null = null;
     let sawNonReady = false;
     let gates = 0;
+    let choiceDismissals = 0;
     let lastText = "";
     let lastChangeAt = Date.now();
     let lastState: ScreenState = "unknown";
@@ -220,6 +231,24 @@ export class ClaudeSession {
       // Dismiss the feedback survey if it pops up mid-turn.
       if (detectFeedbackSurvey(text)) {
         this.type(ESC);
+        await sleep(GATE_COOLDOWN_MS);
+        continue;
+      }
+
+      // Claude opened an AskUserQuestion choice menu — it wants the operator to pick
+      // from a list. Under autopilot no one is at the keyboard, and the menu is modal:
+      // it never settles to "ready", so left alone it freezes the turn until the
+      // stuck-timeout fires (the "agent stuck when Claude proposes options" bug).
+      // Esc-dismiss it so the turn ends; the question is recorded in the transcript,
+      // and the brain answers it in plain text on the next turn (its autonomy persona
+      // may escalate to a human). Guard against an endless re-ask loop within a turn.
+      if (detectChoicePrompt(text)) {
+        if (++choiceDismissals > MAX_CHOICE_DISMISSALS) {
+          fail(`Claude reopened a choice menu ${choiceDismissals} times without progressing`);
+        }
+        this.type(ESC);
+        sawNonReady = true;
+        readySince = null;
         await sleep(GATE_COOLDOWN_MS);
         continue;
       }

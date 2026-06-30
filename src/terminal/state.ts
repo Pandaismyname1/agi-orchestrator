@@ -82,3 +82,23 @@ export function defaultGateChoice(text: string): number {
   if (m && m[1]) return Number(m[1]);
   return 1;
 }
+
+/**
+ * Detect Claude's `AskUserQuestion` interactive choice menu — the modal the model
+ * pops up to ask the OPERATOR to pick from a list (single or multi-question, with
+ * a "← [ ] Question  ∫ Submit →" carousel header). This is NOT a permission gate:
+ * its footer reads "Enter to select · Tab/Arrow keys to navigate · Esc to cancel"
+ * (a permission prompt says "Enter to confirm"). It also never renders the idle
+ * input box, so it is neither "ready" nor "working" — left alone it would freeze
+ * the turn until the stuck-timeout, which is the "agent stuck when Claude proposes
+ * options" bug. The session detects it, Esc-dismisses it, and lets the brain answer
+ * the question (surfaced from the transcript) in plain text on the next turn.
+ *
+ * Keyed on the distinctive footer wording so it never trips on a permission gate
+ * ("Enter to confirm") or the idle box.
+ */
+export function detectChoicePrompt(text: string): boolean {
+  return /Enter to select\b|Tab\s*\/\s*Arrow keys to navigate|(?:↑↓|arrow keys|Tab) to navigate/i.test(
+    text,
+  );
+}
