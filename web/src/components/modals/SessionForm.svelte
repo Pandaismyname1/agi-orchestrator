@@ -1,6 +1,13 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { PermissionMode, Autonomy, SessionMode, SessionView, SessionInput } from "../../lib/types";
+  import type {
+    PermissionMode,
+    Autonomy,
+    SessionMode,
+    SessionView,
+    SessionInput,
+    SessionSchedule,
+  } from "../../lib/types";
   import { wsStore } from "../../lib/ws.svelte";
   import { ui } from "../../lib/ui.svelte";
   import Modal from "../Modal.svelte";
@@ -29,6 +36,18 @@
   let autonomy = $state<Autonomy>(untrack(() => session?.autonomy ?? "balanced"));
   let startMode = $state<SessionMode>(untrack(() => session?.mode ?? (adopt ? "manual" : "autopilot")));
   let dependsOn = $state<string[]>(untrack(() => session?.dependsOn ?? []));
+
+  // Auto-start schedule (every N minutes and/or daily HH:MM).
+  let schedEnabled = $state(untrack(() => (session?.schedule ? session.schedule.enabled !== false : false)));
+  let schedEvery = $state<number | "">(untrack(() => session?.schedule?.everyMinutes ?? ""));
+  let schedDaily = $state(untrack(() => session?.schedule?.dailyAt ?? ""));
+  function buildSchedule(): SessionSchedule | null {
+    const every = typeof schedEvery === "number" && schedEvery >= 1 ? Math.floor(schedEvery) : undefined;
+    const daily = /^\d{1,2}:\d{2}$/.test(schedDaily.trim()) ? schedDaily.trim() : undefined;
+    if (!every && !daily) return null;
+    return { enabled: schedEnabled, everyMinutes: every, dailyAt: daily };
+  }
+
   let err = $state("");
 
   const title = $derived(editing ? "Edit session" : adopting ? "Adopt existing session" : "New session");
@@ -51,11 +70,12 @@
       err = "cwd, goal, and done criteria are all required.";
       return;
     }
+    const schedule = buildSchedule();
     if (editing && session) {
       wsStore.send({
         type: "update",
         id: session.id,
-        patch: { cwd: c, goal: g, doneCriteria: d, permissionMode, autonomy, startMode, dependsOn },
+        patch: { cwd: c, goal: g, doneCriteria: d, permissionMode, autonomy, startMode, dependsOn, schedule },
       });
     } else {
       const payload: SessionInput = {
@@ -67,6 +87,7 @@
         startMode,
         dependsOn,
       };
+      if (schedule) payload.schedule = schedule;
       if (id.trim()) payload.id = id.trim();
       if (adopt) payload.resumeId = adopt.resumeId;
       wsStore.send({ type: "add", session: payload });
@@ -138,6 +159,35 @@
       {/each}
     </div>
   {/if}
+
+  <span class="grouplabel" id="f_sched_label">schedule <span class="opt">(optional — auto-start on a timer)</span></span>
+  <div class="schedbox" role="group" aria-labelledby="f_sched_label">
+    <label class="schedtoggle">
+      <input type="checkbox" bind:checked={schedEnabled} />
+      <span>enabled</span>
+    </label>
+    <div class="schedrow">
+      <div class="schedcol">
+        <label for="f_sched_every">every (minutes)</label>
+        <input
+          id="f_sched_every"
+          type="number"
+          inputmode="numeric"
+          min="1"
+          bind:value={schedEvery}
+          placeholder="e.g. 60"
+        />
+      </div>
+      <div class="schedcol">
+        <label for="f_sched_daily">daily at</label>
+        <input id="f_sched_daily" type="time" bind:value={schedDaily} />
+      </div>
+    </div>
+    <p class="schedhint">
+      Auto-start runs through the queue — concurrency cap, daily budget, and usage limits still apply.
+      Set either field (or both); clear both to remove the schedule.
+    </p>
+  </div>
 
   <div class="ferr">{err}</div>
   <div class="facts">
@@ -247,6 +297,42 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .schedbox {
+    border: 1px solid var(--border-strong);
+    border-radius: 9px;
+    background: var(--color-base-200);
+    padding: 10px;
+  }
+  .schedtoggle {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 0 8px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 600;
+    color: var(--color-base-content);
+    cursor: pointer;
+  }
+  .schedtoggle input {
+    width: auto;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+  }
+  .schedrow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .schedcol label {
+    margin-top: 0;
+  }
+  .schedhint {
+    font-size: 11px;
+    color: var(--faint);
+    line-height: 1.45;
+    margin: 8px 2px 0;
   }
   .livehint {
     font-size: 12px;

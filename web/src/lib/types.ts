@@ -21,6 +21,13 @@ export type PermissionMode = "default" | "acceptEdits" | "auto" | "bypassPermiss
 
 export type Autonomy = "cautious" | "balanced" | "autonomous";
 
+/** Auto-start schedule: every N minutes and/or daily at a local HH:MM. */
+export interface SessionSchedule {
+  enabled?: boolean;
+  everyMinutes?: number;
+  dailyAt?: string;
+}
+
 export interface AttentionOption {
   label: string;
   rationale?: string;
@@ -54,6 +61,8 @@ export interface SessionView {
   dependsOn?: string[];
   /** subset of `dependsOn` not yet `done` (live-computed; non-empty only while waiting). */
   blockedBy?: string[];
+  /** auto-start schedule (every N minutes / daily HH:MM), if configured. */
+  schedule?: SessionSchedule;
 }
 
 /** Continue a finished session: edited goal / next instruction / mode to resume with. */
@@ -265,6 +274,8 @@ export interface SessionInput {
   resumeId?: string;
   /** ids of sessions this one runs after (waits until they're all `done`). */
   dependsOn?: string[];
+  /** auto-start schedule (every N minutes / daily HH:MM). */
+  schedule?: SessionSchedule;
 }
 
 export type SessionPatch = Partial<{
@@ -274,6 +285,7 @@ export type SessionPatch = Partial<{
   permissionMode: PermissionMode;
   autonomy: Autonomy;
   startMode: SessionMode;
+  schedule: SessionSchedule | null;
   dependsOn: string[];
 }>;
 

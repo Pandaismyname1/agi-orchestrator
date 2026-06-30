@@ -16,6 +16,7 @@ import { ContextGuard } from "../policy/context.js";
 import { UsageGuard, type UsageStatus } from "../policy/usage.js";
 import { decideNextStep, refineEscalation } from "../brain/decide.js";
 import { assessGoal, type IntakeInput, type IntakeResult } from "../brain/intake.js";
+import { isDue, hasActiveTrigger, parseHHMM } from "../policy/schedule.js";
 import { LearningService, emptyLearningSummary } from "../learning/service.js";
 import { Notifier, type DeliveryResult, type NotifyContext } from "../notify/notifier.js";
 import type {
@@ -31,6 +32,7 @@ import type {
   GateResolution,
   Resolution,
   SessionConfig,
+  SessionSchedule,
   SessionTemplate,
   WebhookConfig,
   WebhookEvent,
@@ -98,6 +100,8 @@ export interface SessionView {
   dependsOn?: string[];
   /** Subset of `dependsOn` not yet `done` — non-empty only while waiting. */
   blockedBy?: string[];
+  /** Auto-start schedule (every N minutes / daily HH:MM), if configured. */
+  schedule?: SessionSchedule;
 }
 
 interface Managed extends SessionView {
@@ -120,6 +124,8 @@ interface Managed extends SessionView {
   startedAt?: number;
   /** Most recent /usage read while this session ran. */
   usage?: UsageStatus;
+  /** Epoch ms this session last auto-fired from its schedule (seeds isDue). */
+  lastFire?: number;
 }
 
 export class Supervisor {
@@ -142,6 +148,8 @@ export class Supervisor {
   private readonly learning?: LearningService;
   /** Outbound event webhooks (Slack/Discord/JSON). Reads cfg.webhooks live. */
   private readonly notifier: Notifier;
+  /** Periodic tick that auto-starts sessions whose schedule is due. */
+  private scheduleTimer?: ReturnType<typeof setInterval>;
 
   constructor(
     private readonly cfg: AppConfig,
@@ -179,9 +187,15 @@ export class Supervisor {
         canContinue: false,
         // Restore the prior conversation id so a session stays continuable across restarts.
         claudeSessionId: s.lastClaudeSessionId,
+        // Seed the schedule clock at boot so nothing fires before its first window.
+        lastFire: Date.now(),
       });
       this.store?.upsertSession(s);
     }
+    // Schedule tick: every 30s, auto-start any session whose schedule is due.
+    // unref() so a pending tick never keeps the process alive on its own.
+    this.scheduleTimer = setInterval(() => this.runDueSchedules(Date.now()), 30_000);
+    this.scheduleTimer.unref?.();
   }
 
   health() {
@@ -195,6 +209,27 @@ export class Supervisor {
    */
   assessGoal(input: IntakeInput): Promise<IntakeResult> {
     return assessGoal(this.llm, input);
+  }
+
+  /**
+   * Auto-start any session whose schedule is due at `now`. Only fires sessions
+   * that aren't already active (running/queued/paused/blocked); firing reuses the
+   * normal start() path, so concurrency cap, daily budget, real usage limits, and
+   * workflow dependencies all still apply. Public so it's unit-testable with an
+   * injected clock; the constructor's interval calls it with Date.now().
+   */
+  runDueSchedules(now: number): void {
+    const ACTIVE = ["running", "queued", "needs-input", "manual", "blocked"];
+    for (const m of this.sessions.values()) {
+      const schedule = m.config.schedule;
+      if (!hasActiveTrigger(schedule)) continue;
+      if (ACTIVE.includes(m.status)) continue; // don't pile a second run on an active one
+      if (isDue(schedule, now, m.lastFire ?? now)) {
+        m.lastFire = now;
+        m.lastDecision = "auto-started on schedule";
+        this.start(m.id);
+      }
+    }
   }
 
   list(): SessionView[] {
@@ -814,6 +849,7 @@ export class Supervisor {
     startMode?: SessionConfig["startMode"];
     resumeId?: SessionConfig["resumeId"];
     dependsOn?: string[];
+    schedule?: SessionSchedule;
   }): SessionView {
     const cwd = (input.cwd ?? "").trim();
     const goal = (input.goal ?? "").trim();
@@ -826,6 +862,7 @@ export class Supervisor {
     if (this.sessions.has(id)) throw new Error(`a session with id "${id}" already exists.`);
 
     const dependsOn = this.normalizeDeps(id, input.dependsOn);
+    const schedule = normalizeSchedule(input.schedule);
     const config: SessionConfig = {
       id,
       cwd: path.resolve(cwd),
@@ -836,6 +873,7 @@ export class Supervisor {
       startMode: input.startMode ?? "autopilot",
       resumeId: input.resumeId,
       ...(dependsOn.length ? { dependsOn } : {}),
+      ...(schedule ? { schedule } : {}),
     };
     const m: Managed = {
       config,
@@ -852,6 +890,7 @@ export class Supervisor {
       lastDecision: "",
       stopRequested: false,
       canContinue: false,
+      lastFire: Date.now(), // don't fire the schedule the instant it's created
     };
     this.sessions.set(id, m);
     this.store?.upsertSession(config);
@@ -870,6 +909,7 @@ export class Supervisor {
       autonomy: SessionConfig["autonomy"];
       startMode: SessionConfig["startMode"];
       dependsOn: string[];
+      schedule: SessionSchedule | null;
     }>,
   ): SessionView {
     const m = this.sessions.get(id);
@@ -929,6 +969,13 @@ export class Supervisor {
           m.lastDecision = "";
         }
       }
+    }
+    if (patch.schedule !== undefined) {
+      const schedule = patch.schedule === null ? undefined : normalizeSchedule(patch.schedule);
+      if (schedule) m.config.schedule = schedule;
+      else delete m.config.schedule;
+      // Reset the schedule clock so an edit doesn't fire instantly on the next tick.
+      m.lastFire = Date.now();
     }
     this.store?.upsertSession(m.config);
     this.persist();
@@ -999,6 +1046,7 @@ export class Supervisor {
   }
 
   async shutdown(): Promise<void> {
+    if (this.scheduleTimer) clearInterval(this.scheduleTimer);
     for (const id of [...this.resumeTimers.keys()]) this.clearResumeTimer(id);
     await Promise.allSettled(
       [...this.sessions.values()].map(async (m) => {
@@ -1103,6 +1151,7 @@ function toView(m: Managed): SessionView {
     canContinue: !active && !!(m.claudeSessionId ?? m.config.lastClaudeSessionId),
     dependsOn: m.config.dependsOn?.length ? m.config.dependsOn : undefined,
     blockedBy: m.blockedBy?.length ? m.blockedBy : undefined,
+    schedule: m.config.schedule,
   };
 }
 
@@ -1111,4 +1160,24 @@ function shortLabel(m: Managed | undefined): string {
   if (!m) return "(unknown)";
   const g = m.goal.trim().replace(/\s+/g, " ");
   return g.length > 40 ? g.slice(0, 40) + "…" : g || m.id.slice(0, 8);
+}
+
+/**
+ * Sanitize a proposed schedule: keep a positive integer everyMinutes and a valid
+ * "HH:MM" dailyAt; return undefined when neither trigger is usable (so an empty
+ * schedule is simply dropped rather than stored as dead config).
+ */
+function normalizeSchedule(s: SessionSchedule | undefined): SessionSchedule | undefined {
+  if (!s) return undefined;
+  const out: SessionSchedule = {};
+  if (typeof s.everyMinutes === "number" && Number.isFinite(s.everyMinutes) && s.everyMinutes >= 1) {
+    out.everyMinutes = Math.floor(s.everyMinutes);
+  }
+  const hhmm = parseHHMM(s.dailyAt);
+  if (hhmm) {
+    out.dailyAt = `${String(hhmm.h).padStart(2, "0")}:${String(hhmm.m).padStart(2, "0")}`;
+  }
+  if (out.everyMinutes === undefined && out.dailyAt === undefined) return undefined;
+  out.enabled = s.enabled !== false;
+  return out;
 }

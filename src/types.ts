@@ -54,6 +54,25 @@ export interface SessionConfig {
    * request for a session with unmet dependencies parks it as `blocked`.
    */
   dependsOn?: string[];
+  /**
+   * Auto-start schedule: run this session every N minutes and/or daily at a local
+   * HH:MM. Firing goes through the normal start path (respects concurrency, the
+   * daily budget, real usage limits, and dependencies). Omit for manual-only.
+   */
+  schedule?: SessionSchedule;
+}
+
+/**
+ * When to auto-start a session. Two composable triggers; if both are set, either
+ * one firing starts the session. A disabled schedule is kept but never fires.
+ */
+export interface SessionSchedule {
+  /** Master switch. Defaults to enabled when a trigger is set. */
+  enabled?: boolean;
+  /** Re-run every N minutes (>= 1). */
+  everyMinutes?: number;
+  /** Re-run daily at this local time, "HH:MM" (24h). */
+  dailyAt?: string;
 }
 
 /** Guard rails. The real "budget" here is rate-limit/turn burn, not dollars. */

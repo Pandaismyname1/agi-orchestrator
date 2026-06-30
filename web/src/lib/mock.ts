@@ -310,6 +310,7 @@ export const MOCK: Snapshot = {
       lastDecision: "stopped: goal met — landing page deployed",
       attention: null,
       canContinue: true,
+      schedule: { enabled: true, dailyAt: "02:00" },
     },
     {
       id: "deploy-prod",

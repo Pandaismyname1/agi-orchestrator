@@ -24,6 +24,18 @@
   let waiting = $derived(s.status === "blocked" || blockers.length > 0);
   let deps = $derived(s.dependsOn ?? []);
 
+  // Compact "auto-start schedule" label, e.g. "every 60m · 02:00".
+  let schedLabel = $derived.by(() => {
+    const sc = s.schedule;
+    if (!sc) return "";
+    const parts: string[] = [];
+    if (sc.everyMinutes) parts.push(`every ${sc.everyMinutes}m`);
+    if (sc.dailyAt) parts.push(sc.dailyAt);
+    const t = parts.join(" · ");
+    if (!t) return "";
+    return sc.enabled === false ? `${t} (paused)` : t;
+  });
+
   function focus() {
     ui.focusId = s.id;
     wsStore.send({ type: "focus", id: s.id });
@@ -50,6 +62,11 @@
 
   <div class="foot">
     <StatusBadge status={s.status} />
+    {#if schedLabel}
+      <span class="sched-chip" class:paused={s.schedule?.enabled === false} title="Auto-start schedule">
+        <Icon name="clock" size={11} /> {schedLabel}
+      </span>
+    {/if}
     <span class="metric tnum">turn {s.turns} · {minutes(s.elapsedMin)}</span>
   </div>
 
@@ -291,6 +308,19 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+  .sched-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    color: var(--color-neutral-content);
+    padding: 1px 7px;
+    border: 1px solid var(--border-soft);
+    border-radius: 20px;
+  }
+  .sched-chip.paused {
+    opacity: 0.55;
   }
   .metric {
     margin-left: auto;
