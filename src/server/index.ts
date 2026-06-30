@@ -14,7 +14,7 @@ import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { preflight, BillingSafetyError } from "../util/env.js";
 import { loadConfig, saveConfig } from "../config.js";
-import { Supervisor } from "./supervisor.js";
+import { Supervisor, type TemplateInput } from "./supervisor.js";
 import { openStore } from "../db/store.js";
 import { discoverAll } from "../discovery.js";
 import { AttachManager } from "../attach/attachManager.js";
@@ -78,10 +78,15 @@ interface ClientMsg {
   type:
     | "start" | "stop" | "startAll" | "stopAll" | "focus" | "add" | "update" | "remove" | "resolve"
     | "setMode" | "sendMessage" | "updateSettings" | "continue"
-    | "learnSynthesize" | "learnApprove" | "learnReject" | "learnRevert";
+    | "learnSynthesize" | "learnApprove" | "learnReject" | "learnRevert"
+    | "templateSave" | "templateDelete" | "saveAsTemplate";
   id?: string;
   session?: SessionInput;
   patch?: SessionPatch;
+  /** For "templateSave": the template to create/update. */
+  template?: TemplateInput;
+  /** For "saveAsTemplate": the new template's name. */
+  name?: string;
   /** For "updateSettings": the global-settings fields to change. */
   settings?: SettingsPatch;
   /** For "continue": the edited goal / instruction / mode to resume with. */
@@ -411,6 +416,7 @@ async function main(): Promise<void> {
             },
           },
           learning: sup.learningSummary(),
+          templates: sup.listTemplates(),
           sessions: sup.list(),
           focus: focusId ? { id: focusId, screen: sup.screen(focusId) } : undefined,
         }),
@@ -443,6 +449,26 @@ async function main(): Promise<void> {
           break;
         case "stopAll":
           sup.stopAll();
+          break;
+        case "templateSave":
+          try {
+            if (!msg.template) throw new Error("missing template payload.");
+            sup.saveTemplate(msg.template);
+          } catch (e) {
+            sendError(e instanceof Error ? e.message : String(e));
+          }
+          break;
+        case "templateDelete":
+          if (msg.id) sup.deleteTemplate(msg.id);
+          break;
+        case "saveAsTemplate":
+          try {
+            if (!msg.id) throw new Error("missing session id.");
+            if (!msg.name?.trim()) throw new Error("template name is required.");
+            sup.saveSessionAsTemplate(msg.id, msg.name);
+          } catch (e) {
+            sendError(e instanceof Error ? e.message : String(e));
+          }
           break;
         case "focus":
           focusId = msg.id;

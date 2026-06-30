@@ -171,6 +171,32 @@ export interface LearningSummary {
   projects: ProfileSummary[];
 }
 
+/** Reusable session preset (everything but the working directory). */
+export interface SessionTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  goal?: string;
+  doneCriteria?: string;
+  permissionMode?: PermissionMode;
+  autonomy?: Autonomy;
+  startMode?: SessionMode;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Payload to create (omit id) or update (include id) a template (POST templateSave). */
+export type TemplateInput = {
+  id?: string;
+  name: string;
+  description?: string;
+  goal?: string;
+  doneCriteria?: string;
+  permissionMode?: PermissionMode;
+  autonomy?: Autonomy;
+  startMode?: SessionMode;
+};
+
 export interface Snapshot {
   type: "snapshot";
   provider: Provider;
@@ -180,6 +206,8 @@ export interface Snapshot {
   focus?: FocusView;
   settings?: Settings;
   learning?: LearningSummary;
+  /** Reusable session presets (newest-updated first). */
+  templates?: SessionTemplate[];
 }
 
 /** Payload to register a hand-started session for hook-attach driving (POST /attach). */
@@ -238,7 +266,10 @@ export type ClientMsg =
   | { type: "learnSynthesize"; scope?: string }
   | { type: "learnApprove"; scope?: string }
   | { type: "learnReject"; scope?: string }
-  | { type: "learnRevert"; scope: string; version: number };
+  | { type: "learnRevert"; scope: string; version: number }
+  | { type: "templateSave"; template: TemplateInput }
+  | { type: "templateDelete"; id: string }
+  | { type: "saveAsTemplate"; id: string; name: string };
 
 /** Discovered on-disk Claude Code session (GET /api/discover). */
 export interface DiscoveredSession {

@@ -26,6 +26,7 @@
       "M12 5a3 3 0 0 0-5.6-1.5A2.5 2.5 0 0 0 4 7a2.5 2.5 0 0 0 .5 4.5A2.5 2.5 0 0 0 7 16a3 3 0 0 0 5 1V5zM12 5a3 3 0 0 1 5.6-1.5A2.5 2.5 0 0 1 20 7a2.5 2.5 0 0 1-.5 4.5A2.5 2.5 0 0 1 17 16a3 3 0 0 1-5 1",
     chevronLeft: "M15 18l-6-6 6-6",
     chevronRight: "M9 18l6-6-6-6",
+    layers: "M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
   } as const;
 
   export type IconName = keyof typeof ICONS;

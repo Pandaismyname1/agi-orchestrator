@@ -28,6 +28,21 @@
       "tailMessages": 3
     }
   },
+  "_templates_note": "Reusable session presets — pick one in the dashboard's New Session wizard (or the Templates manager) to one-click pre-fill a new session, leaving only the working folder to choose. 'Save as template' snapshots an existing session's settings here. Managed live from the UI; this is just the on-disk shape. Omit entirely if you don't use them.",
+  "templates": [
+    {
+      "id": "tpl-bugfix",
+      "name": "Bug-fix sprint",
+      "description": "Triage and fix open bugs until the suite is green.",
+      "goal": "Find and fix the failing tests / open bugs in this project.",
+      "doneCriteria": "The full test suite passes and there are no known regressions.",
+      "permissionMode": "acceptEdits",
+      "autonomy": "balanced",
+      "startMode": "autopilot",
+      "createdAt": 0,
+      "updatedAt": 0
+    }
+  ],
   "port": 4317,
   "budget": {
     "maxTurnsPerDay": 200,
@@ -100,6 +115,7 @@
     "usageGuard": "hooks into Claude's REAL subscription limits instead of an artificial daily cap. The orchestrator reads Claude's own /usage (a local command, no model usage) and pauses a session when a governing limit is spent, auto-resuming at the reported reset. pauseAtPercent (default 100) pauses earlier if set lower. onOpusExhausted: when the weekly all-models (Opus) cap is spent but the Sonnet pool has room, 'continue' keeps working on Sonnet (default) and 'pause' stops until the weekly reset. refreshEveryTurns re-reads /usage every N turns. When enabled, the legacy budget.maxTurnsPerDay/maxMinutesPerDay no longer gate runs.",
     "gatePolicy.note": "see permissionMode — gatePolicy only sees gates when claude actually prompts",
     "autonomy": "operator persona: 'cautious' escalates more decisions to you, 'autonomous' fewer, 'balanced' (default) in between",
-    "dependsOn": "workflows: ids of sessions that must reach 'done' before this one auto-starts. 'Start all' launches the roots and parks dependents as 'blocked'; each finishes → its dependents auto-start (a DAG, cycles are rejected). Omit for no dependencies. Edit it live from the session form's 'Runs after' picker. 'Stop all' halts the whole fleet (running, queued, and blocked)."
+    "dependsOn": "workflows: ids of sessions that must reach 'done' before this one auto-starts. 'Start all' launches the roots and parks dependents as 'blocked'; each finishes → its dependents auto-start (a DAG, cycles are rejected). Omit for no dependencies. Edit it live from the session form's 'Runs after' picker. 'Stop all' halts the whole fleet (running, queued, and blocked).",
+    "templates": "reusable session presets (name + goal + doneCriteria + permissionMode + autonomy + startMode, minus cwd). Use one to pre-fill the New Session wizard, or 'Save as template' to capture an existing session. Managed from the dashboard Templates manager."
   }
 }

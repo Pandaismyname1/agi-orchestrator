@@ -3,10 +3,10 @@
  * is focused, which modal is open, and the transient toast queue. All reactive
  * via Svelte runes so any component can read/mutate it.
  */
-import type { SessionView } from "./types";
+import type { SessionView, SessionTemplate } from "./types";
 
 export type Modal =
-  | { kind: "new" }
+  | { kind: "new"; template?: SessionTemplate }
   | { kind: "edit"; session: SessionView }
   | { kind: "adopt" }
   | { kind: "adopt-form"; cwd: string; resumeId: string }
@@ -14,6 +14,7 @@ export type Modal =
   | { kind: "settings" }
   | { kind: "attach" }
   | { kind: "learn" }
+  | { kind: "templates" }
   | { kind: "continue"; session: SessionView };
 
 interface Toast {

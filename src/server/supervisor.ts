@@ -29,7 +29,20 @@ import type {
   GateResolution,
   Resolution,
   SessionConfig,
+  SessionTemplate,
 } from "../types.js";
+
+/** Fields accepted when creating/updating a template (id optional = create). */
+export interface TemplateInput {
+  id?: string;
+  name: string;
+  description?: string;
+  goal?: string;
+  doneCriteria?: string;
+  permissionMode?: SessionConfig["permissionMode"];
+  autonomy?: SessionConfig["autonomy"];
+  startMode?: SessionConfig["startMode"];
+}
 
 /** The session-runner the supervisor drives (real one is runSession; tests inject a stub). */
 export type RunFn = (session: SessionConfig, opts: RunOptions) => Promise<void>;
@@ -587,6 +600,67 @@ export class Supervisor {
   }
   learningVersions(scope?: ProfileScope): OperatorProfile[] {
     return this.learning ? this.learning.listVersions(scope) : [];
+  }
+
+  // ---- session templates (reusable presets) -------------------------------
+
+  /** All saved templates, most-recently-updated first. */
+  listTemplates(): SessionTemplate[] {
+    return [...(this.cfg.templates ?? [])].sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  /** Create (no id) or update (matching id) a template; persist. */
+  saveTemplate(input: TemplateInput): SessionTemplate {
+    const name = (input.name ?? "").trim();
+    if (!name) throw new Error("template name is required.");
+    const list = this.cfg.templates ?? (this.cfg.templates = []);
+    const now = Date.now();
+    const clean = (s?: string) => (s ?? "").trim() || undefined;
+    const fields = {
+      name,
+      description: clean(input.description),
+      goal: clean(input.goal),
+      doneCriteria: clean(input.doneCriteria),
+      permissionMode: input.permissionMode,
+      autonomy: input.autonomy,
+      startMode: input.startMode,
+    };
+    const id = (input.id ?? "").trim();
+    const existing = id ? list.find((t) => t.id === id) : undefined;
+    if (existing) {
+      Object.assign(existing, fields, { updatedAt: now });
+      this.persist();
+      return existing;
+    }
+    const tpl: SessionTemplate = { id: id || randomUUID(), ...fields, createdAt: now, updatedAt: now };
+    list.push(tpl);
+    this.persist();
+    return tpl;
+  }
+
+  /** Delete a template by id; persist. No-op if it doesn't exist. */
+  deleteTemplate(id: string): void {
+    const list = this.cfg.templates;
+    if (!list) return;
+    const i = list.findIndex((t) => t.id === id);
+    if (i >= 0) {
+      list.splice(i, 1);
+      this.persist();
+    }
+  }
+
+  /** Snapshot an existing session's settings into a new reusable template. */
+  saveSessionAsTemplate(sessionId: string, name: string): SessionTemplate {
+    const m = this.sessions.get(sessionId);
+    if (!m) throw new Error(`no session with id "${sessionId}".`);
+    return this.saveTemplate({
+      name,
+      goal: m.config.goal,
+      doneCriteria: m.config.doneCriteria,
+      permissionMode: m.config.permissionMode,
+      autonomy: m.config.autonomy,
+      startMode: m.config.startMode,
+    });
   }
 
   /**

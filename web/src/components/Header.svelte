@@ -121,6 +121,13 @@
     <Icon name="pip" size={15} />
   </button>
   <button
+    class="btn btn-sm hide-sm"
+    title="Templates — reusable session presets"
+    onclick={() => ui.openModal({ kind: "templates" })}
+  >
+    <Icon name="layers" size={14} /> Templates
+  </button>
+  <button
     class="btn btn-sm learn-btn"
     title="Learn — review & approve operator-prompt drafts"
     onclick={() => ui.openModal({ kind: "learn" })}

@@ -8,11 +8,12 @@
   import AttachModal from "./modals/AttachModal.svelte";
   import ContinueForm from "./modals/ContinueForm.svelte";
   import LearnModal from "./modals/LearnModal.svelte";
+  import TemplatesModal from "./modals/TemplatesModal.svelte";
 </script>
 
 {#if ui.modal}
   {#if ui.modal.kind === "new"}
-    <NewSessionWizard />
+    <NewSessionWizard template={ui.modal.template} />
   {:else if ui.modal.kind === "adopt-form"}
     <NewSessionWizard adopt={{ cwd: ui.modal.cwd, resumeId: ui.modal.resumeId }} />
   {:else if ui.modal.kind === "edit"}
@@ -29,5 +30,7 @@
     <ContinueForm session={ui.modal.session} />
   {:else if ui.modal.kind === "learn"}
     <LearnModal />
+  {:else if ui.modal.kind === "templates"}
+    <TemplatesModal />
   {/if}
 {/if}

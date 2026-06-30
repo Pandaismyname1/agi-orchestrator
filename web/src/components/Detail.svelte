@@ -41,6 +41,15 @@
     userPicked = true;
     view = v;
   }
+
+  function saveAsTemplate(sess: SessionView) {
+    const name = prompt("Save this session's settings as a template named:", sess.id);
+    if (name === null) return;
+    const n = name.trim();
+    if (!n) return;
+    wsStore.send({ type: "saveAsTemplate", id: sess.id, name: n });
+    ui.toast(`saved template “${n}”`);
+  }
 </script>
 
 <section class="detail">
@@ -80,6 +89,14 @@
           onclick={() => ui.openModal({ kind: "edit", session: s })}
         >
           <Icon name="edit" size={13} /> Edit
+        </button>
+        <button
+          class="btn btn-sm btn-square"
+          aria-label="Save this session's settings as a template"
+          title="Save as template"
+          onclick={() => saveAsTemplate(s)}
+        >
+          <Icon name="layers" size={13} />
         </button>
       </div>
       <div class="goal">{s.goal}</div>

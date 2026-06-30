@@ -1,7 +1,13 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { fly } from "svelte/transition";
-  import type { PermissionMode, Autonomy, SessionMode, SessionInput } from "../../lib/types";
+  import type {
+    PermissionMode,
+    Autonomy,
+    SessionMode,
+    SessionInput,
+    SessionTemplate,
+  } from "../../lib/types";
   import { wsStore } from "../../lib/ws.svelte";
   import { ui } from "../../lib/ui.svelte";
   import Icon from "../Icon.svelte";
@@ -9,8 +15,10 @@
   interface Props {
     /** When adopting an on-disk session: prefill cwd + carry the resumeId. */
     adopt?: { cwd: string; resumeId: string };
+    /** When started from a template: prefill goal/done/mode/perm/autonomy. */
+    template?: SessionTemplate;
   }
-  let { adopt }: Props = $props();
+  let { adopt, template }: Props = $props();
 
   const STEPS = ["Project", "Mode", "Tune"];
   let step = $state(0);
@@ -18,15 +26,34 @@
 
   let id = $state("");
   let cwd = $state(untrack(() => adopt?.cwd ?? ""));
-  let goal = $state("");
-  let doneCriteria = $state("");
-  let mode = $state<SessionMode>(untrack(() => (adopt ? "manual" : "autopilot")));
-  let permissionMode = $state<PermissionMode>("acceptEdits");
-  let autonomy = $state<Autonomy>("balanced");
+  let goal = $state(untrack(() => template?.goal ?? ""));
+  let doneCriteria = $state(untrack(() => template?.doneCriteria ?? ""));
+  let mode = $state<SessionMode>(
+    untrack(() => template?.startMode ?? (adopt ? "manual" : "autopilot")),
+  );
+  let permissionMode = $state<PermissionMode>(untrack(() => template?.permissionMode ?? "acceptEdits"));
+  let autonomy = $state<Autonomy>(untrack(() => template?.autonomy ?? "balanced"));
   let dependsOn = $state<string[]>([]);
   let err = $state("");
 
   let adopting = $derived(!!adopt);
+
+  // "Start from template" picker (hidden while adopting an on-disk session).
+  let templates = $derived(wsStore.snapshot?.templates ?? []);
+  let pickedTemplateId = $state(untrack(() => template?.id ?? ""));
+  function applyTemplate(t: SessionTemplate): void {
+    if (t.goal !== undefined) goal = t.goal;
+    if (t.doneCriteria !== undefined) doneCriteria = t.doneCriteria;
+    if (t.permissionMode) permissionMode = t.permissionMode;
+    if (t.autonomy) autonomy = t.autonomy;
+    if (t.startMode) mode = t.startMode;
+  }
+  function onPickTemplate(e: Event): void {
+    const tid = (e.currentTarget as HTMLSelectElement).value;
+    pickedTemplateId = tid;
+    const t = templates.find((x) => x.id === tid);
+    if (t) applyTemplate(t);
+  }
 
   // Existing sessions this new one can run after.
   let others = $derived(wsStore.snapshot?.sessions ?? []);
@@ -118,6 +145,15 @@
           {#if step === 0}
             {#if adopting}
               <div class="hint">resuming {adopt!.resumeId.slice(0, 8)}… — give it a goal and pick a mode</div>
+            {:else if templates.length}
+              <label for="w_tmpl">Start from template <span class="opt">(optional)</span></label>
+              <select id="w_tmpl" value={pickedTemplateId} onchange={onPickTemplate}>
+                <option value="">— blank —</option>
+                {#each templates as t (t.id)}
+                  <option value={t.id}>{t.name}</option>
+                {/each}
+              </select>
+              <p class="explain">Pre-fills goal, done criteria, mode, and tuning. You still pick the directory.</p>
             {/if}
             <label for="w_cwd">Project directory</label>
             <input id="w_cwd" bind:value={cwd} placeholder="C:\path\to\project" />

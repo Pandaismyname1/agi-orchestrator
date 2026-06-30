@@ -120,6 +120,32 @@ export interface AppConfig {
   usageGuard?: import("./policy/usage.js").UsageGuardOptions;
   /** Brain-decision policy (confidence gating). */
   brain?: BrainOptions;
+  /** Reusable session presets ("templates") for one-click new sessions. */
+  templates?: SessionTemplate[];
+}
+
+/**
+ * A reusable session preset. Captures everything about a session EXCEPT the
+ * working directory (the one thing that's always project-specific), so you can
+ * spin up a new session from it by just picking a folder. Stored in config.json.
+ */
+export interface SessionTemplate {
+  /** Stable id. */
+  id: string;
+  /** Display name, e.g. "Bug-fix sprint" or "GDPR audit". */
+  name: string;
+  /** Optional one-line description shown in the picker. */
+  description?: string;
+  /** Pre-filled goal (the first prompt handed to claude). */
+  goal?: string;
+  /** Pre-filled done criteria. */
+  doneCriteria?: string;
+  permissionMode?: SessionConfig["permissionMode"];
+  autonomy?: SessionConfig["autonomy"];
+  startMode?: SessionConfig["startMode"];
+  /** Epoch ms. */
+  createdAt: number;
+  updatedAt: number;
 }
 
 /** Tuning for how the brain's raw decision is gated before it's acted on. */
