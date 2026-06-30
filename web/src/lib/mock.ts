@@ -198,6 +198,12 @@ export const MOCK: Snapshot = {
   type: "snapshot",
   provider: { model: "qwen3.5:9b", baseUrl: "http://localhost:11434/v1", ok: true },
   budget: { turns: 142, maxTurns: 300, minutes: 88, maxMinutes: 240, exceeded: false },
+  usage: {
+    capturedAt: Date.now(),
+    session: { pct: 62, resetText: "10:49am", resetAt: Date.now() + 2.3 * 3600_000 },
+    weeklyAll: { pct: 88, resetText: "Sat 10:59pm", resetAt: Date.now() + 52 * 3600_000 },
+    weeklySonnet: { pct: 14, resetText: "Sat 10:59pm", resetAt: Date.now() + 52 * 3600_000 },
+  },
   settings: {
     providerModel: "qwen3.5:9b",
     providerBaseUrl: "http://localhost:11434/v1",

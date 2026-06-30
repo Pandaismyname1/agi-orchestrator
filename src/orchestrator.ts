@@ -16,6 +16,8 @@ import { LocalLLM } from "./brain/provider.js";
 import { Guards } from "./policy/guards.js";
 import { StuckDetector, fingerprintDir } from "./policy/stuck.js";
 import type { ContextGuard } from "./policy/context.js";
+import type { UsageGuard } from "./policy/usage.js";
+import type { UsageStatus } from "./policy/usage.js";
 import { randomUUID } from "node:crypto";
 import type {
   AttentionRequest,
@@ -37,6 +39,10 @@ export type OrchestratorEvent =
   | { type: "gate"; sessionId: string; request: GateRequest }
   | { type: "gate_resolved"; sessionId: string; request: GateRequest; resolution: GateResolution }
   | { type: "rate_limited"; sessionId: string; detail: string }
+  /** A fresh read of Claude's real /usage limits. */
+  | { type: "usage"; sessionId: string; status: UsageStatus }
+  /** A real subscription limit is spent; the session pauses until resumeAt (if known). */
+  | { type: "limited"; sessionId: string; reason: string; resumeAt?: number; sonnetOnly: boolean }
   | { type: "stop"; sessionId: string; reason: string; turns: number; elapsedMin: number }
   | { type: "context"; sessionId: string; phase: "compacting" | "resumed"; usedPercent: number }
   | { type: "error"; sessionId: string; error: string };
@@ -93,6 +99,11 @@ export interface RunOptions {
    */
   contextGuard?: ContextGuard;
   /**
+   * Pause the session on Claude's REAL subscription limits (read from /usage) and
+   * report them, instead of an artificial daily budget. Inert unless enabled.
+   */
+  usageGuard?: UsageGuard;
+  /**
    * Resume an existing claude conversation by id (overrides session.resumeId).
    * Used to "continue" a finished session in the SAME conversation so its prior
    * context carries over.
@@ -136,11 +147,30 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
     const stopRun = (reason: string) =>
       emit({ type: "stop", sessionId: session.id, reason, turns: guards.turnCount, elapsedMin: guards.elapsedMin });
 
+    const ug = opts.usageGuard;
+    // Read Claude's REAL limits (/usage — a local command, no model usage) while
+    // the session is idle and pause if a governing one is spent. Returns true
+    // when it stopped the run, so callers can exit the loop.
+    const checkUsage = async (): Promise<boolean> => {
+      if (!ug?.enabled) return false;
+      const status = await sess.readUsage();
+      if (!status) return false;
+      emit({ type: "usage", sessionId: session.id, status });
+      const v = ug.verdict(status);
+      if (v.blocked) {
+        emit({ type: "limited", sessionId: session.id, reason: v.reason, resumeAt: v.resumeAt, sonnetOnly: v.sonnetOnly });
+        stopRun(v.reason);
+        return true;
+      }
+      return false;
+    };
+
     let pending: string | null = null; // the next prompt to inject, once sourced
     let lastResult: TurnResult | null = null;
     let seeded = false; // whether the opts.seedPrompt (continue) has been injected
+    let limited = await checkUsage(); // gate before the very first turn
 
-    while (true) {
+    while (!limited) {
       const stopSignal = opts.shouldStop?.();
       if (stopSignal) {
         stopRun(typeof stopSignal === "string" ? stopSignal : "stopped by operator");
@@ -254,6 +284,9 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
           emit({ type: "context", sessionId: session.id, phase: "resumed", usedPercent });
         }
       }
+
+      // ---- real-limit guard: pause on Claude's actual usage limits ----------
+      if (ug?.shouldRefresh(guards.turnCount)) limited = await checkUsage();
     }
   } catch (e) {
     if (e instanceof RateLimitError) {

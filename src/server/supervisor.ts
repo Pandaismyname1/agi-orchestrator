@@ -13,6 +13,7 @@ import { saveConfig } from "../config.js";
 import { Recorder } from "../db/recorder.js";
 import { BudgetTracker, type BudgetStatus } from "../policy/budget.js";
 import { ContextGuard } from "../policy/context.js";
+import { UsageGuard, type UsageStatus } from "../policy/usage.js";
 import { decideNextStep } from "../brain/decide.js";
 import { LearningService, emptyLearningSummary } from "../learning/service.js";
 import type {
@@ -85,6 +86,8 @@ interface Managed extends SessionView {
   resolveUserInput?: (i: UserInput) => void;
   /** Wall-clock start of the current run (for live minute accounting). */
   startedAt?: number;
+  /** Most recent /usage read while this session ran. */
+  usage?: UsageStatus;
 }
 
 export class Supervisor {
@@ -92,6 +95,12 @@ export class Supervisor {
   private readonly llm: LocalLLM;
   private readonly recorder?: Recorder;
   private budget: BudgetTracker;
+  /** Real subscription-limit gate (Claude's /usage) — the primary pause control. */
+  private readonly usageGuard: UsageGuard;
+  /** Most recent /usage read from any session, for the dashboard + start gate. */
+  private lastUsage?: UsageStatus;
+  /** Pending auto-resume timers (session id → timer), fired at a limit's reset. */
+  private readonly resumeTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly running = new Set<string>();
   private readonly queue: string[] = [];
   private maxConcurrent: number;
@@ -108,6 +117,7 @@ export class Supervisor {
   ) {
     this.llm = new LocalLLM(cfg.provider);
     this.budget = new BudgetTracker(store, cfg.budget);
+    this.usageGuard = new UsageGuard(cfg.usageGuard);
     this.maxConcurrent = cfg.maxConcurrent && cfg.maxConcurrent > 0 ? cfg.maxConcurrent : Infinity;
     if (store) this.learning = new LearningService(store, this.llm, cfg.learning, cfg.provider.model);
     if (store) this.recorder = new Recorder(store);
@@ -166,6 +176,11 @@ export class Supervisor {
     return this.budget.status(this.liveUsage());
   }
 
+  /** The latest real /usage limits read from Claude, for the dashboard. */
+  latestUsage(): UsageStatus | undefined {
+    return this.lastUsage;
+  }
+
   /**
    * Update the concurrency cap at runtime. Lowering it never stops a running
    * session (it just won't pump new ones until the count drops below the cap);
@@ -188,10 +203,21 @@ export class Supervisor {
   start(id: string): void {
     const m = this.sessions.get(id);
     if (!m || ["running", "queued", "needs-input", "manual"].includes(m.status)) return;
-    const b = this.budgetStatus();
-    if (b.exceeded) {
-      m.lastDecision = `blocked — ${b.reason}`;
-      return; // refuse to start: daily budget spent
+    // Refuse to start when a REAL subscription limit is spent (the orchestrator
+    // re-reads /usage at launch, so a stale spent reading just defers the start
+    // until the next slot; it's cleared when an auto-resume fires after a reset).
+    if (this.usageGuard.enabled && this.lastUsage) {
+      const v = this.usageGuard.verdict(this.lastUsage);
+      if (v.blocked) {
+        m.lastDecision = `blocked — ${v.reason}`;
+        return;
+      }
+    } else if (!this.usageGuard.enabled) {
+      const b = this.budgetStatus();
+      if (b.exceeded) {
+        m.lastDecision = `blocked — ${b.reason}`;
+        return; // legacy daily budget (only when the usage gate is off)
+      }
     }
     if (this.running.size >= this.maxConcurrent) {
       m.status = "queued";
@@ -244,6 +270,7 @@ export class Supervisor {
       limits: this.cfg.limits,
       decide,
       contextGuard: new ContextGuard(this.cfg.contextGuard),
+      usageGuard: this.usageGuard,
       resumeId,
       seedPrompt,
       onSession: (s) => {
@@ -269,11 +296,15 @@ export class Supervisor {
             resolve(i);
           };
         }),
-      // Stop on operator request OR when the daily budget is spent (with a reason).
+      // Stop on operator request. Real subscription limits are handled inside the
+      // loop by the usage guard; the legacy daily budget only gates when that's off.
       shouldStop: () => {
         if (m.stopRequested) return true;
-        const b = this.budgetStatus();
-        return b.exceeded ? b.reason : false;
+        if (!this.usageGuard.enabled) {
+          const b = this.budgetStatus();
+          return b.exceeded ? b.reason : false;
+        }
+        return false;
       },
       // Pause on a real human decision: flip to needs-input and hand back a
       // promise the dashboard resolves when the user picks an option.
@@ -641,6 +672,34 @@ export class Supervisor {
         m.status = "rate-limited";
         m.error = e.detail;
         break;
+      case "usage":
+        m.usage = e.status;
+        this.lastUsage = e.status;
+        break;
+      case "limited": {
+        // A real subscription limit is spent — pause and auto-resume at its reset.
+        m.status = "rate-limited";
+        const at = e.resumeAt ? new Date(e.resumeAt).toLocaleString() : "the limit reset";
+        m.error = `${e.reason} — auto-resumes at ${at}`;
+        m.lastDecision = e.sonnetOnly ? `paused (Sonnet pool) — ${e.reason}` : `limit reached — ${e.reason}`;
+        const prev = this.resumeTimers.get(m.id);
+        if (prev) clearTimeout(prev);
+        if (e.resumeAt && e.resumeAt > Date.now()) {
+          const delay = Math.min(e.resumeAt - Date.now() + 5_000, 8 * 24 * 60 * 60_000);
+          this.resumeTimers.set(
+            m.id,
+            setTimeout(() => {
+              this.resumeTimers.delete(m.id);
+              // Drop the stale (spent) reading so the start gate doesn't refuse;
+              // the orchestrator re-reads fresh /usage at launch.
+              this.lastUsage = undefined;
+              m.usage = undefined;
+              this.start(m.id);
+            }, delay),
+          );
+        }
+        break;
+      }
       case "context":
         m.lastDecision =
           e.phase === "compacting"

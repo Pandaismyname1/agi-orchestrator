@@ -34,6 +34,8 @@ export interface UsageStatus {
 }
 
 export interface UsageGuardOptions {
+  /** Master switch. When off, the usage gate is inert. Default true. */
+  enabled?: boolean;
   /** Pause a session when a governing limit reaches this percent. Default 100. */
   pauseAtPercent?: number;
   /**
@@ -42,6 +44,8 @@ export interface UsageGuardOptions {
    * (default — more gets done); "pause" stops until the weekly reset instead.
    */
   onOpusExhausted?: "continue" | "pause";
+  /** Re-read /usage every N completed turns (a local command, no model usage). Default 5. */
+  refreshEveryTurns?: number;
 }
 
 export interface UsageVerdict {
@@ -195,4 +199,27 @@ export function usageVerdict(status: UsageStatus, opts: UsageGuardOptions = {}):
   }
 
   return { blocked: false, reason: "", sonnetOnly: false };
+}
+
+/**
+ * Stateless helper the orchestrator uses to decide when to re-read /usage and
+ * how to read a verdict. Off (enabled:false) → the gate never blocks.
+ */
+export class UsageGuard {
+  constructor(private readonly opts: UsageGuardOptions | undefined) {}
+
+  get enabled(): boolean {
+    return this.opts?.enabled !== false && !!this.opts;
+  }
+  get refreshEveryTurns(): number {
+    return Math.max(1, this.opts?.refreshEveryTurns ?? 5);
+  }
+  /** Should we re-read /usage after this many completed turns? */
+  shouldRefresh(turnCount: number): boolean {
+    return this.enabled && turnCount > 0 && turnCount % this.refreshEveryTurns === 0;
+  }
+  verdict(status: UsageStatus): UsageVerdict {
+    if (!this.enabled) return { blocked: false, reason: "", sonnetOnly: false };
+    return usageVerdict(status, this.opts ?? {});
+  }
 }

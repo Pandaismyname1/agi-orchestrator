@@ -73,6 +73,19 @@ export interface Budget {
   exceeded: boolean;
 }
 
+/** One of Claude's real subscription limits (from /usage). */
+export interface LimitWindow {
+  pct: number;
+  resetText?: string;
+  resetAt?: number;
+}
+export interface UsageStatus {
+  session?: LimitWindow;
+  weeklyAll?: LimitWindow;
+  weeklySonnet?: LimitWindow;
+  capturedAt: number;
+}
+
 export interface FocusView {
   id: string;
   screen: string;
@@ -157,6 +170,7 @@ export interface Snapshot {
   type: "snapshot";
   provider: Provider;
   budget?: Budget | null;
+  usage?: UsageStatus | null;
   sessions: SessionView[];
   focus?: FocusView;
   settings?: Settings;

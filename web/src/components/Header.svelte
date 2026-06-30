@@ -6,6 +6,9 @@
   import { alarm } from "../lib/alarm.svelte";
   import Icon from "./Icon.svelte";
   import BudgetMeter from "./BudgetMeter.svelte";
+  import UsageMeter from "./UsageMeter.svelte";
+
+  let usage = $derived(wsStore.snapshot?.usage);
 
   interface Props {
     provider: Provider | undefined;
@@ -121,7 +124,9 @@
     <Icon name="settings" size={15} />
   </button>
 
-  {#if budget}
+  {#if usage}
+    <div class="ml hide-sm"><UsageMeter {usage} /></div>
+  {:else if budget}
     <div class="ml hide-sm"><BudgetMeter {budget} /></div>
   {/if}
 

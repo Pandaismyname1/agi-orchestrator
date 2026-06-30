@@ -394,6 +394,7 @@ async function main(): Promise<void> {
           type: "snapshot",
           provider: { model: cfg.provider.model, baseUrl: cfg.provider.baseUrl, ok: health.ok },
           budget: sup.budgetStatus(),
+          usage: sup.latestUsage(),
           settings: {
             providerModel: cfg.provider.model,
             providerBaseUrl: cfg.provider.baseUrl,

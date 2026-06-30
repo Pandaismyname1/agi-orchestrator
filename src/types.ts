@@ -102,6 +102,8 @@ export interface AppConfig {
   learning?: LearningOptions;
   /** Remote access ("dispatch"): token auth + rate limiting for an exposed port. */
   dispatch?: DispatchOptions;
+  /** Pause/resume on Claude's REAL subscription limits (read from /usage). */
+  usageGuard?: import("./policy/usage.js").UsageGuardOptions;
 }
 
 /**
