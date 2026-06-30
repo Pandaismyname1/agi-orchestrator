@@ -25,6 +25,12 @@ const ROWS = 40;
 const POLL_MS = 500;
 const READY_SETTLE_MS = 2500; // ready must hold this long to count as turn-end
 const BOOT_TIMEOUT_MS = 45_000;
+// Resuming a session replays its (possibly huge) transcript and may auto-continue
+// an in-flight turn, so a fixed short boot deadline wrongly kills a healthy resume.
+// Instead: stay patient up to a generous cap while the screen is still CHANGING
+// (replay/work), and only fail fast if it's been frozen (stuck) and never ready.
+const RESUME_BOOT_CAP_MS = 10 * 60_000;
+const RESUME_STUCK_MS = 45_000;
 const TURN_TIMEOUT_MS = 15 * 60_000; // safety cap per single turn
 const GATE_COOLDOWN_MS = 900;
 const MIN_THINK_MS = 1500; // ignore "ready" for this long after injecting (avoid premature turn-end)
@@ -89,7 +95,14 @@ export class ClaudeSession {
       this.exitCode = exitCode ?? 0;
     });
 
-    await this.waitForReady(BOOT_TIMEOUT_MS, /*requireThink*/ false);
+    // Fresh boot is quick (45s). A resume can legitimately take much longer (it
+    // replays the transcript and may auto-continue), so give it a generous cap but
+    // bail fast if the screen freezes (a stuck picker / unrecognized prompt).
+    if (this.cfg.resumeId) {
+      await this.waitForReady(RESUME_BOOT_CAP_MS, /*requireThink*/ false, RESUME_STUCK_MS);
+    } else {
+      await this.waitForReady(BOOT_TIMEOUT_MS, /*requireThink*/ false);
+    }
   }
 
   /**
@@ -139,22 +152,50 @@ export class ClaudeSession {
    * window. Auto-clears gates along the way. Returns number of gates handled.
    * Throws AuthError on 401 and TimeoutError past the deadline.
    */
-  private async waitForReady(timeoutMs: number, requireThink: boolean): Promise<number> {
+  /**
+   * Wait until the TUI settles to "ready" (idle input box).
+   *  - timeoutMs: hard cap.
+   *  - requireThink: don't accept "ready" until claude has actually started working
+   *    (used per-turn so we don't latch the pre-existing idle box).
+   *  - stuckMs: if set, fail as soon as the SCREEN has been unchanged this long
+   *    without becoming ready. This lets a slow-but-progressing resume (transcript
+   *    replay / auto-continue keeps the screen moving) run up to the hard cap, while
+   *    a genuinely frozen screen (stuck picker / unrecognized prompt) still fails fast.
+   */
+  private async waitForReady(timeoutMs: number, requireThink: boolean, stuckMs?: number): Promise<number> {
     const deadline = Date.now() + timeoutMs;
     const injectedAt = Date.now();
     let readySince: number | null = null;
     let sawNonReady = false;
     let gates = 0;
+    let lastText = "";
+    let lastChangeAt = Date.now();
+    let lastState: ScreenState = "unknown";
+
+    const fail = (why: string): never => {
+      throw new TimeoutError(
+        `${why} (last state: ${lastState}). Screen tail: ${this.screenTail(lastText)}`,
+      );
+    };
 
     while (true) {
       if (this.exited) {
         throw new Error(`claude exited (code ${this.exitCode}) while waiting for ready`);
       }
       if (Date.now() > deadline) {
-        throw new TimeoutError(`timed out after ${(timeoutMs / 1000).toFixed(0)}s waiting for ready`);
+        fail(`timed out after ${(timeoutMs / 1000).toFixed(0)}s waiting for ready`);
       }
 
       const text = this.screen.visibleText();
+      // Treat any change in the rendered screen as progress (replay scrolling, a
+      // working spinner, streaming output). A static screen means claude is stuck.
+      if (text !== lastText) {
+        lastText = text;
+        lastChangeAt = Date.now();
+      }
+      if (stuckMs !== undefined && Date.now() - lastChangeAt > stuckMs) {
+        fail(`claude's screen was frozen for ${(stuckMs / 1000).toFixed(0)}s and never became ready`);
+      }
       if (detectAuthError(text)) {
         throw new AuthError("claude reported an authentication error (401). Run `claude` and `/login`.");
       }
@@ -163,6 +204,7 @@ export class ClaudeSession {
       }
 
       const state: ScreenState = classifyScreen(text);
+      lastState = state;
 
       if (state === "gate") {
         await this.handleGate(text);
@@ -216,6 +258,18 @@ export class ClaudeSession {
 
   private type(s: string): void {
     this.term?.write(s);
+  }
+
+  /** Last few non-blank screen lines, trimmed — for diagnosing a stuck boot/turn. */
+  private screenTail(text: string, lines = 6, width = 100): string {
+    const tail = text
+      .split("\n")
+      .map((l) => l.replace(/\s+$/, ""))
+      .filter((l) => l.length > 0)
+      .slice(-lines)
+      .map((l) => (l.length > width ? l.slice(0, width) + "…" : l))
+      .join(" ⏎ ");
+    return tail || "(blank screen)";
   }
 
   /** Current clean screen text (for the dashboard). */
