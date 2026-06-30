@@ -83,6 +83,24 @@ Key mechanisms, all validated end-to-end against the real CLI:
 
 Prefer a headless console runner? `npm run daemon` runs all sessions and logs the event stream.
 
+### Dispatch — reach the dashboard from your phone
+
+Long runs happen on your machine; **dispatch** lets you watch and drive them from a phone
+over the internet. Set a token, expose the port, and the same dashboard (mobile-optimized)
+works remotely — view sessions, send commands, approve decisions, start new work.
+
+1. In `config.json`, set `dispatch.token` to a strong secret (or the `AGI_DISPATCH_TOKEN`
+   env var). **With no token set, remote access is refused** — local use is unaffected.
+2. Make the port reachable. **Recommended: [Tailscale](https://tailscale.com)** — install on
+   PC + phone and hit the PC's tailnet IP (encrypted, no public exposure, no port-forward).
+   Alternatives: a Cloudflare Tunnel / ngrok HTTPS URL (set `dispatch.trustLocal:false` so the
+   token is required even though the tunnel hits localhost), or a raw port-forward (plain HTTP —
+   only on a trusted network; the token travels in the request).
+3. On the phone, open the URL, enter the token once (stored on-device), and you're in.
+
+Loopback is trusted by default (`trustLocal:true`), so nothing changes locally. Per-IP rate
+limiting throttles request floods and token brute-force. See `docs/AUTOPILOT_dispatch.md`.
+
 ### Scripts
 - **`npm start`** / `npm run launch` — build the UI, serve the dashboard, open the browser.
 - `npm run setup` — install server + UI dependencies.
@@ -90,7 +108,7 @@ Prefer a headless console runner? `npm run daemon` runs all sessions and logs th
 - `npm run dev` — dashboard with `tsx watch` (auto-restart on server-code changes).
 - `npm run build` — build the dashboard UI only (`web/dist`).
 - `npm run daemon` — headless: run the orchestrator over all sessions, log to console.
-- `npm test` — deterministic unit tests (context guard, learning loop, discovery).
+- `npm test` — deterministic unit tests (context guard, learning loop, discovery, dispatch auth).
 - `npm run pty-smoke` — prove PTY spawn/read/inject against real claude.
 - `npm run typecheck` — type-check the server. `npm run web:check` — type-check the UI.
 

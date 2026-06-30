@@ -3,8 +3,16 @@
   import type { PermissionMode, Autonomy, SettingsPatch } from "../../lib/types";
   import { wsStore } from "../../lib/ws.svelte";
   import { ui } from "../../lib/ui.svelte";
+  import { auth } from "../../lib/auth.svelte";
   import Modal from "../Modal.svelte";
   import Icon from "../Icon.svelte";
+
+  // Show the dispatch sign-out only on a remote device that's holding a token.
+  const remoteWithToken = $derived(!auth.local && !!auth.token);
+  function signOut() {
+    ui.closeModal();
+    auth.signOut();
+  }
 
   const snap = $derived(wsStore.snapshot);
   const settings = $derived(snap?.settings);
@@ -125,6 +133,16 @@
     <p class="sm-explain">How often the brain escalates a decision to you by default.</p>
   </div>
 
+  {#if remoteWithToken}
+    <div class="sm-section">
+      <div class="sm-head"><Icon name="plug" size={12} /> Dispatch (this device)</div>
+      <p class="sm-explain">
+        You're connected remotely with a saved access token. Sign out to forget it on this device.
+      </p>
+      <button class="btn btn-sm signout" onclick={signOut}>Sign out of dispatch</button>
+    </div>
+  {/if}
+
   <div class="sm-foot">
     <button class="btn btn-sm" onclick={() => ui.closeModal()}>Cancel</button>
     <button class="btn btn-primary btn-sm" onclick={save}>Save</button>
@@ -244,5 +262,12 @@
     gap: 8px;
     justify-content: flex-end;
     margin-top: 16px;
+  }
+  .signout {
+    color: var(--color-error);
+    border-color: rgba(248, 113, 113, 0.4);
+  }
+  .signout:hover {
+    border-color: var(--color-error);
   }
 </style>

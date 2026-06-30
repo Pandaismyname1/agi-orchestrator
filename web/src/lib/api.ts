@@ -12,10 +12,19 @@ import type {
   RunDetail,
   RunRow,
 } from "./types";
+import { auth } from "./auth.svelte";
+
+/** A 401 mid-session means the token was rotated/revoked — drop to the login gate. */
+function handle401(status: number): void {
+  if (status === 401) auth.invalidate();
+}
 
 async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${url} → ${res.status}`);
+  const res = await fetch(url, { headers: auth.authHeaders() });
+  if (!res.ok) {
+    handle401(res.status);
+    throw new Error(`${url} → ${res.status}`);
+  }
   return (await res.json()) as T;
 }
 
@@ -25,9 +34,10 @@ const isMock = (): boolean => new URLSearchParams(location.search).has("mock");
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...auth.authHeaders() },
     body: JSON.stringify(body),
   });
+  handle401(res.status);
   return (await res.json()) as T;
 }
 

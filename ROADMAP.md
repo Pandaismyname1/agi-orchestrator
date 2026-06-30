@@ -83,7 +83,29 @@ DaisyUI v5; replaced the 900-line monolith) around the experience, not the data:
 - **Settings** surface (provider, budget, concurrency, defaults — live `updateSettings`).
 - **Mobile-friendly** read-only view (single-column page scroll at ≤720px).
 Build: `npm run web:build` → `web/dist`, served by the dashboard server. Done across commits
-c482a91 → 35ea73a → c6b87b3.
+c482a91 → 35ea73a → c6b87b3. **Later:** fleet moved to a collapsible left sidebar to maximize
+the content area (commit a7c331b).
+
+### P5. Dispatch — remote mobile access ★ — DONE
+
+Reach and drive the locally-running dashboard from a phone over an exposed port, with basic
+auth + rate limiting so only the owner gets in, and a mobile-optimized UI for full remote
+control (view state, send commands, approve decisions, start sessions).
+- **Token auth** (`src/server/auth.ts`): loopback trusted by default (`trustLocal`), remote
+  requires a shared token (Authorization / X-AGI-Token / `?token=` / cookie), constant-time
+  compare. **Fail-safe:** no token configured ⇒ remote refused. Gates every `/api/*`, `/attach`,
+  `/detach`, `/hook`, and the WS upgrade; static shell stays open. `GET /api/whoami` probe.
+- **Rate limiting** (`src/server/rateLimit.ts`): per-IP sliding window for general traffic +
+  a stricter brute-force guard on auth failures. Token-first ordering so a valid token always
+  recovers a blocked IP (no self-lockout).
+- **Frontend**: `auth.svelte.ts` token store + a mobile-first `Login.svelte` gate; token rides
+  the WS URL + REST headers; WS reconnect uses backoff + auth re-probe (no stale-token hammering);
+  sign-out in Settings.
+- **Hardening from a 2-round adversarial review**: fixed a sibling-prefix path-traversal in
+  static serving and an unauthenticated `EISDIR` crash-DoS (directory read), added a
+  process-level unhandled-rejection guard. `scripts/dispatch-test.ts` covers the auth core.
+- **Expose safely**: Tailscale (recommended), Cloudflare Tunnel/ngrok (`trustLocal:false`), or a
+  trusted-network port-forward. See `docs/AUTOPILOT_dispatch.md`.
 
 ### P4. Design vision — envision the whole dashboard (UX + UI) first ★
 

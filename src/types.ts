@@ -100,6 +100,39 @@ export interface AppConfig {
   contextGuard?: ContextGuardOptions;
   /** Self-improvement / learning loop (operator-prompt tuning). Off by default. */
   learning?: LearningOptions;
+  /** Remote access ("dispatch"): token auth + rate limiting for an exposed port. */
+  dispatch?: DispatchOptions;
+}
+
+/**
+ * Remote-access controls for when the dashboard port is exposed to the internet.
+ * With no token set, remote requests are REFUSED (fail-safe); local always works.
+ */
+export interface DispatchOptions {
+  /**
+   * Shared secret a remote client must present (Authorization: Bearer, X-AGI-Token,
+   * or ?token=). Also read from env AGI_DISPATCH_TOKEN (env wins). Empty/unset ⇒
+   * remote access disabled entirely.
+   */
+  token?: string;
+  /**
+   * Treat loopback (127.0.0.1/::1) requests as trusted and skip the token. Default
+   * true (zero local friction; the Stop-hook posts locally). Set false when a local
+   * tunnel (cloudflared/ngrok) makes remote traffic appear to come from localhost.
+   */
+  trustLocal?: boolean;
+  /** Per-IP rate limits (remote only; local is never limited). */
+  rateLimit?: RateLimitOptions;
+}
+
+/** Per-IP sliding-window rate-limit tunables (see src/server/rateLimit.ts). */
+export interface RateLimitOptions {
+  /** General request budget per IP. Default 300 requests / 60s. */
+  windowMs?: number;
+  maxRequestsPerWindow?: number;
+  /** Stricter brute-force guard on auth FAILURES. Default 12 fails / 300s. */
+  authWindowMs?: number;
+  maxAuthFailures?: number;
 }
 
 /** Tunables for the self-improvement / learning loop (see src/learning/). */

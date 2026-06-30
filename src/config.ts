@@ -59,6 +59,7 @@ export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json")
     defaults: parsed.defaults,
     contextGuard: parsed.contextGuard,
     learning: parsed.learning,
+    dispatch: parsed.dispatch,
   };
 }
 
@@ -84,6 +85,7 @@ export async function saveConfig(
     defaults: cfg.defaults,
     contextGuard: cfg.contextGuard,
     learning: cfg.learning,
+    dispatch: cfg.dispatch,
   };
   await writeFile(abs, JSON.stringify(out, null, 2) + "\n", "utf8");
 }

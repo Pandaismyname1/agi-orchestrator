@@ -4,19 +4,36 @@
   import { ui } from "./lib/ui.svelte";
   import { pip } from "./lib/pip.svelte";
   import { alarm } from "./lib/alarm.svelte";
+  import { auth } from "./lib/auth.svelte";
   import Header from "./components/Header.svelte";
   import Fleet from "./components/Fleet.svelte";
   import Detail from "./components/Detail.svelte";
   import ModalHost from "./components/ModalHost.svelte";
   import Toast from "./components/Toast.svelte";
+  import Login from "./components/Login.svelte";
 
-  onMount(() => {
+  let liveWired = false;
+  function wireLive() {
+    if (liveWired) return;
+    liveWired = true;
     wsStore.onError((msg) => ui.toast(msg));
     pip.onFocus((id) => {
       ui.focusId = id;
       wsStore.send({ type: "focus", id });
     });
-    wsStore.connect();
+  }
+
+  onMount(() => {
+    void auth.init();
+  });
+
+  // Once authorized (local or valid token), wire the live handlers and connect.
+  // connect() is idempotent, so re-running this after a re-login reconnects.
+  $effect(() => {
+    if (auth.status === "authed") {
+      wireLive();
+      wsStore.connect();
+    }
   });
 
   let snap = $derived(wsStore.snapshot);
@@ -33,16 +50,20 @@
   let focused = $derived(sessions.find((s) => s.id === ui.focusId));
 </script>
 
-<div class="shell">
-  <Header provider={snap?.provider} budget={snap?.budget} {sessions} />
-  <main>
-    <Fleet {sessions} />
-    <Detail session={focused} focus={snap?.focus} />
-  </main>
-</div>
+{#if auth.status === "authed"}
+  <div class="shell">
+    <Header provider={snap?.provider} budget={snap?.budget} {sessions} />
+    <main>
+      <Fleet {sessions} />
+      <Detail session={focused} focus={snap?.focus} />
+    </main>
+  </div>
 
-<ModalHost />
-<Toast />
+  <ModalHost />
+  <Toast />
+{:else}
+  <Login />
+{/if}
 
 <style>
   .shell {

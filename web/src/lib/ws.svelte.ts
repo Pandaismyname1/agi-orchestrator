@@ -5,6 +5,7 @@
  * Consumers read `wsStore.snapshot` / `wsStore.connected` and call `wsStore.send(...)`.
  */
 import type { ClientMsg, Snapshot } from "./types";
+import { auth } from "./auth.svelte";
 
 class WsStore {
   snapshot = $state<Snapshot | null>(null);
@@ -14,6 +15,8 @@ class WsStore {
 
   #ws: WebSocket | null = null;
   #onError: ((msg: string) => void) | null = null;
+  #retries = 0;
+  #stopped = false;
 
   /** Register a callback for server-sent {type:"error"} messages (e.g. toast). */
   onError(cb: (msg: string) => void): void {
@@ -27,13 +30,25 @@ class WsStore {
       void import("./mock").then((m) => (this.snapshot = m.MOCK));
       return;
     }
+    // Idempotent: skip if a socket is already live (avoids duplicate connections
+    // when the auth effect re-runs); reopen after a stale-token stop + re-login.
+    if (this.#ws && !this.#stopped) return;
+    this.#stopped = false;
+    this.#retries = 0;
+    this.#open();
+  }
 
+  #open(): void {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/ws`);
+    // Browsers can't set headers on a WS upgrade, so the dispatch token rides in
+    // the query string (the server reads ?token= for the upgrade gate).
+    const q = auth.tokenParam();
+    const ws = new WebSocket(`${proto}://${location.host}/ws${q ? `?${q}` : ""}`);
     this.#ws = ws;
 
     ws.onopen = () => {
       this.connected = true;
+      this.#retries = 0;
     };
     ws.onmessage = (ev) => {
       let msg: { type?: string; message?: string };
@@ -54,11 +69,36 @@ class WsStore {
     ws.onclose = () => {
       this.connected = false;
       this.#ws = null;
-      setTimeout(() => this.connect(), 1000);
+      if (this.#stopped) return;
+      this.#retries++;
+      // After a few quick failures the token may be stale (rotated/revoked). Browsers
+      // can't read the WS close status, so probe /api/whoami to tell apart "token bad"
+      // (→ stop, drop to the login gate) from "server briefly down" (→ keep retrying).
+      // This also stops a stale token from hammering the server's brute-force guard.
+      if (this.#retries >= 3) {
+        void auth.recheck().then((verdict) => {
+          if (this.#stopped) return;
+          if (verdict === "unauthorized") {
+            this.#stopped = true; // the login gate takes over
+            return;
+          }
+          this.#schedule();
+        });
+        return;
+      }
+      this.#schedule();
     };
     ws.onerror = () => {
       // onclose follows; reconnect is handled there.
     };
+  }
+
+  /** Reconnect with capped exponential backoff (1, 2, 4, 8, 15s…). */
+  #schedule(): void {
+    const delay = Math.min(15000, 1000 * 2 ** Math.min(this.#retries, 4));
+    setTimeout(() => {
+      if (!this.#stopped && auth.status === "authed") this.#open();
+    }, delay);
   }
 
   send(msg: ClientMsg): void {

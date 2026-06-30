@@ -7,7 +7,7 @@
  *   npm run dashboard   →   http://localhost:<port>
  */
 import http from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -21,6 +21,14 @@ import { AttachManager } from "../attach/attachManager.js";
 import { decideNextStep } from "../brain/decide.js";
 import { LocalLLM } from "../brain/provider.js";
 import { readLastAssistantMessage } from "../transcript/reader.js";
+import {
+  resolveAuthConfig,
+  checkAuth,
+  isLocalRequest,
+  authFailureMessage,
+  type AuthConfig,
+} from "./auth.js";
+import { RateLimiter, resolveRateLimitConfig } from "./rateLimit.js";
 import type { SessionConfig } from "../types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -102,6 +110,20 @@ async function main(): Promise<void> {
   console.log(`persistent store → ${cfg.dbPath}`);
   const sup = new Supervisor(cfg, store);
 
+  // Dispatch (remote access) gate: token auth + per-IP rate limiting.
+  const authCfg: AuthConfig = resolveAuthConfig(cfg.dispatch);
+  const limiter = new RateLimiter(resolveRateLimitConfig(cfg.dispatch?.rateLimit));
+  if (authCfg.token) {
+    console.log(
+      `🔐 dispatch ENABLED — remote clients need the access token` +
+        (authCfg.trustLocal ? " (loopback trusted)" : " (token required even locally)") +
+        `.\n   ⚠ the token travels in the request; expose over a TLS tunnel ` +
+        `(Tailscale / Cloudflare Tunnel), not bare HTTP, when you can.`,
+    );
+  } else {
+    console.log(`🔒 dispatch disabled — remote access refused (set dispatch.token to enable).`);
+  }
+
   const health = await sup.health();
   console.log(`local LLM @ ${cfg.provider.baseUrl} (${cfg.provider.model}): ${health.detail}`);
   if (!health.ok) {
@@ -146,10 +168,24 @@ async function main(): Promise<void> {
   };
 
   /** Serve a file from the static root, guarding against path traversal. */
+  const rootWithSep = staticRoot.endsWith(path.sep) ? staticRoot : staticRoot + path.sep;
   const serveStatic = async (res: http.ServerResponse, urlPath: string): Promise<boolean> => {
     const rel = urlPath.replace(/^\/+/, "");
-    const abs = path.join(staticRoot, rel);
-    if (!abs.startsWith(staticRoot) || !existsSync(abs)) return false;
+    // Resolve to a canonical path, then require it to sit strictly *inside* the
+    // root (the trailing separator stops a sibling like `dist.bak` from passing a
+    // bare prefix check). Raw `..` segments reach here un-normalized over a socket.
+    const abs = path.resolve(staticRoot, rel);
+    if (abs !== staticRoot && !abs.startsWith(rootWithSep)) return false;
+    // Must be a regular FILE — reading a directory throws EISDIR. (stat both
+    // checks existence and rejects dirs/sockets, closing an unauthenticated
+    // crash-DoS where `GET /assets` would otherwise blow up readFile.)
+    let st: Awaited<ReturnType<typeof stat>>;
+    try {
+      st = await stat(abs);
+    } catch {
+      return false;
+    }
+    if (!st.isFile()) return false;
     const body = await readFile(abs);
     res.writeHead(200, { "Content-Type": CONTENT_TYPES[path.extname(abs)] ?? "application/octet-stream" });
     res.end(body);
@@ -175,9 +211,69 @@ async function main(): Promise<void> {
     res.end(JSON.stringify(obj));
   };
 
+  /** Normalized client IP (loopback-trust + rate-limit key). */
+  const clientIp = (req: http.IncomingMessage): string => {
+    const a = req.socket?.remoteAddress ?? "";
+    return a.startsWith("::ffff:") ? a.slice(7) : a;
+  };
+  const send429 = (res: http.ServerResponse, retryAfterSec = 60) => {
+    res.writeHead(429, { "Content-Type": "application/json", "Retry-After": String(retryAfterSec) });
+    res.end(JSON.stringify({ error: "rate limited", retryAfterSec }));
+  };
+
+  /**
+   * Auth gate for a sensitive route. Returns true when the request may proceed;
+   * otherwise it has already written a 401/429 and the caller must return.
+   */
+  const requireAuth = (req: http.IncomingMessage, res: http.ServerResponse): boolean => {
+    const local = isLocalRequest(req);
+    if (local && authCfg.trustLocal) return true;
+    const ip = clientIp(req);
+    // Check the token FIRST: a valid token always passes and clears the
+    // brute-force counter, so a momentarily-blocked IP (or a self-locked legit
+    // user) recovers the instant it presents the right token.
+    const r = checkAuth(req, authCfg);
+    if (r.ok) {
+      limiter.clearAuthFailures(ip);
+      return true;
+    }
+    const blocked = limiter.authBlocked(ip);
+    if (!blocked.ok) {
+      send429(res, blocked.retryAfterSec);
+      return false;
+    }
+    if (r.reason === "bad-token") limiter.recordAuthFailure(ip);
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: authFailureMessage(r.reason) }));
+    return false;
+  };
+
   const server = http.createServer((req, res) => {
     void (async () => {
+      // General per-IP rate limit for remote traffic (local is never limited).
+      if (!isLocalRequest(req)) {
+        const v = limiter.hit(clientIp(req));
+        if (!v.ok) return send429(res, v.retryAfterSec);
+      }
+
       const pathname = (req.url ?? "/").split("?")[0];
+
+      // Lightweight auth probe — always 200, reports whether this request is
+      // authorized so the client knows to show the login gate. A bad token here
+      // still feeds the brute-force guard.
+      if (req.method === "GET" && pathname === "/api/whoami") {
+        const ip = clientIp(req);
+        const r = checkAuth(req, authCfg);
+        if (r.ok) {
+          limiter.clearAuthFailures(ip);
+          return sendJson(res, 200, { ok: true, local: r.local, dispatchEnabled: !!authCfg.token });
+        }
+        const blocked = limiter.authBlocked(ip);
+        if (!blocked.ok) return send429(res, blocked.retryAfterSec);
+        if (r.reason === "bad-token") limiter.recordAuthFailure(ip);
+        return sendJson(res, 200, { ok: false, local: r.local, dispatchEnabled: !!authCfg.token });
+      }
+
       if (pathname === "/" || pathname === "/index.html") {
         const html = await readFile(path.join(staticRoot, "index.html"), "utf8");
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -198,6 +294,7 @@ async function main(): Promise<void> {
 
       // Stop-hook notifier for an attached, hand-started claude session.
       if (req.method === "POST" && req.url === "/hook") {
+        if (!requireAuth(req, res)) return;
         let body: unknown;
         try {
           body = await readJson(req);
@@ -210,6 +307,7 @@ async function main(): Promise<void> {
 
       // Observability read APIs (history + metrics). GET, JSON, read-only.
       if (req.method === "GET" && req.url?.startsWith("/api/")) {
+        if (!requireAuth(req, res)) return;
         const u = new URL(req.url, "http://localhost");
         const session = u.searchParams.get("session") ?? undefined;
         if (u.pathname === "/api/runs") return sendJson(res, 200, store.getRuns(session, 50));
@@ -237,6 +335,7 @@ async function main(): Promise<void> {
 
       // Register / unregister an attached session (goal + doneCriteria for an id).
       if (req.method === "POST" && (req.url === "/attach" || req.url === "/detach")) {
+        if (!requireAuth(req, res)) return;
         let body: { session_id?: string; goal?: string; doneCriteria?: string };
         try {
           body = (await readJson(req)) as typeof body;
@@ -260,7 +359,31 @@ async function main(): Promise<void> {
     })();
   });
 
-  const wss = new WebSocketServer({ server, path: "/ws" });
+  const wss = new WebSocketServer({
+    server,
+    path: "/ws",
+    // Gate the upgrade: remote clients must pass the token (sent as ?token= since
+    // browsers can't set headers on a WebSocket). Loopback is trusted by default.
+    verifyClient: (info, cb) => {
+      const req = info.req;
+      const local = isLocalRequest(req);
+      const ip = clientIp(req);
+      if (local && authCfg.trustLocal) return cb(true);
+      if (!local && !limiter.hit(ip).ok) return cb(false, 429, "rate limited");
+      // Token first, same as the HTTP gate: a valid token connects and clears the
+      // brute-force counter even if the IP was blocked, so a stale-token reconnect
+      // loop can't permanently self-lock a legit user.
+      const r = checkAuth(req, authCfg);
+      if (r.ok) {
+        limiter.clearAuthFailures(ip);
+        return cb(true);
+      }
+      const blocked = limiter.authBlocked(ip);
+      if (!blocked.ok) return cb(false, 429, "rate limited");
+      if (r.reason === "bad-token") limiter.recordAuthFailure(ip);
+      cb(false, 401, authFailureMessage(r.reason));
+    },
+  });
   wss.on("connection", (ws: WebSocket) => {
     let focusId: string | undefined = cfg.sessions[0]?.id;
 
@@ -487,6 +610,16 @@ async function main(): Promise<void> {
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+
+  // Defense-in-depth: a stray rejection/throw from a request handler must never
+  // take the whole dashboard down (it would be an unauthenticated crash-DoS once
+  // the port is exposed). Log and keep serving.
+  process.on("unhandledRejection", (reason) => {
+    console.error("⚠ unhandledRejection (kept alive):", reason);
+  });
+  process.on("uncaughtException", (err) => {
+    console.error("⚠ uncaughtException (kept alive):", err);
+  });
 }
 
 main().catch((e) => {
