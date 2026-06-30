@@ -15,6 +15,7 @@ import { openStore } from "../db/store.js";
 import { Recorder } from "../db/recorder.js";
 import { runSession, type OrchestratorEvent } from "../orchestrator.js";
 import { ContextGuard } from "../policy/context.js";
+import { createLogger, type Logger } from "../util/logger.js";
 
 function log(e: OrchestratorEvent): void {
   const tag = `[${e.sessionId.slice(0, 8)}]`;
@@ -72,6 +73,45 @@ function oneLine(s: string, max = 160): string {
   return t.length > max ? t.slice(0, max) + "…" : t || "(no text)";
 }
 
+/**
+ * Write a durable, structured record of an orchestrator event to the rotating
+ * log file. The console already gets the pretty `log(e)` stream; this is the
+ * machine-parseable trail for overnight post-mortems.
+ */
+function record(fileLog: Logger, e: OrchestratorEvent): void {
+  const session = e.sessionId.slice(0, 8);
+  switch (e.type) {
+    case "start":
+      fileLog.info("session start", { session, goal: e.goal });
+      break;
+    case "turn":
+      fileLog.info("turn", {
+        session,
+        turn: e.turnNumber,
+        durationMs: Math.round(e.result.durationMs),
+        gates: e.result.gatesHandled ?? 0,
+      });
+      break;
+    case "decision":
+      fileLog.info("decision", { session, action: e.decision.action, reason: e.decision.reason });
+      break;
+    case "rate_limited":
+      fileLog.warn("rate limited", { session, detail: e.detail });
+      break;
+    case "stop":
+      fileLog.info("session stop", {
+        session,
+        turns: e.turns,
+        elapsedMin: Number(e.elapsedMin.toFixed(1)),
+        reason: e.reason,
+      });
+      break;
+    case "error":
+      fileLog.error("session error", { session, error: e.error });
+      break;
+  }
+}
+
 async function main(): Promise<void> {
   try {
     preflight();
@@ -84,25 +124,32 @@ async function main(): Promise<void> {
   }
 
   const cfg = await loadConfig();
+  // File-only structured log (console output stays the pretty `log(e)` stream).
+  const fileLog = createLogger({ ...(cfg.logging ?? {}), console: false });
   const llm = new LocalLLM(cfg.provider);
   const store = openStore(cfg.dbPath ?? "agi.db");
   const recorder = new Recorder(store);
   for (const s of cfg.sessions) store.upsertSession(s);
   console.log(`persistent store → ${cfg.dbPath}`);
+  if (cfg.logging?.file) console.log(`logging → ${cfg.logging.file} (level ${cfg.logging.level ?? "info"})`);
+  fileLog.info("daemon boot", { dbPath: cfg.dbPath, sessions: cfg.sessions.length });
 
   const health = await llm.health();
   console.log(`local LLM @ ${cfg.provider.baseUrl} (${cfg.provider.model}): ${health.detail}`);
   if (!health.ok) {
+    fileLog.error("local model not ready", { baseUrl: cfg.provider.baseUrl, model: cfg.provider.model, detail: health.detail });
     console.error(
       `🛑 local model not ready. Start LM Studio/Ollama and load "${cfg.provider.model}", then retry.`,
     );
     process.exit(1);
   }
+  fileLog.info("local LLM ready", { baseUrl: cfg.provider.baseUrl, model: cfg.provider.model });
 
   console.log(`Running ${cfg.sessions.length} session(s). Ctrl+C to stop.\n`);
 
   const onEvent = (e: OrchestratorEvent) => {
     log(e);
+    record(fileLog, e);
     recorder.record(e);
   };
   await Promise.allSettled(
@@ -116,6 +163,7 @@ async function main(): Promise<void> {
     ),
   );
 
+  fileLog.info("all sessions finished");
   console.log("\nAll sessions finished.");
   process.exit(0);
 }

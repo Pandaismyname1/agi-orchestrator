@@ -139,7 +139,7 @@ async function main(): Promise<void> {
   const store = openStore(cfg.dbPath ?? "agi.db");
   log.info("persistent store opened", { dbPath: cfg.dbPath });
   if (cfg.logging?.file) console.log(`logging → ${cfg.logging.file} (level ${cfg.logging.level ?? "info"})`);
-  const sup = new Supervisor(cfg, store);
+  const sup = new Supervisor(cfg, store, undefined, undefined, undefined, undefined, log);
 
   // Dispatch (remote access) gate: token auth + per-IP rate limiting.
   const authCfg: AuthConfig = resolveAuthConfig(cfg.dispatch);

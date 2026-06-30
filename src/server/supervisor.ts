@@ -22,6 +22,7 @@ import { openPullRequest, defaultRunner, type Runner as PrRunner } from "../git/
 import { retryOptsFrom, brainPollMsFrom } from "../policy/reliability.js";
 import { LearningService, emptyLearningSummary } from "../learning/service.js";
 import { Notifier, type DeliveryResult, type NotifyContext } from "../notify/notifier.js";
+import { createLogger, type Logger } from "../util/logger.js";
 import type {
   DraftProposal,
   LearningSummary,
@@ -167,6 +168,8 @@ export class Supervisor {
   private scheduleTimer?: ReturnType<typeof setInterval>;
   /** Git/gh runner for auto-PR (injectable so it's testable without a real repo). */
   private readonly prRunner: PrRunner;
+  /** Structured logger for unattended-run lifecycle events. */
+  private readonly log: Logger;
 
   constructor(
     private readonly cfg: AppConfig,
@@ -179,8 +182,13 @@ export class Supervisor {
     notifier?: Notifier,
     /** Optional git/gh runner for auto-PR (tests inject a recording stub). */
     prRunner?: PrRunner,
+    /** Optional shared logger; defaults to a console-quiet one so tests stay silent. */
+    log?: Logger,
   ) {
     this.prRunner = prRunner ?? defaultRunner;
+    // When the server injects its logger we share it; otherwise default to a
+    // file-only/quiet logger so unit tests don't print lifecycle chatter.
+    this.log = log ?? createLogger({ ...(cfg.logging ?? {}), console: false });
     const retryOpts = retryOptsFrom(cfg.reliability);
     this.llm = new LocalLLM(cfg.provider, retryOpts);
     if (cfg.escalationProvider) this.heavyLlm = new LocalLLM(cfg.escalationProvider, retryOpts);
@@ -550,6 +558,7 @@ export class Supervisor {
     // A fresh run supersedes any PR from the previous one.
     m.prState = undefined;
     m.prUrl = undefined;
+    this.log.info("session launch", { session: m.id, goal: m.goal, mode: m.mode });
 
     // One-shot "continue" parameters (consumed by this launch only).
     const resumeId = m.continueResumeId;
@@ -678,6 +687,9 @@ export class Supervisor {
       if (m.status === "done") this.notify(m, "done", undefined);
       else if (m.status === "stopped") this.notify(m, "stopped", undefined);
       else if (m.status === "error") this.notify(m, "error", m.error);
+      const endFields = { session: m.id, turns: m.turns, elapsedMin: Number(m.elapsedMin.toFixed(1)) };
+      if (m.status === "error") this.log.error("session ended", { ...endFields, status: m.status, error: m.error });
+      else this.log.info("session ended", { ...endFields, status: m.status });
       // Auto-open a PR if this session met its done-criteria and opted in.
       if (m.status === "done" && m.config.autoPr) void this.maybeOpenPr(m);
     });
@@ -894,16 +906,21 @@ export class Supervisor {
         m.prState = "open";
         m.prUrl = res.url;
         m.lastDecision = `✅ opened PR: ${res.url}`;
+        this.log.info("auto-PR opened", { session: m.id, url: res.url, mode: autoPr.mode });
       } else if (res.skipped) {
         m.prState = "skipped";
         m.lastDecision = `PR skipped — ${res.reason ?? "nothing to open"}`;
+        this.log.info("auto-PR skipped", { session: m.id, reason: res.reason ?? "nothing to open" });
       } else {
         m.prState = "failed";
         m.lastDecision = `PR failed — ${res.reason ?? "unknown error"}`;
+        this.log.warn("auto-PR failed", { session: m.id, reason: res.reason ?? "unknown error" });
       }
     } catch (e) {
       m.prState = "failed";
-      m.lastDecision = `PR failed — ${e instanceof Error ? e.message : String(e)}`;
+      const reason = e instanceof Error ? e.message : String(e);
+      m.lastDecision = `PR failed — ${reason}`;
+      this.log.error("auto-PR threw", { session: m.id, error: reason });
     }
   }
 
@@ -1255,6 +1272,7 @@ export class Supervisor {
         m.status = "rate-limited";
         m.error = e.detail;
         this.notify(m, "rate-limited", e.detail);
+        this.log.warn("rate limited", { session: m.id, detail: e.detail });
         break;
       case "usage":
         m.usage = e.status;
@@ -1274,6 +1292,7 @@ export class Supervisor {
           : 5 * 60_000;
         this.scheduleResume(m.id, delay);
         this.notify(m, "rate-limited", e.reason);
+        this.log.warn("subscription limit", { session: m.id, reason: e.reason, resumeAt: at, sonnetOnly: !!e.sonnetOnly });
         break;
       }
       case "context":
@@ -1287,11 +1306,13 @@ export class Supervisor {
           m.status = "paused";
           m.error = "local model unreachable — auto-resumes when it's back";
           m.lastDecision = `paused — local model unreachable${e.detail ? ` (${e.detail.slice(0, 80)})` : ""}`;
+          this.log.warn("brain unreachable", { session: m.id, detail: e.detail });
         } else {
           // recovered: the loop resumes on its own; clear the pause.
           if (m.status === "paused") m.status = "running";
           m.error = undefined;
           m.lastDecision = "local model recovered — resuming";
+          this.log.info("brain recovered", { session: m.id });
         }
         break;
       case "stop":
@@ -1306,7 +1327,10 @@ export class Supervisor {
       case "error":
         // A torn-down pty during an operator stop surfaces as an error; treat as stopped.
         m.status = m.stopRequested ? "stopped" : "error";
-        if (!m.stopRequested) m.error = e.error;
+        if (!m.stopRequested) {
+          m.error = e.error;
+          this.log.error("orchestrator error", { session: m.id, error: e.error });
+        }
         break;
     }
   }
