@@ -78,13 +78,13 @@ export function parseResetAt(resetText: string | undefined, now: number): number
     return h;
   };
 
-  // Dated: "Jun 30, 10:59pm"
-  const dated = s.match(/([A-Za-z]{3})\s+(\d{1,2}),\s*(\d{1,2}):(\d{2})\s*([ap]m)/i);
+  // Dated: "Jun 30, 10:59pm" or "Jun 30, 11pm" (minutes optional / on-the-hour).
+  const dated = s.match(/([A-Za-z]{3})\s+(\d{1,2}),\s*(\d{1,2})(?::(\d{2}))?\s*([ap]m)/i);
   if (dated) {
     const mon = MONTHS.indexOf(dated[1]!.toLowerCase());
     const day = Number(dated[2]);
     const hour = to24h(Number(dated[3]), dated[5]!);
-    const min = Number(dated[4]);
+    const min = Number(dated[4] ?? "0");
     if (mon >= 0) {
       const ref = new Date(now);
       let year = ref.getFullYear();
@@ -97,11 +97,11 @@ export function parseResetAt(resetText: string | undefined, now: number): number
     }
   }
 
-  // Time-only: "10:49am" → today at that time, or tomorrow if already passed.
-  const timeOnly = s.match(/(\d{1,2}):(\d{2})\s*([ap]m)/i);
+  // Time-only: "10:49am" or "11pm" → today at that time, or tomorrow if passed.
+  const timeOnly = s.match(/(\d{1,2})(?::(\d{2}))?\s*([ap]m)/i);
   if (timeOnly) {
     const hour = to24h(Number(timeOnly[1]), timeOnly[3]!);
-    const min = Number(timeOnly[2]);
+    const min = Number(timeOnly[2] ?? "0");
     const ref = new Date(now);
     let when = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate(), hour, min, 0, 0).getTime();
     if (when <= now) when += 24 * 60 * 60 * 1000;

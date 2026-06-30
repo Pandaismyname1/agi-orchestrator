@@ -290,8 +290,10 @@ export class ClaudeSession {
     this.type("/usage");
     await sleep(700);
     this.type("\r");
-    await sleep(2800); // let the panel render
-    const text = this.screen.visibleText();
+    await sleep(3500); // the /usage panel is long and renders progressively
+    // The panel is taller than the 40-row viewport, so the "Current session/week"
+    // limit bars scroll above it — read the scrollback buffer, not just the viewport.
+    const text = this.screen.fullText(120);
     this.type(ESC); // close the panel
     await sleep(400);
     const status = parseUsage(text);

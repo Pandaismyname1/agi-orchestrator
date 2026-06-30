@@ -46,6 +46,15 @@ check(
   "time-only past → tomorrow",
   parseResetAt("6:00am (X)", new Date(2026, 5, 30, 7, 0).getTime()) === new Date(2026, 6, 1, 6, 0).getTime(),
 );
+// On-the-hour formats (no minutes) — Claude drops ":00". Caught by the live smoke test.
+check(
+  "dated on-the-hour 'Jun 30, 11pm'",
+  parseResetAt("Jun 30, 11pm (X)", NOW) === new Date(2026, 5, 30, 23, 0).getTime(),
+);
+check(
+  "time-only on-the-hour '11pm'",
+  parseResetAt("11pm (X)", new Date(2026, 5, 30, 13, 0).getTime()) === new Date(2026, 5, 30, 23, 0).getTime(),
+);
 
 // Gate: nothing spent → not blocked.
 check("healthy usage → not blocked", usageVerdict(u).blocked === false);
