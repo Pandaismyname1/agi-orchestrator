@@ -15,6 +15,7 @@ import { VirtualScreen } from "../terminal/screen.js";
 import { classifyScreen, detectAuthError, detectRateLimit } from "../terminal/state.js";
 import { classifyGate } from "../terminal/gates.js";
 import { readLastAssistantMessage } from "../transcript/reader.js";
+import { parseUsage, type UsageStatus } from "../policy/usage.js";
 import { scrubbedEnv } from "../util/env.js";
 import type { GateRequest, GateResolution, ScreenState, SessionConfig, TurnResult } from "../types.js";
 
@@ -270,6 +271,27 @@ export class ClaudeSession {
       .map((l) => (l.length > width ? l.slice(0, width) + "…" : l))
       .join(" ⏎ ");
     return tail || "(blank screen)";
+  }
+
+  /**
+   * Read Claude's own `/usage` panel — the REAL subscription limits (session /
+   * weekly all-models / weekly Sonnet). Drive ONLY when the session is idle
+   * (ready); `/usage` is a local command that burns no model usage. Opens the
+   * panel, snapshots it, and closes it with Esc. Returns undefined if nothing
+   * parseable rendered (so the caller keeps its last known status).
+   */
+  async readUsage(): Promise<UsageStatus | undefined> {
+    if (!this.term || this.exited) return undefined;
+    this.type("/usage");
+    await sleep(700);
+    this.type("\r");
+    await sleep(2800); // let the panel render
+    const text = this.screen.visibleText();
+    this.type(ESC); // close the panel
+    await sleep(400);
+    const status = parseUsage(text);
+    if (!status.session && !status.weeklyAll && !status.weeklySonnet) return undefined;
+    return status;
   }
 
   /** Current clean screen text (for the dashboard). */
