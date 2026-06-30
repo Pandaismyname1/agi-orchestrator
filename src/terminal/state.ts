@@ -1,27 +1,38 @@
 /**
  * Classify claude's TUI screen into a coarse state, from clean emulator text.
  *
- * These heuristics are tuned against Claude Code v2.1.x. They are deliberately
- * conservative: when unsure we return "unknown" and let the caller wait rather
- * than act. Observed markers (from live smoke tests):
- *   - WORKING: a status line with "(esc to interrupt)" while it thinks/acts.
- *   - GATE:    selection dialogs end with "Enter to confirm · Esc to cancel",
- *              and permission prompts ask "Do you want to proceed?" with a
- *              highlighted "❯ 1." option.
- *   - READY:   idle input box; bottom hint line shows "? for shortcuts" / "/effort".
+ * We care about the MAIN session's state, NOT its background agents. A subagent
+ * running in the background keeps printing "esc to interrupt" / "↓ N tokens"
+ * status even while the main session sits idle at its input box — so we must
+ * detect the idle box and let it WIN over that background "working" noise,
+ * otherwise the session looks perpetually busy and the orchestrator never
+ * advances. Tuned against Claude Code v2.1.x. Conservative: unsure → "unknown".
+ *   - GATE:    permission/selection dialog ("Enter to confirm · Esc to cancel",
+ *              "Do you want to proceed?", highlighted "❯ 1.").
+ *   - READY:   the main idle input box — its hint line shows "? for shortcuts",
+ *              "shift+tab to cycle" (mode toggle), or "/effort". These appear
+ *              ONLY at the idle prompt, even when background agents are churning.
+ *   - WORKING: the MAIN turn is generating — a spinner with "(esc to interrupt)"
+ *              and NO idle hint line present.
  */
 import type { ScreenState } from "../types.js";
 
-const WORKING_RE = /\(esc to interrupt\)|esc to interrupt|tokens ·|↓\s*\d+\s*tokens/i;
+// The idle input box. "shift+tab to cycle" / "? for shortcuts" / "/effort" are
+// shown only at the main prompt; "esc to interrupt" in that hint line refers to
+// background agents, so it is NOT a main-session "working" signal.
+const IDLE_RE = /\?\s*for shortcuts|shift\s*\+\s*tab to cycle|for shortcuts|\/effort\b/i;
 const GATE_RE =
   /Enter to confirm|Do you want to proceed|Do you want to make this edit|❯\s*\d+\.\s|Yes, and don't ask again|No, and tell Claude/i;
-const READY_RE = /\?\s*for shortcuts|\/effort|for agents/i;
+const WORKING_RE = /\(esc to interrupt\)|esc to interrupt|·\s*↓?\s*[\d.,]+\s*tokens|↓\s*[\d.,]+\s*tokens/i;
 
 export function classifyScreen(text: string): ScreenState {
-  // Order matters: a gate can co-exist with the ready hint line, so check gate first.
+  // Order matters. Gate first (a dialog overrides everything). Then the idle box
+  // BEFORE working: when the main session is idle, its hint line is present even
+  // if a background agent is still emitting "working" status, and the main
+  // session — the only one we drive — is what "ready" means.
   if (GATE_RE.test(text)) return "gate";
+  if (IDLE_RE.test(text)) return "ready";
   if (WORKING_RE.test(text)) return "working";
-  if (READY_RE.test(text)) return "ready";
   return "unknown";
 }
 
