@@ -122,6 +122,37 @@ export interface AppConfig {
   brain?: BrainOptions;
   /** Reusable session presets ("templates") for one-click new sessions. */
   templates?: SessionTemplate[];
+  /**
+   * Outbound webhooks fired on session lifecycle events (done / error / paused /
+   * limited). Drives Slack / Discord / generic-JSON automations. Empty = none.
+   */
+  webhooks?: WebhookConfig[];
+}
+
+/** A session lifecycle moment a webhook can subscribe to. */
+export type WebhookEvent = "done" | "error" | "stopped" | "needs-input" | "rate-limited";
+
+/**
+ * An outbound webhook: POSTs a payload to `url` whenever a subscribed event fires.
+ * `format` shapes the body so it drops straight into a Slack/Discord incoming
+ * webhook, or stays a rich generic JSON for custom automations.
+ */
+export interface WebhookConfig {
+  /** Stable id. */
+  id: string;
+  /** Display name, e.g. "Slack #builds". */
+  name: string;
+  /** Destination URL (use HTTPS). */
+  url: string;
+  /** Body shape: "json" (rich, default), "slack" ({text}), or "discord" ({content}). */
+  format?: "json" | "slack" | "discord";
+  /** Events that trigger it. Empty/undefined = every event. */
+  events?: WebhookEvent[];
+  /** Disabled webhooks are kept but never fire. Defaults to enabled. */
+  enabled?: boolean;
+  /** Epoch ms. */
+  createdAt: number;
+  updatedAt: number;
 }
 
 /**

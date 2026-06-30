@@ -62,6 +62,12 @@ class WsStore {
         this.#onError?.(this.lastError);
         return;
       }
+      // Transient, non-error server message (e.g. a webhook-test result) — surface
+      // it the same way (a toast) without flagging it as an error.
+      if (msg.type === "notice") {
+        if (msg.message) this.#onError?.(msg.message);
+        return;
+      }
       if (msg.type === "snapshot") {
         this.snapshot = msg as unknown as Snapshot;
       }

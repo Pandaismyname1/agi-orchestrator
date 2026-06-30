@@ -16,6 +16,7 @@ import { ContextGuard } from "../policy/context.js";
 import { UsageGuard, type UsageStatus } from "../policy/usage.js";
 import { decideNextStep, refineEscalation } from "../brain/decide.js";
 import { LearningService, emptyLearningSummary } from "../learning/service.js";
+import { Notifier, type DeliveryResult, type NotifyContext } from "../notify/notifier.js";
 import type {
   DraftProposal,
   LearningSummary,
@@ -30,6 +31,8 @@ import type {
   Resolution,
   SessionConfig,
   SessionTemplate,
+  WebhookConfig,
+  WebhookEvent,
 } from "../types.js";
 
 /** Fields accepted when creating/updating a template (id optional = create). */
@@ -42,6 +45,16 @@ export interface TemplateInput {
   permissionMode?: SessionConfig["permissionMode"];
   autonomy?: SessionConfig["autonomy"];
   startMode?: SessionConfig["startMode"];
+}
+
+/** Fields accepted when creating/updating a webhook (id optional = create). */
+export interface WebhookInput {
+  id?: string;
+  name: string;
+  url: string;
+  format?: WebhookConfig["format"];
+  events?: WebhookEvent[];
+  enabled?: boolean;
 }
 
 /** The session-runner the supervisor drives (real one is runSession; tests inject a stub). */
@@ -126,6 +139,8 @@ export class Supervisor {
   private maxConcurrent: number;
   /** Self-improvement / learning loop (only when a store is available). */
   private readonly learning?: LearningService;
+  /** Outbound event webhooks (Slack/Discord/JSON). Reads cfg.webhooks live. */
+  private readonly notifier: Notifier;
 
   constructor(
     private readonly cfg: AppConfig,
@@ -134,12 +149,15 @@ export class Supervisor {
     private readonly decide?: RunOptions["decide"],
     /** Optional session-runner override (defaults to the real orchestrator). */
     private readonly runner: RunFn = runSession,
+    /** Optional notifier override (tests inject one with a recording transport). */
+    notifier?: Notifier,
   ) {
     this.llm = new LocalLLM(cfg.provider);
     if (cfg.escalationProvider) this.heavyLlm = new LocalLLM(cfg.escalationProvider);
     this.budget = new BudgetTracker(store, cfg.budget);
     this.usageGuard = new UsageGuard(cfg.usageGuard);
     this.maxConcurrent = cfg.maxConcurrent && cfg.maxConcurrent > 0 ? cfg.maxConcurrent : Infinity;
+    this.notifier = notifier ?? new Notifier(() => this.cfg.webhooks);
     if (store) this.learning = new LearningService(store, this.llm, cfg.learning, cfg.provider.model);
     if (store) this.recorder = new Recorder(store);
     for (const s of cfg.sessions) {
@@ -453,6 +471,7 @@ export class Supervisor {
         new Promise<Resolution>((resolve) => {
           m.attention = req;
           m.status = "needs-input";
+          this.notify(m, "needs-input", req.question);
           m.resolveAttention = (r) => {
             m.attention = null;
             m.resolveAttention = undefined;
@@ -476,6 +495,7 @@ export class Supervisor {
             kind: "gate",
           };
           m.status = "needs-input";
+          this.notify(m, "needs-input", `risky action — ${req.summary}`);
           m.resolveGate = (r) => {
             m.attention = null;
             m.resolveGate = undefined;
@@ -495,6 +515,11 @@ export class Supervisor {
       this.pump(); // free slot -> start the next queued session
       // If this session finished, release any workflow steps waiting on it.
       if (m.status === "done") this.promoteReady();
+      // Fire the terminal-state webhook (rate-limited is handled in onEvent, so
+      // a paused-on-limit run doesn't double-notify here).
+      if (m.status === "done") this.notify(m, "done", undefined);
+      else if (m.status === "stopped") this.notify(m, "stopped", undefined);
+      else if (m.status === "error") this.notify(m, "error", m.error);
     });
   }
 
@@ -661,6 +686,75 @@ export class Supervisor {
       autonomy: m.config.autonomy,
       startMode: m.config.startMode,
     });
+  }
+
+  // ---- outbound webhooks / event notifications (automation suite) ----------
+
+  /** Fire-and-forget a lifecycle webhook for a session. Never throws. */
+  private notify(m: Managed, event: WebhookEvent, detail?: string): void {
+    if (!this.notifier.active) return;
+    const ctx: NotifyContext = {
+      id: m.id,
+      label: shortLabel(m),
+      cwd: m.cwd,
+      goal: m.goal,
+      status: m.status,
+      turns: m.turns,
+      elapsedMin: m.elapsedMin,
+      detail: detail?.trim() || undefined,
+    };
+    void this.notifier.fire(event, ctx).catch(() => {});
+  }
+
+  /** All configured webhooks, most-recently-updated first. */
+  listWebhooks(): WebhookConfig[] {
+    return [...(this.cfg.webhooks ?? [])].sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  /** Create (no id) or update (matching id) a webhook; persist. */
+  saveWebhook(input: WebhookInput): WebhookConfig {
+    const name = (input.name ?? "").trim();
+    const url = (input.url ?? "").trim();
+    if (!name) throw new Error("webhook name is required.");
+    if (!/^https?:\/\//i.test(url)) throw new Error("webhook url must start with http:// or https://.");
+    const list = this.cfg.webhooks ?? (this.cfg.webhooks = []);
+    const now = Date.now();
+    const fields = {
+      name,
+      url,
+      format: input.format ?? "json",
+      events: input.events && input.events.length ? [...new Set(input.events)] : undefined,
+      enabled: input.enabled !== false,
+    };
+    const id = (input.id ?? "").trim();
+    const existing = id ? list.find((w) => w.id === id) : undefined;
+    if (existing) {
+      Object.assign(existing, fields, { updatedAt: now });
+      this.persist();
+      return existing;
+    }
+    const hook: WebhookConfig = { id: id || randomUUID(), ...fields, createdAt: now, updatedAt: now };
+    list.push(hook);
+    this.persist();
+    return hook;
+  }
+
+  /** Delete a webhook by id; persist. No-op if it doesn't exist. */
+  deleteWebhook(id: string): void {
+    const list = this.cfg.webhooks;
+    if (!list) return;
+    const i = list.findIndex((w) => w.id === id);
+    if (i >= 0) {
+      list.splice(i, 1);
+      this.persist();
+    }
+  }
+
+  /** Send a sample payload to one webhook so the operator can confirm it works. */
+  async testWebhook(id: string): Promise<DeliveryResult> {
+    const hook = this.cfg.webhooks?.find((w) => w.id === id);
+    if (!hook) throw new Error(`no webhook with id "${id}".`);
+    return this.notifier.test(hook);
   }
 
   /**
@@ -933,6 +1027,7 @@ export class Supervisor {
       case "rate_limited":
         m.status = "rate-limited";
         m.error = e.detail;
+        this.notify(m, "rate-limited", e.detail);
         break;
       case "usage":
         m.usage = e.status;
@@ -951,6 +1046,7 @@ export class Supervisor {
           ? Math.min(e.resumeAt! - Date.now() + 5_000, 8 * 24 * 60 * 60_000)
           : 5 * 60_000;
         this.scheduleResume(m.id, delay);
+        this.notify(m, "rate-limited", e.reason);
         break;
       }
       case "context":

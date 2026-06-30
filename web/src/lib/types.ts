@@ -197,6 +197,31 @@ export type TemplateInput = {
   startMode?: SessionMode;
 };
 
+/** A session lifecycle event a webhook can fire on. */
+export type WebhookEvent = "done" | "error" | "stopped" | "needs-input" | "rate-limited";
+
+/** An outbound webhook (Slack/Discord/JSON) fired on session events. */
+export interface WebhookConfig {
+  id: string;
+  name: string;
+  url: string;
+  format?: "json" | "slack" | "discord";
+  events?: WebhookEvent[];
+  enabled?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Payload to create (omit id) or update (include id) a webhook (POST webhookSave). */
+export type WebhookInput = {
+  id?: string;
+  name: string;
+  url: string;
+  format?: "json" | "slack" | "discord";
+  events?: WebhookEvent[];
+  enabled?: boolean;
+};
+
 export interface Snapshot {
   type: "snapshot";
   provider: Provider;
@@ -208,6 +233,8 @@ export interface Snapshot {
   learning?: LearningSummary;
   /** Reusable session presets (newest-updated first). */
   templates?: SessionTemplate[];
+  /** Outbound event webhooks (newest-updated first). */
+  webhooks?: WebhookConfig[];
 }
 
 /** Payload to register a hand-started session for hook-attach driving (POST /attach). */
@@ -269,7 +296,10 @@ export type ClientMsg =
   | { type: "learnRevert"; scope: string; version: number }
   | { type: "templateSave"; template: TemplateInput }
   | { type: "templateDelete"; id: string }
-  | { type: "saveAsTemplate"; id: string; name: string };
+  | { type: "saveAsTemplate"; id: string; name: string }
+  | { type: "webhookSave"; webhook: WebhookInput }
+  | { type: "webhookDelete"; id: string }
+  | { type: "webhookTest"; id: string };
 
 /** Discovered on-disk Claude Code session (GET /api/discover). */
 export interface DiscoveredSession {

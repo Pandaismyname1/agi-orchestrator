@@ -9,6 +9,7 @@
   import ContinueForm from "./modals/ContinueForm.svelte";
   import LearnModal from "./modals/LearnModal.svelte";
   import TemplatesModal from "./modals/TemplatesModal.svelte";
+  import WebhooksModal from "./modals/WebhooksModal.svelte";
 </script>
 
 {#if ui.modal}
@@ -32,5 +33,7 @@
     <LearnModal />
   {:else if ui.modal.kind === "templates"}
     <TemplatesModal />
+  {:else if ui.modal.kind === "webhooks"}
+    <WebhooksModal />
   {/if}
 {/if}

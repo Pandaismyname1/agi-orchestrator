@@ -128,6 +128,14 @@
     <Icon name="layers" size={14} /> Templates
   </button>
   <button
+    class="btn btn-sm btn-square hide-sm"
+    title="Notifications & webhooks — Slack / Discord / JSON pings on session events"
+    onclick={() => ui.openModal({ kind: "webhooks" })}
+    aria-label="Notifications and webhooks"
+  >
+    <Icon name="bell" size={15} />
+  </button>
+  <button
     class="btn btn-sm learn-btn"
     title="Learn — review & approve operator-prompt drafts"
     onclick={() => ui.openModal({ kind: "learn" })}

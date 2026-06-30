@@ -201,6 +201,14 @@ Validated features:
   summary, turn count, recency). Pick one and it **resumes** in the cockpit (`claude --resume <id>`)
   as a normal session (manual or autopilot). Read-only `/api/discover` backs the browser. (Claude
   Desktop sessions live elsewhere and aren't adopted yet.)
+- **Session templates** — reusable goal/done-criteria/policy presets. Create them in the
+  **Templates** modal (or "save as template" from a session), then spin up a new session that's
+  pre-filled — you only pick the directory. Stored in `config.json`; covered by `template-test.ts`.
+- **Outbound webhooks / notifications (automation suite)** — fire a **Slack**, **Discord**, or
+  generic-**JSON** webhook when a session finishes, errors, is stopped, pauses for a decision
+  (`needs-input`), or hits a usage limit. Managed in the **Notifications & webhooks** modal
+  (per-hook event filter, enable toggle, one-click **Test**). Best-effort and non-blocking — a slow
+  or dead endpoint never stalls a run (`src/notify/notifier.ts`; covered by `notify-test.ts`).
 
 ### Hook-attach mode (optional)
 
@@ -215,7 +223,6 @@ To drive a session you start by hand instead of a daemon-owned one:
 
 ### Not built yet
 - Per-turn file diff viewer (needs per-turn git snapshots — a Tier 3 git-integration piece).
-- Session dependencies + templates (concurrency cap + queue are done; these are the remaining orchestration bits).
 - Tier 3: git per-turn snapshots, learning loop (thumbs up/down → tune the operator), attach/detach UI panel.
 - Dashboard UI panel for attach/detach (routes exist; wire a form like the session CRUD).
 - Brain history is last-N messages, not summarized — fine for now, may need trimming on very long runs.

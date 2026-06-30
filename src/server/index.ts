@@ -14,7 +14,7 @@ import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { preflight, BillingSafetyError } from "../util/env.js";
 import { loadConfig, saveConfig } from "../config.js";
-import { Supervisor, type TemplateInput } from "./supervisor.js";
+import { Supervisor, type TemplateInput, type WebhookInput } from "./supervisor.js";
 import { openStore } from "../db/store.js";
 import { discoverAll } from "../discovery.js";
 import { AttachManager } from "../attach/attachManager.js";
@@ -79,12 +79,15 @@ interface ClientMsg {
     | "start" | "stop" | "startAll" | "stopAll" | "focus" | "add" | "update" | "remove" | "resolve"
     | "setMode" | "sendMessage" | "updateSettings" | "continue"
     | "learnSynthesize" | "learnApprove" | "learnReject" | "learnRevert"
-    | "templateSave" | "templateDelete" | "saveAsTemplate";
+    | "templateSave" | "templateDelete" | "saveAsTemplate"
+    | "webhookSave" | "webhookDelete" | "webhookTest";
   id?: string;
   session?: SessionInput;
   patch?: SessionPatch;
   /** For "templateSave": the template to create/update. */
   template?: TemplateInput;
+  /** For "webhookSave": the webhook to create/update. */
+  webhook?: WebhookInput;
   /** For "saveAsTemplate": the new template's name. */
   name?: string;
   /** For "updateSettings": the global-settings fields to change. */
@@ -417,6 +420,7 @@ async function main(): Promise<void> {
           },
           learning: sup.learningSummary(),
           templates: sup.listTemplates(),
+          webhooks: sup.listWebhooks(),
           sessions: sup.list(),
           focus: focusId ? { id: focusId, screen: sup.screen(focusId) } : undefined,
         }),
@@ -466,6 +470,29 @@ async function main(): Promise<void> {
             if (!msg.id) throw new Error("missing session id.");
             if (!msg.name?.trim()) throw new Error("template name is required.");
             sup.saveSessionAsTemplate(msg.id, msg.name);
+          } catch (e) {
+            sendError(e instanceof Error ? e.message : String(e));
+          }
+          break;
+        case "webhookSave":
+          try {
+            if (!msg.webhook) throw new Error("missing webhook payload.");
+            sup.saveWebhook(msg.webhook);
+          } catch (e) {
+            sendError(e instanceof Error ? e.message : String(e));
+          }
+          break;
+        case "webhookDelete":
+          if (msg.id) sup.deleteWebhook(msg.id);
+          break;
+        case "webhookTest":
+          try {
+            if (!msg.id) throw new Error("missing webhook id.");
+            const r = await sup.testWebhook(msg.id);
+            const note = r.ok
+              ? `✓ webhook test delivered${r.status ? ` (HTTP ${r.status})` : ""}`
+              : `✗ webhook test failed: ${r.error ?? "unknown error"}`;
+            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "notice", message: note }));
           } catch (e) {
             sendError(e instanceof Error ? e.message : String(e));
           }
