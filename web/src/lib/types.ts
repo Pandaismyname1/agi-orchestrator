@@ -305,6 +305,45 @@ export type WebhookInput = {
   enabled?: boolean;
 };
 
+/** The lifecycle moment an automation rule triggers on (same as WebhookEvent). */
+export type AutomationTrigger = WebhookEvent;
+
+/** What an automation rule does when it fires. `target` accepts a session id or "$self". */
+export type AutomationAction =
+  | { kind: "notify"; message?: string }
+  | { kind: "start"; target: string }
+  | { kind: "stop"; target: string };
+
+/** Narrows which firing session a rule applies to (all optional, AND-ed). */
+export interface AutomationMatch {
+  sessionId?: string;
+  cwdContains?: string;
+  goalContains?: string;
+  mode?: "manual" | "autopilot";
+}
+
+/** An automation rule: on a lifecycle event from a matching session, run actions. */
+export interface AutomationRule {
+  id: string;
+  name: string;
+  enabled?: boolean;
+  on?: AutomationTrigger[];
+  match?: AutomationMatch;
+  actions: AutomationAction[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Payload to create (omit id) or update (include id) an automation (automationSave). */
+export type AutomationInput = {
+  id?: string;
+  name: string;
+  enabled?: boolean;
+  on?: AutomationTrigger[];
+  match?: AutomationMatch;
+  actions?: AutomationAction[];
+};
+
 /** A hand-started `claude` session the daemon drives via the Stop hook. */
 export interface AttachedView {
   sessionId: string;
@@ -347,6 +386,8 @@ export interface Snapshot {
   templates?: SessionTemplate[];
   /** Outbound event webhooks (newest-updated first). */
   webhooks?: WebhookConfig[];
+  /** Automation rules (newest-updated first). */
+  automations?: AutomationRule[];
   /** Hand-started sessions driven via the Stop hook (newest-registered first). */
   attached?: AttachedView[];
 }
@@ -449,6 +490,9 @@ export type ClientMsg =
   | { type: "webhookSave"; webhook: WebhookInput }
   | { type: "webhookDelete"; id: string }
   | { type: "webhookTest"; id: string }
+  | { type: "automationSave"; automation: AutomationInput }
+  | { type: "automationDelete"; id: string }
+  | { type: "automationToggle"; id: string; enabled: boolean }
   | { type: "rollback"; id: string; snapshot: string }
   | { type: "detach"; id: string }
   | { type: "decisionFeedback"; id: string; feedback: "up" | "down" | "clear" }

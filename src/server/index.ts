@@ -14,7 +14,7 @@ import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { preflight, BillingSafetyError } from "../util/env.js";
 import { loadConfig, saveConfig } from "../config.js";
-import { Supervisor, type TemplateInput, type WebhookInput } from "./supervisor.js";
+import { Supervisor, type TemplateInput, type WebhookInput, type AutomationInput } from "./supervisor.js";
 import { openStore } from "../db/store.js";
 import { discoverAll } from "../discovery.js";
 import { AttachManager } from "../attach/attachManager.js";
@@ -91,6 +91,7 @@ interface ClientMsg {
     | "learnSynthesize" | "learnApprove" | "learnReject" | "learnRevert"
     | "templateSave" | "templateDelete" | "saveAsTemplate" | "catalogInstall" | "registryPublish"
     | "webhookSave" | "webhookDelete" | "webhookTest"
+    | "automationSave" | "automationDelete" | "automationToggle"
     | "rollback" | "detach"
     | "decisionFeedback" | "decisionFeedbackAt";
   id?: string;
@@ -107,6 +108,10 @@ interface ClientMsg {
   catalogId?: string;
   /** For "webhookSave": the webhook to create/update. */
   webhook?: WebhookInput;
+  /** For "automationSave": the rule to create/update. */
+  automation?: AutomationInput;
+  /** For "automationToggle": the desired enabled state. */
+  enabled?: boolean;
   /** For "saveAsTemplate": the new template's name. */
   name?: string;
   /** For "rollback": the per-turn snapshot sha to restore the working tree to. */
@@ -393,6 +398,7 @@ async function main(): Promise<void> {
         }
         if (u.pathname === "/api/health") return sendJson(res, 200, await sup.health());
         if (u.pathname === "/api/catalog") return sendJson(res, 200, sup.listCatalog());
+        if (u.pathname === "/api/automations") return sendJson(res, 200, sup.listAutomations());
         if (u.pathname === "/api/registry") return sendJson(res, 200, await sup.fetchRegistry());
         if (u.pathname === "/api/learning") return sendJson(res, 200, sup.learningSummary());
         if (u.pathname === "/api/learning/draft") {
@@ -505,6 +511,7 @@ async function main(): Promise<void> {
           learning: sup.learningSummary(),
           templates: sup.listTemplates(),
           webhooks: sup.listWebhooks(),
+          automations: sup.listAutomations(),
           attached: attach.list(),
           sessions: sup.list(),
           focus: focusId ? { id: focusId, screen: sup.screen(focusId) } : undefined,
@@ -596,6 +603,20 @@ async function main(): Promise<void> {
           break;
         case "webhookDelete":
           if (msg.id) sup.deleteWebhook(msg.id);
+          break;
+        case "automationSave":
+          try {
+            if (!msg.automation) throw new Error("missing automation payload.");
+            sup.saveAutomation(msg.automation);
+          } catch (e) {
+            sendError(e instanceof Error ? e.message : String(e));
+          }
+          break;
+        case "automationDelete":
+          if (msg.id) sup.deleteAutomation(msg.id);
+          break;
+        case "automationToggle":
+          if (msg.id) sup.toggleAutomation(msg.id, msg.enabled !== false);
           break;
         case "webhookTest":
           try {

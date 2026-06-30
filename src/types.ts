@@ -168,6 +168,60 @@ export interface AppConfig {
   logging?: LoggingOptions;
   /** Remote template registry (browse/install community recipes; publish your own). Off unless a url is set. */
   registry?: RegistryOptions;
+  /**
+   * Automation rules: when a session reaches a lifecycle event, react by
+   * starting/stopping another session or firing a notification. The unifying
+   * layer over webhooks + dependencies. Empty = none. Local-only (no model calls).
+   */
+  automations?: AutomationRule[];
+}
+
+/** The lifecycle moment an automation rule triggers on (same set as webhooks). */
+export type AutomationTrigger = WebhookEvent;
+
+/**
+ * What a rule does when it fires. Restricted to safe, reversible fleet operations
+ * the supervisor already supports — no shell, no model calls. `target` accepts a
+ * session id or the literal `"$self"` (the session that fired the event).
+ */
+export type AutomationAction =
+  | { kind: "notify"; message?: string }
+  | { kind: "start"; target: string }
+  | { kind: "stop"; target: string };
+
+/** Narrows which firing session a rule applies to. All optional, AND-ed together. */
+export interface AutomationMatch {
+  /** Exact id of the session that fired the event. */
+  sessionId?: string;
+  /** Case-insensitive substring of the firing session's cwd. */
+  cwdContains?: string;
+  /** Case-insensitive substring of the firing session's goal. */
+  goalContains?: string;
+  /** Firing session's mode (autopilot | manual). */
+  mode?: "manual" | "autopilot";
+}
+
+/**
+ * One automation rule: on a lifecycle event from a matching session, run actions.
+ * Reactive orchestration that generalizes the dependency DAG ("when A done, start
+ * B") to any event/action pair ("when A errors, stop B and notify").
+ */
+export interface AutomationRule {
+  /** Stable id. */
+  id: string;
+  /** Display name, e.g. "Restart deploy on error". */
+  name: string;
+  /** Disabled rules are kept but never fire. Defaults to enabled. */
+  enabled?: boolean;
+  /** Trigger events. Empty/undefined = any lifecycle event. */
+  on?: AutomationTrigger[];
+  /** Narrow which firing session runs this rule. Omit to match all sessions. */
+  match?: AutomationMatch;
+  /** Ordered actions to perform when the rule fires. */
+  actions: AutomationAction[];
+  /** Epoch ms. */
+  createdAt: number;
+  updatedAt: number;
 }
 
 /**

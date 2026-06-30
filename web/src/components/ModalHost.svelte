@@ -10,6 +10,7 @@
   import LearnModal from "./modals/LearnModal.svelte";
   import TemplatesModal from "./modals/TemplatesModal.svelte";
   import WebhooksModal from "./modals/WebhooksModal.svelte";
+  import AutomationsModal from "./modals/AutomationsModal.svelte";
   import WorkflowModal from "./modals/WorkflowModal.svelte";
   import AnalyticsModal from "./modals/AnalyticsModal.svelte";
   import HealthModal from "./modals/HealthModal.svelte";
@@ -38,6 +39,8 @@
     <TemplatesModal />
   {:else if ui.modal.kind === "webhooks"}
     <WebhooksModal />
+  {:else if ui.modal.kind === "automations"}
+    <AutomationsModal />
   {:else if ui.modal.kind === "workflow"}
     <WorkflowModal />
   {:else if ui.modal.kind === "analytics"}

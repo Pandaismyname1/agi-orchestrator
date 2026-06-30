@@ -60,6 +60,7 @@
       { id: "templates", label: "Templates", group: "Open", icon: "layers", keywords: "preset", run: () => ui.openModal({ kind: "templates" }) },
       { id: "workflow", label: "Workflow graph", group: "Open", icon: "graph", keywords: "dependencies dag depends chain", run: () => ui.openModal({ kind: "workflow" }) },
       { id: "webhooks", label: "Notifications & webhooks", group: "Open", icon: "bell", keywords: "slack discord notify", run: () => ui.openModal({ kind: "webhooks" }) },
+      { id: "automations", label: "Automations", group: "Open", icon: "bolt", keywords: "rules triggers when then react start stop chain", run: () => ui.openModal({ kind: "automations" }) },
       { id: "analytics", label: "Analytics", group: "Open", icon: "graph", keywords: "metrics stats performance export csv report", run: () => ui.openModal({ kind: "analytics" }) },
       { id: "health", label: "System health", group: "Open", icon: "pulse", keywords: "health status diagnostics uptime version brain reachable db", run: () => ui.openModal({ kind: "health" }) },
       { id: "learn", label: "Learn — operator-prompt drafts", group: "Open", icon: "brain", run: () => ui.openModal({ kind: "learn" }) },

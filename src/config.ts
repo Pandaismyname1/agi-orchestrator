@@ -109,6 +109,7 @@ export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json")
     reliability: parsed.reliability,
     logging: parsed.logging,
     registry: parsed.registry,
+    automations: Array.isArray(parsed.automations) ? parsed.automations : undefined,
   };
 }
 
@@ -143,6 +144,7 @@ export async function saveConfig(
     reliability: cfg.reliability,
     logging: cfg.logging,
     registry: cfg.registry,
+    automations: cfg.automations,
   };
   const json = JSON.stringify(out, null, 2) + "\n";
   // Write atomically (temp file + rename) so a crash or an interleaved write can

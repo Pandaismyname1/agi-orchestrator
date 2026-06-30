@@ -92,6 +92,31 @@
     "publishUrl": "",
     "token": ""
   },
+  "_automations_note": "OPTIONAL automation rules — the reactive layer over webhooks + dependencies. Each rule: when a session hits a lifecycle event ('on'; omit = any of done/error/stopped/needs-input/rate-limited), optionally only for a matching firing session ('match'), run 'actions' in order. An action is {kind:'start'|'stop', target} (target is a session id or '$self' = the firing session) or {kind:'notify', message?} (fires your configured webhooks, optionally with a custom message). start/stop reuse the normal supervisor paths, so all gating/queueing applies; a rule can't start the firing session itself (loop guard). Local-only — no model calls. Manage these in the dashboard's Automations panel. Omit this block for none.",
+  "automations": [
+    {
+      "id": "deploy-after-build",
+      "name": "Deploy after the API build finishes",
+      "enabled": false,
+      "on": ["done"],
+      "match": { "sessionId": "api-server" },
+      "actions": [{ "kind": "start", "target": "deploy-prod" }],
+      "createdAt": 0,
+      "updatedAt": 0
+    },
+    {
+      "id": "halt-on-error",
+      "name": "Stop & notify on any error",
+      "enabled": false,
+      "on": ["error"],
+      "actions": [
+        { "kind": "stop", "target": "$self" },
+        { "kind": "notify", "message": "A session errored — paused for review." }
+      ],
+      "createdAt": 0,
+      "updatedAt": 0
+    }
+  ],
   "sessions": [
     {
       "id": "demo-website",

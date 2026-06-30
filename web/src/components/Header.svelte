@@ -188,6 +188,14 @@
     <Icon name="bell" size={15} />
   </button>
   <button
+    class="btn btn-sm btn-square hide-sm"
+    title="Automations — react to session events (start / stop / notify)"
+    onclick={() => ui.openModal({ kind: "automations" })}
+    aria-label="Automations"
+  >
+    <Icon name="bolt" size={15} />
+  </button>
+  <button
     class="btn btn-sm learn-btn"
     title="Learn — review & approve operator-prompt drafts"
     onclick={() => ui.openModal({ kind: "learn" })}

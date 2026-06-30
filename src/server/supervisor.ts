@@ -32,6 +32,7 @@ import { isDue, hasActiveTrigger, parseHHMM } from "../policy/schedule.js";
 import { restoreTo, type RestoreResult } from "../git/diff.js";
 import { openPullRequest, defaultRunner, type Runner as PrRunner } from "../git/pr.js";
 import { retryOptsFrom, brainPollMsFrom } from "../policy/reliability.js";
+import { planAutomations, countEnabled } from "../policy/automation.js";
 import { LearningService, emptyLearningSummary } from "../learning/service.js";
 import { Notifier, type DeliveryResult, type NotifyContext } from "../notify/notifier.js";
 import { createLogger, type Logger } from "../util/logger.js";
@@ -55,6 +56,10 @@ import type {
   SessionTemplate,
   WebhookConfig,
   WebhookEvent,
+  AutomationRule,
+  AutomationAction,
+  AutomationTrigger,
+  AutomationMatch,
 } from "../types.js";
 
 /** Fields accepted when creating/updating a template (id optional = create). */
@@ -79,6 +84,16 @@ export interface WebhookInput {
   format?: WebhookConfig["format"];
   events?: WebhookEvent[];
   enabled?: boolean;
+}
+
+/** Fields accepted when creating/updating an automation rule (id optional = create). */
+export interface AutomationInput {
+  id?: string;
+  name: string;
+  enabled?: boolean;
+  on?: AutomationTrigger[];
+  match?: AutomationMatch;
+  actions?: AutomationAction[];
 }
 
 /** The session-runner the supervisor drives (real one is runSession; tests inject a stub). */
@@ -1029,6 +1044,9 @@ export class Supervisor {
 
   /** Fire-and-forget a lifecycle webhook for a session. Never throws. */
   private notify(m: Managed, event: WebhookEvent, detail?: string): void {
+    // Reactive automation rules run first (start/stop/notify), independent of
+    // whether any webhook is configured.
+    this.runAutomations(m, event, detail);
     if (!this.notifier.active) return;
     const ctx: NotifyContext = {
       id: m.id,
@@ -1041,6 +1059,122 @@ export class Supervisor {
       detail: detail?.trim() || undefined,
     };
     void this.notifier.fire(event, ctx).catch(() => {});
+  }
+
+  /**
+   * Run any matching automation rules for a lifecycle event (the "automation
+   * suite" reactive layer). Best-effort: each action is guarded so a bad rule
+   * never throws into the run loop. start/stop reuse the normal supervisor paths
+   * (so all gating/queueing applies); notify fires the configured webhooks for
+   * this event, optionally with the rule's custom message.
+   */
+  private runAutomations(m: Managed, event: WebhookEvent, detail?: string): void {
+    const rules = this.cfg.automations;
+    if (!rules || rules.length === 0) return;
+    const plan = planAutomations(event, { id: m.id, cwd: m.cwd, goal: m.goal, mode: m.mode }, rules);
+    for (const a of plan) {
+      try {
+        if (a.kind === "start" && a.target) {
+          if (!this.sessions.has(a.target)) {
+            this.log.warn("automation start: no such session", { rule: a.ruleName, target: a.target });
+            continue;
+          }
+          this.log.info("automation: start", { rule: a.ruleName, target: a.target, on: event, from: m.id });
+          this.start(a.target);
+        } else if (a.kind === "stop" && a.target) {
+          if (!this.sessions.has(a.target)) {
+            this.log.warn("automation stop: no such session", { rule: a.ruleName, target: a.target });
+            continue;
+          }
+          this.log.info("automation: stop", { rule: a.ruleName, target: a.target, on: event, from: m.id });
+          this.stop(a.target);
+        } else if (a.kind === "notify" && this.notifier.active) {
+          const ctx: NotifyContext = {
+            id: m.id,
+            label: shortLabel(m),
+            cwd: m.cwd,
+            goal: m.goal,
+            status: m.status,
+            turns: m.turns,
+            elapsedMin: m.elapsedMin,
+            detail: (a.message ?? detail)?.trim() || undefined,
+          };
+          void this.notifier.fire(event, ctx).catch(() => {});
+        }
+      } catch (e) {
+        this.log.warn("automation action failed", {
+          rule: a.ruleName,
+          kind: a.kind,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+  }
+
+  // ---- automation rules CRUD (automation suite) ----------------------------
+
+  /** All automation rules, newest first. */
+  listAutomations(): AutomationRule[] {
+    return [...(this.cfg.automations ?? [])].sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  /** True when at least one enabled automation rule exists. */
+  get automationsActive(): boolean {
+    return countEnabled(this.cfg.automations) > 0;
+  }
+
+  /** Create (no id) or update (matching id) an automation rule; persist. */
+  saveAutomation(input: AutomationInput): AutomationRule {
+    const name = (input.name ?? "").trim();
+    if (!name) throw new Error("automation name is required.");
+    const actions = Array.isArray(input.actions) ? input.actions : [];
+    if (actions.length === 0) throw new Error("an automation needs at least one action.");
+    for (const a of actions) {
+      if ((a.kind === "start" || a.kind === "stop") && !(a.target ?? "").trim()) {
+        throw new Error(`${a.kind} action needs a target session.`);
+      }
+    }
+    const list = this.cfg.automations ?? (this.cfg.automations = []);
+    const now = Date.now();
+    const match = cleanMatch(input.match);
+    const fields = {
+      name,
+      enabled: input.enabled !== false,
+      on: input.on && input.on.length ? [...new Set(input.on)] : undefined,
+      match,
+      actions,
+    };
+    const id = (input.id ?? "").trim();
+    const existing = id ? list.find((r) => r.id === id) : undefined;
+    if (existing) {
+      Object.assign(existing, fields, { updatedAt: now });
+      this.persist();
+      return existing;
+    }
+    const rule: AutomationRule = { id: id || randomUUID(), ...fields, createdAt: now, updatedAt: now };
+    list.push(rule);
+    this.persist();
+    return rule;
+  }
+
+  /** Enable/disable a rule without editing it; persist. Returns the new state. */
+  toggleAutomation(id: string, enabled: boolean): void {
+    const rule = this.cfg.automations?.find((r) => r.id === id);
+    if (!rule) return;
+    rule.enabled = enabled;
+    rule.updatedAt = Date.now();
+    this.persist();
+  }
+
+  /** Delete a rule by id; persist. No-op if it doesn't exist. */
+  deleteAutomation(id: string): void {
+    const list = this.cfg.automations;
+    if (!list) return;
+    const i = list.findIndex((r) => r.id === id);
+    if (i >= 0) {
+      list.splice(i, 1);
+      this.persist();
+    }
   }
 
   /**
@@ -1536,6 +1670,17 @@ function shortLabel(m: Managed | undefined): string {
   if (!m) return "(unknown)";
   const g = m.goal.trim().replace(/\s+/g, " ");
   return g.length > 40 ? g.slice(0, 40) + "…" : g || m.id.slice(0, 8);
+}
+
+/** Drop empty/blank clauses from an automation match; return undefined if none remain. */
+function cleanMatch(match: AutomationMatch | undefined): AutomationMatch | undefined {
+  if (!match) return undefined;
+  const out: AutomationMatch = {};
+  if (match.sessionId?.trim()) out.sessionId = match.sessionId.trim();
+  if (match.cwdContains?.trim()) out.cwdContains = match.cwdContains.trim();
+  if (match.goalContains?.trim()) out.goalContains = match.goalContains.trim();
+  if (match.mode) out.mode = match.mode;
+  return Object.keys(out).length ? out : undefined;
 }
 
 /**

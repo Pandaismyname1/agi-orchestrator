@@ -16,6 +16,7 @@ export type Modal =
   | { kind: "learn" }
   | { kind: "templates" }
   | { kind: "webhooks" }
+  | { kind: "automations" }
   | { kind: "workflow" }
   | { kind: "analytics" }
   | { kind: "health" }

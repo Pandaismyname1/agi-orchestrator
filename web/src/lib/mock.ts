@@ -503,6 +503,40 @@ export const MOCK: Snapshot = {
       updatedAt: 1_780_500_000_000,
     },
   ],
+  automations: [
+    {
+      id: "auto-chain",
+      name: "Deploy after API build",
+      enabled: true,
+      on: ["done"],
+      match: { sessionId: "api-server" },
+      actions: [{ kind: "start", target: "deploy-prod" }],
+      createdAt: 1_780_000_000_000,
+      updatedAt: 1_782_000_000_000,
+    },
+    {
+      id: "auto-halt",
+      name: "Halt & notify on any error",
+      enabled: true,
+      on: ["error"],
+      actions: [
+        { kind: "stop", target: "$self" },
+        { kind: "notify", message: "A session errored — paused for review." },
+      ],
+      createdAt: 1_779_000_000_000,
+      updatedAt: 1_781_000_000_000,
+    },
+    {
+      id: "auto-off",
+      name: "Restart e2e on rate-limit (disabled)",
+      enabled: false,
+      on: ["rate-limited"],
+      match: { cwdContains: "e2e" },
+      actions: [{ kind: "start", target: "$self" }],
+      createdAt: 1_778_000_000_000,
+      updatedAt: 1_779_500_000_000,
+    },
+  ],
   attached: [
     {
       sessionId: "a1b2c3d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
