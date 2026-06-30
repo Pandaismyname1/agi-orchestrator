@@ -359,4 +359,9 @@ export interface TurnResult {
   gatesHandled: number;
   /** Wall-clock ms the turn took. */
   durationMs: number;
+  /**
+   * Git delta the agent produced this turn (set by the orchestrator when the cwd
+   * is a git repo). Undefined for non-repo projects or when capture failed.
+   */
+  diff?: import("./git/diff.js").TurnDiff;
 }

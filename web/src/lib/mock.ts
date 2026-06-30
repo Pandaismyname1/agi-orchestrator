@@ -432,6 +432,29 @@ export const MOCK_RUN: RunDetail = {
       injected_prompt: "Implement the login + refresh-token endpoints, with tests.",
       assistant_text:
         "Added refresh-token rotation in src/auth/tokens.ts and a regression test in tests/auth.spec.ts.\n\nRunning 14 tests…\n  ✓ issues a refresh token on login\n  ✓ rotates the token on refresh\n  ✓ rejects a reused token\nAll passing.",
+      files_changed: 2,
+      diff: JSON.stringify({
+        files: [
+          { file: "src/auth/tokens.ts", added: 38, removed: 4 },
+          { file: "tests/auth.spec.ts", added: 27, removed: 0 },
+        ],
+        patch:
+          "diff --git a/src/auth/tokens.ts b/src/auth/tokens.ts\n" +
+          "@@ -10,6 +10,12 @@ export function issueRefreshToken(userId: string) {\n" +
+          "-  return sign({ sub: userId });\n" +
+          "+  const jti = randomUUID();\n" +
+          "+  store.save(jti, userId);\n" +
+          "+  return sign({ sub: userId, jti });\n" +
+          " }\n" +
+          "diff --git a/tests/auth.spec.ts b/tests/auth.spec.ts\n" +
+          "@@ -0,0 +1,5 @@\n" +
+          '+test("rotates the token on refresh", async () => {\n' +
+          "+  const a = await login();\n" +
+          "+  const b = await refresh(a.refresh);\n" +
+          "+  expect(b.refresh).not.toBe(a.refresh);\n" +
+          "+});\n",
+        truncated: false,
+      }),
     },
     {
       n: 3,

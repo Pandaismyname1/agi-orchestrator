@@ -29,12 +29,15 @@ export class Recorder {
         case "turn": {
           const runId = this.runBySession.get(e.sessionId);
           if (runId === undefined) break;
+          const diff = e.result.diff;
           const turnId = this.store.addTurn(runId, {
             n: e.turnNumber,
             prompt: e.result.prompt,
             assistantText: e.result.assistantText,
             durationMs: e.result.durationMs,
             gatesHandled: e.result.gatesHandled,
+            filesChanged: diff ? diff.files.length : null,
+            diff: diff ? JSON.stringify(diff) : null,
           });
           this.lastTurnBySession.set(e.sessionId, turnId);
           this.store.addEvent({ sessionId: e.sessionId, runId, type: "turn", payload: { n: e.turnNumber } });

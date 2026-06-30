@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS turns (
   assistant_text  TEXT,
   duration_ms     INTEGER,
   gates_handled   INTEGER NOT NULL DEFAULT 0,
+  files_changed   INTEGER,                         -- # files the agent changed this turn (git)
+  diff            TEXT,                            -- per-turn unified diff (JSON: {files, patch, truncated})
   created_at      INTEGER NOT NULL,
   FOREIGN KEY (run_id) REFERENCES runs(id)
 );

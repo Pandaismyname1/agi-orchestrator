@@ -17,6 +17,7 @@ import { RollingSummary, type RollingSummaryOptions } from "./brain/summary.js";
 import { LocalLLM } from "./brain/provider.js";
 import { Guards } from "./policy/guards.js";
 import { StuckDetector, fingerprintDir } from "./policy/stuck.js";
+import { isGitRepo, snapshotRef, turnDiff } from "./git/diff.js";
 import type { ContextGuard } from "./policy/context.js";
 import type { UsageGuard } from "./policy/usage.js";
 import type { UsageStatus } from "./policy/usage.js";
@@ -179,6 +180,11 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
     let pending: string | null = null; // the next prompt to inject, once sourced
     let lastResult: TurnResult | null = null;
     let seeded = false; // whether the opts.seedPrompt (continue) has been injected
+    // Per-turn git snapshots (observability). Capture a baseline of the working
+    // tree before the first turn; after each turn we snapshot again and store the
+    // delta. Best-effort: a non-repo cwd or any git hiccup just skips diffs.
+    const gitTracked = isGitRepo(session.cwd);
+    let prevSnapshot = gitTracked ? snapshotRef(session.cwd) : null;
     let limited = await checkUsage(); // gate before the very first turn
 
     while (!limited) {
@@ -293,6 +299,13 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
         break;
       }
       const result = await sess.runTurn(pending);
+      // Capture what changed on disk this turn (best-effort; never throws).
+      if (gitTracked) {
+        const curSnapshot = snapshotRef(session.cwd);
+        const diff = turnDiff(session.cwd, prevSnapshot, curSnapshot);
+        if (diff && diff.files.length > 0) result.diff = diff;
+        if (curSnapshot) prevSnapshot = curSnapshot;
+      }
       emit({ type: "turn", sessionId: session.id, turnNumber: guards.turnCount, result });
       stuck.record(fingerprintDir(session.cwd)); // did anything change this turn?
       lastResult = result;

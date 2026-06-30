@@ -356,10 +356,27 @@ export interface Metrics {
   byStatus: Record<string, number>;
 }
 
+/** One file's change within a turn diff. `added`/`removed` are -1 for binary. */
+export interface FileDelta {
+  file: string;
+  added: number;
+  removed: number;
+}
+
+/** The git delta an agent produced in a turn. */
+export interface TurnDiff {
+  files: FileDelta[];
+  patch: string;
+  truncated: boolean;
+}
+
 export interface TurnRow {
   n: number;
   injected_prompt: string | null;
   assistant_text: string | null;
+  files_changed?: number | null;
+  /** JSON-encoded TurnDiff, or null (parse with JSON.parse). */
+  diff?: string | null;
 }
 
 export interface DecisionRow {

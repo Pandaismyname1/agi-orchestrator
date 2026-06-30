@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { Metrics, RunRow, RunDetail } from "../../lib/types";
+  import type { Metrics, RunRow, RunDetail, TurnDiff } from "../../lib/types";
   import { api } from "../../lib/api";
   import { ui } from "../../lib/ui.svelte";
   import { minutes, clamp } from "../../lib/format";
@@ -44,6 +44,33 @@
     if (d.action === "escalate") return `⚑ escalated: ${d.reason ?? ""}`;
     return `■ stop: ${d.reason ?? ""}`;
   }
+
+  /** Parse a turn's stored diff JSON (null/garbage → no diff). */
+  function parseDiff(raw: string | null | undefined): TurnDiff | null {
+    if (!raw) return null;
+    try {
+      const d = JSON.parse(raw) as TurnDiff;
+      return d && Array.isArray(d.files) ? d : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Which turns have their diff patch expanded (keyed by turn number). */
+  let openDiffs = $state<Record<number, boolean>>({});
+  function toggleDiff(n: number) {
+    openDiffs = { ...openDiffs, [n]: !openDiffs[n] };
+  }
+  /** Classify a patch line for +/- coloring. */
+  function lineKind(l: string): "add" | "del" | "hunk" | "meta" | "" {
+    if (l.startsWith("+++") || l.startsWith("---")) return "meta";
+    if (l.startsWith("@@")) return "hunk";
+    if (l.startsWith("diff ") || l.startsWith("index ") || l.startsWith("new file") || l.startsWith("deleted file"))
+      return "meta";
+    if (l.startsWith("+")) return "add";
+    if (l.startsWith("-")) return "del";
+    return "";
+  }
 </script>
 
 {#if openRun}
@@ -55,11 +82,31 @@
       <div class="empty">no turns recorded</div>
     {:else}
       {#each openRun.turns as t (t.n)}
+        {@const td = parseDiff(t.diff)}
         <div class="tl">
           <div class="you">→ {clamp(t.injected_prompt ?? "", 160)}</div>
           <div class="cl">claude: {clamp((t.assistant_text ?? "").replace(/\s+/g, " "), 220)}</div>
           {#if decLine(decByN.get(t.n))}
             <div class="dec">{decLine(decByN.get(t.n))}</div>
+          {/if}
+          {#if td && td.files.length}
+            <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+            <div class="diffhead" onclick={() => toggleDiff(t.n)} title="Show/hide the diff">
+              <span class="caret">{openDiffs[t.n] ? "▾" : "▸"}</span>
+              <span class="diffcount">{td.files.length} file{td.files.length === 1 ? "" : "s"} changed</span>
+              {#each td.files.slice(0, 4) as f (f.file)}
+                <span class="fchip">
+                  {f.file.split(/[\\/]/).pop()}
+                  {#if f.added >= 0}<span class="plus">+{f.added}</span>{/if}
+                  {#if f.removed >= 0}<span class="minus">−{f.removed}</span>{/if}
+                </span>
+              {/each}
+              {#if td.files.length > 4}<span class="more">+{td.files.length - 4} more</span>{/if}
+            </div>
+            {#if openDiffs[t.n] && td.patch}
+              <pre class="patch">{#each td.patch.split("\n") as ln, i (i)}<span class="pl {lineKind(ln)}">{ln + "\n"}</span>{/each}</pre>
+              {#if td.truncated}<div class="trunc">diff truncated</div>{/if}
+            {/if}
           {/if}
         </div>
       {/each}
@@ -208,6 +255,75 @@
     color: var(--color-neutral-content);
     font-size: 12px;
     margin-top: 5px;
+  }
+  .diffhead {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 7px;
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--color-neutral-content);
+  }
+  .caret {
+    color: var(--faint);
+  }
+  .diffcount {
+    font-weight: 600;
+  }
+  .fchip {
+    font-size: 10px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    padding: 1px 7px;
+    border: 1px solid var(--border-soft);
+    border-radius: 20px;
+    color: var(--color-base-content);
+  }
+  .fchip .plus {
+    color: var(--st-running);
+    margin-left: 4px;
+  }
+  .fchip .minus {
+    color: var(--st-error);
+    margin-left: 3px;
+  }
+  .more {
+    font-size: 10px;
+    color: var(--faint);
+  }
+  .patch {
+    margin: 7px 0 0;
+    max-height: 300px;
+    overflow: auto;
+    background: var(--color-base-300);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre;
+  }
+  .pl {
+    display: inline;
+  }
+  .pl.add {
+    color: var(--st-running);
+  }
+  .pl.del {
+    color: var(--st-error);
+  }
+  .pl.hunk {
+    color: var(--color-secondary);
+  }
+  .pl.meta {
+    color: var(--faint);
+  }
+  .trunc {
+    font-size: 10px;
+    color: var(--faint);
+    margin-top: 3px;
   }
   .empty {
     color: var(--faint);

@@ -38,6 +38,9 @@ export interface TurnRow {
   assistant_text: string | null;
   duration_ms: number | null;
   gates_handled: number;
+  files_changed: number | null;
+  /** JSON-encoded TurnDiff ({files, patch, truncated}) or null. */
+  diff: string | null;
   created_at: number;
 }
 
@@ -56,6 +59,18 @@ export class Store {
   constructor(dbPath: string) {
     this.db = new DatabaseSync(path.resolve(dbPath));
     this.db.exec(SCHEMA);
+    this.migrate();
+  }
+
+  /** Idempotent column adds for DBs created before a column existed. */
+  private migrate(): void {
+    for (const col of ["files_changed INTEGER", "diff TEXT"]) {
+      try {
+        this.db.exec(`ALTER TABLE turns ADD COLUMN ${col}`);
+      } catch {
+        // already present — node:sqlite throws "duplicate column name"; ignore.
+      }
+    }
   }
 
   close(): void {
@@ -110,14 +125,32 @@ export class Store {
 
   addTurn(
     runId: number,
-    t: { n: number; prompt: string; assistantText: string; durationMs: number; gatesHandled: number },
+    t: {
+      n: number;
+      prompt: string;
+      assistantText: string;
+      durationMs: number;
+      gatesHandled: number;
+      filesChanged?: number | null;
+      diff?: string | null;
+    },
   ): number {
     const r = this.db
       .prepare(
-        `INSERT INTO turns (run_id, n, injected_prompt, assistant_text, duration_ms, gates_handled, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO turns (run_id, n, injected_prompt, assistant_text, duration_ms, gates_handled, files_changed, diff, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(runId, t.n, t.prompt, t.assistantText, t.durationMs, t.gatesHandled, Date.now());
+      .run(
+        runId,
+        t.n,
+        t.prompt,
+        t.assistantText,
+        t.durationMs,
+        t.gatesHandled,
+        t.filesChanged ?? null,
+        t.diff ?? null,
+        Date.now(),
+      );
     return Number(r.lastInsertRowid);
   }
 
