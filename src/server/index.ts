@@ -68,6 +68,9 @@ type SettingsPatch = Partial<{
   budgetMaxMinutes: number | null;
   defaultPermissionMode: SessionConfig["permissionMode"];
   defaultAutonomy: SessionConfig["autonomy"];
+  reliabilityRetries: number;
+  reliabilityBackoffMs: number;
+  reliabilityPollSeconds: number;
 }>;
 
 /** Continue a finished session in the same conversation (edited goal + next step). */
@@ -454,6 +457,7 @@ async function main(): Promise<void> {
               permissionMode: cfg.defaults?.permissionMode ?? "acceptEdits",
               autonomy: cfg.defaults?.autonomy ?? "balanced",
             },
+            reliability: sup.reliabilitySettings(),
           },
           learning: sup.learningSummary(),
           templates: sup.listTemplates(),
@@ -681,6 +685,14 @@ async function main(): Promise<void> {
             if (p.defaultAutonomy !== undefined) {
               cfg.defaults = { ...cfg.defaults, autonomy: p.defaultAutonomy };
             }
+
+            // Reliability tuning (clamped in the supervisor). retries/backoff take
+            // effect on next start; the poll cadence applies to the next run.
+            const relPatch: { retries?: number; retryBackoffMs?: number; brainPollSeconds?: number } = {};
+            if (typeof p.reliabilityRetries === "number") relPatch.retries = p.reliabilityRetries;
+            if (typeof p.reliabilityBackoffMs === "number") relPatch.retryBackoffMs = p.reliabilityBackoffMs;
+            if (typeof p.reliabilityPollSeconds === "number") relPatch.brainPollSeconds = p.reliabilityPollSeconds;
+            if (Object.keys(relPatch).length) sup.setReliability(relPatch);
 
             // Apply at runtime what's safe.
             if (applyConcurrency) sup.setMaxConcurrent(cfg.maxConcurrent ?? Infinity);

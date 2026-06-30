@@ -130,6 +130,8 @@ export interface Settings {
   maxConcurrent: number;
   budget: { maxTurns: number | null; maxMinutes: number | null };
   defaults: { permissionMode: PermissionMode; autonomy: Autonomy };
+  /** Self-healing tuning: brain-call retries + auto-pause health-poll cadence. */
+  reliability?: { retries: number; retryBackoffMs: number; brainPollSeconds: number };
 }
 
 export type SettingsPatch = Partial<{
@@ -139,6 +141,9 @@ export type SettingsPatch = Partial<{
   budgetMaxMinutes: number | null;
   defaultPermissionMode: PermissionMode;
   defaultAutonomy: Autonomy;
+  reliabilityRetries: number;
+  reliabilityBackoffMs: number;
+  reliabilityPollSeconds: number;
 }>;
 
 /** Learning loop: synthesized operator profiles that tune the local brain's prompt. */

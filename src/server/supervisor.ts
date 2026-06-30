@@ -19,6 +19,7 @@ import { assessGoal, type IntakeInput, type IntakeResult } from "../brain/intake
 import { isDue, hasActiveTrigger, parseHHMM } from "../policy/schedule.js";
 import { restoreTo, type RestoreResult } from "../git/diff.js";
 import { openPullRequest, defaultRunner, type Runner as PrRunner } from "../git/pr.js";
+import { retryOptsFrom, brainPollMsFrom } from "../policy/reliability.js";
 import { LearningService, emptyLearningSummary } from "../learning/service.js";
 import { Notifier, type DeliveryResult, type NotifyContext } from "../notify/notifier.js";
 import type {
@@ -180,8 +181,9 @@ export class Supervisor {
     prRunner?: PrRunner,
   ) {
     this.prRunner = prRunner ?? defaultRunner;
-    this.llm = new LocalLLM(cfg.provider);
-    if (cfg.escalationProvider) this.heavyLlm = new LocalLLM(cfg.escalationProvider);
+    const retryOpts = retryOptsFrom(cfg.reliability);
+    this.llm = new LocalLLM(cfg.provider, retryOpts);
+    if (cfg.escalationProvider) this.heavyLlm = new LocalLLM(cfg.escalationProvider, retryOpts);
     this.budget = new BudgetTracker(store, cfg.budget);
     this.usageGuard = new UsageGuard(cfg.usageGuard);
     this.maxConcurrent = cfg.maxConcurrent && cfg.maxConcurrent > 0 ? cfg.maxConcurrent : Infinity;
@@ -282,6 +284,30 @@ export class Supervisor {
       }
       return v;
     });
+  }
+
+  /** Normalized reliability settings (clamped), for the dashboard + tuning. */
+  reliabilitySettings(): { retries: number; retryBackoffMs: number; brainPollSeconds: number } {
+    const r = retryOptsFrom(this.cfg.reliability);
+    return {
+      retries: r.retries ?? 3,
+      retryBackoffMs: r.baseMs ?? 400,
+      brainPollSeconds: brainPollMsFrom(this.cfg.reliability) / 1000,
+    };
+  }
+
+  /**
+   * Apply a reliability patch (clamped) and persist. retries/backoff take effect
+   * on the next daemon start (the brain LLM is constructed once); the poll cadence
+   * applies to the next launched run.
+   */
+  setReliability(patch: { retries?: number; retryBackoffMs?: number; brainPollSeconds?: number }): void {
+    const cur = { ...this.cfg.reliability };
+    if (patch.retries !== undefined) cur.retries = patch.retries;
+    if (patch.retryBackoffMs !== undefined) cur.retryBackoffMs = patch.retryBackoffMs;
+    if (patch.brainPollSeconds !== undefined) cur.brainPollSeconds = patch.brainPollSeconds;
+    this.cfg.reliability = cur;
+    this.persist();
   }
 
   /**
@@ -561,6 +587,7 @@ export class Supervisor {
       contextGuard: new ContextGuard(this.cfg.contextGuard),
       usageGuard: this.usageGuard,
       rollingSummary: this.cfg.brain?.rollingSummary,
+      brainPollMs: brainPollMsFrom(this.cfg.reliability),
       resumeId,
       seedPrompt,
       onSession: (s) => {

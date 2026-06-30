@@ -162,6 +162,23 @@ export interface AppConfig {
    * limited). Drives Slack / Discord / generic-JSON automations. Empty = none.
    */
   webhooks?: WebhookConfig[];
+  /** Self-healing knobs: brain-call retries + auto-pause health-poll cadence. */
+  reliability?: ReliabilityOptions;
+}
+
+/**
+ * Reliability / self-healing tuning. All optional; sane defaults applied in
+ * `normalizeReliability`. retries/backoff take effect when the brain LLM is
+ * constructed (next daemon start); the health-poll interval applies to the next
+ * launched run.
+ */
+export interface ReliabilityOptions {
+  /** Transient-failure retry attempts for a brain call (0 disables). Default 3. */
+  retries?: number;
+  /** Base backoff in ms between retries (doubles each attempt). Default 400. */
+  retryBackoffMs?: number;
+  /** Seconds between health polls while auto-paused on an unreachable LLM. Default 15. */
+  brainPollSeconds?: number;
 }
 
 /** A session lifecycle moment a webhook can subscribe to. */

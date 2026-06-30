@@ -127,6 +127,11 @@ export interface RunOptions {
    * the raw last-N history. Off unless enabled — then history shrinks to the tail.
    */
   rollingSummary?: RollingSummaryOptions;
+  /**
+   * Milliseconds between health polls while auto-paused on an unreachable brain
+   * LLM. Default 15000. Lower = resumes sooner; higher = less load on the endpoint.
+   */
+  brainPollMs?: number;
 }
 
 export async function runSession(session: SessionConfig, opts: RunOptions): Promise<void> {
@@ -183,11 +188,12 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
     // unloaded mid-run): wait + poll its health instead of killing the run, and
     // resume the moment it's back. Returns false only if the operator stopped.
     const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+    const brainPollMs = opts.brainPollMs && opts.brainPollMs > 0 ? opts.brainPollMs : 15_000;
     const waitForBrain = async (detail: string): Promise<boolean> => {
       emit({ type: "brain", sessionId: session.id, phase: "unreachable", detail });
       for (;;) {
         if (opts.shouldStop?.()) return false;
-        await sleep(15_000);
+        await sleep(brainPollMs);
         if (opts.shouldStop?.()) return false;
         const h = await llm.health();
         if (h.ok) {

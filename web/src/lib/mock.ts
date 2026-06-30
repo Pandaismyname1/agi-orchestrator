@@ -210,6 +210,7 @@ export const MOCK: Snapshot = {
     maxConcurrent: 2,
     budget: { maxTurns: 300, maxMinutes: 240 },
     defaults: { permissionMode: "acceptEdits", autonomy: "balanced" },
+    reliability: { retries: 3, retryBackoffMs: 400, brainPollSeconds: 15 },
   },
   sessions: [
     {

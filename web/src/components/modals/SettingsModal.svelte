@@ -28,6 +28,11 @@
   );
   let defaultAutonomy = $state<Autonomy>(untrack(() => settings?.defaults.autonomy ?? "balanced"));
 
+  // Reliability / self-healing tuning.
+  let relRetries = $state<number | "">(untrack(() => settings?.reliability?.retries ?? 3));
+  let relBackoffMs = $state<number | "">(untrack(() => settings?.reliability?.retryBackoffMs ?? 400));
+  let relPollSeconds = $state<number | "">(untrack(() => settings?.reliability?.brainPollSeconds ?? 15));
+
   const baseUrl = $derived(settings?.providerBaseUrl ?? provider?.baseUrl ?? "");
   const providerOk = $derived(!!provider?.ok);
 
@@ -40,6 +45,9 @@
       defaultPermissionMode,
       defaultAutonomy,
     };
+    if (relRetries !== "") settingsPatch.reliabilityRetries = Math.max(0, Number(relRetries) || 0);
+    if (relBackoffMs !== "") settingsPatch.reliabilityBackoffMs = Math.max(50, Number(relBackoffMs) || 400);
+    if (relPollSeconds !== "") settingsPatch.reliabilityPollSeconds = Math.max(5, Number(relPollSeconds) || 15);
     wsStore.send({ type: "updateSettings", settings: settingsPatch });
     ui.toast("settings saved");
     ui.closeModal();
@@ -131,6 +139,28 @@
       <option value="autonomous">autonomous</option>
     </select>
     <p class="sm-explain">How often the brain escalates a decision to you by default.</p>
+  </div>
+
+  <!-- Reliability -->
+  <div class="sm-section">
+    <div class="sm-head"><Icon name="bot" size={12} /> Reliability (self-healing)</div>
+    <div class="sm-row">
+      <div class="sm-col">
+        <label for="sm_retries">brain retries</label>
+        <input id="sm_retries" type="number" inputmode="numeric" min="0" max="10" bind:value={relRetries} placeholder="3" />
+      </div>
+      <div class="sm-col">
+        <label for="sm_backoff">retry backoff (ms)</label>
+        <input id="sm_backoff" type="number" inputmode="numeric" min="50" bind:value={relBackoffMs} placeholder="400" />
+      </div>
+    </div>
+    <label for="sm_poll">health-poll while paused (seconds)</label>
+    <input id="sm_poll" type="number" inputmode="numeric" min="5" max="300" bind:value={relPollSeconds} placeholder="15" />
+    <p class="sm-explain">
+      Transient brain-call failures retry with doubling backoff; if the local model goes unreachable the
+      run auto-pauses and re-checks at this cadence. Retry changes apply on the next start; the poll
+      interval applies to the next run.
+    </p>
   </div>
 
   {#if remoteWithToken}
