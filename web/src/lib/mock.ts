@@ -362,6 +362,53 @@ export const MOCK: Snapshot = {
     ].join("\n"),
   },
   learning: MOCK_LEARNING,
+  templates: [
+    {
+      id: "tpl-bugfix",
+      name: "Bug-fix autopilot",
+      description: "Reproduce, fix, and add a regression test.",
+      goal: "Reproduce the reported bug, fix the root cause, and add a regression test.",
+      doneCriteria: "the bug is fixed, a failing-then-passing test is added, and the suite is green",
+      permissionMode: "acceptEdits",
+      autonomy: "balanced",
+      startMode: "autopilot",
+      createdAt: 1_780_000_000_000,
+      updatedAt: 1_782_000_000_000,
+    },
+    {
+      id: "tpl-audit",
+      name: "Security audit (manual)",
+      description: "Read-only review; you seed the scope first.",
+      goal: "Audit the codebase for security issues and write up findings.",
+      doneCriteria: "a prioritized findings report with file/line references",
+      permissionMode: "default",
+      autonomy: "cautious",
+      startMode: "manual",
+      createdAt: 1_779_000_000_000,
+      updatedAt: 1_781_000_000_000,
+    },
+  ],
+  webhooks: [
+    {
+      id: "wh-slack",
+      name: "Slack #builds",
+      url: "https://hooks.slack.com/services/T000/B000/xxxx",
+      format: "slack",
+      events: ["done", "error", "needs-input"],
+      enabled: true,
+      createdAt: 1_780_000_000_000,
+      updatedAt: 1_782_000_000_000,
+    },
+    {
+      id: "wh-ops",
+      name: "Ops JSON sink",
+      url: "https://ops.example.com/agi/events",
+      format: "json",
+      enabled: false,
+      createdAt: 1_779_000_000_000,
+      updatedAt: 1_780_500_000_000,
+    },
+  ],
 };
 
 /** Demo history/transcript data (api.ts serves these when `?mock`). */

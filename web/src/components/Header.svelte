@@ -130,6 +130,14 @@
     <Icon name="pip" size={15} />
   </button>
   <button
+    class="btn btn-sm btn-square hide-sm"
+    title="Workflow graph — session dependencies at a glance"
+    onclick={() => ui.openModal({ kind: "workflow" })}
+    aria-label="Workflow graph"
+  >
+    <Icon name="graph" size={15} />
+  </button>
+  <button
     class="btn btn-sm hide-sm"
     title="Templates — reusable session presets"
     onclick={() => ui.openModal({ kind: "templates" })}

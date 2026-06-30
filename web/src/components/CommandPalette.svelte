@@ -58,6 +58,7 @@
       { id: "adopt", label: "Adopt existing session", group: "Open", icon: "download", keywords: "resume import", run: () => ui.openModal({ kind: "adopt" }) },
       { id: "attach", label: "Attach a running session", group: "Open", icon: "plug", run: () => ui.openModal({ kind: "attach" }) },
       { id: "templates", label: "Templates", group: "Open", icon: "layers", keywords: "preset", run: () => ui.openModal({ kind: "templates" }) },
+      { id: "workflow", label: "Workflow graph", group: "Open", icon: "graph", keywords: "dependencies dag depends chain", run: () => ui.openModal({ kind: "workflow" }) },
       { id: "webhooks", label: "Notifications & webhooks", group: "Open", icon: "bell", keywords: "slack discord notify", run: () => ui.openModal({ kind: "webhooks" }) },
       { id: "learn", label: "Learn — operator-prompt drafts", group: "Open", icon: "brain", run: () => ui.openModal({ kind: "learn" }) },
       { id: "settings", label: "Settings", group: "Open", icon: "settings", keywords: "provider budget concurrency", run: () => ui.openModal({ kind: "settings" }) },

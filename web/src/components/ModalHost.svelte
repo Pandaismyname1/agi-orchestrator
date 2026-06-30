@@ -10,6 +10,7 @@
   import LearnModal from "./modals/LearnModal.svelte";
   import TemplatesModal from "./modals/TemplatesModal.svelte";
   import WebhooksModal from "./modals/WebhooksModal.svelte";
+  import WorkflowModal from "./modals/WorkflowModal.svelte";
 </script>
 
 {#if ui.modal}
@@ -35,5 +36,7 @@
     <TemplatesModal />
   {:else if ui.modal.kind === "webhooks"}
     <WebhooksModal />
+  {:else if ui.modal.kind === "workflow"}
+    <WorkflowModal />
   {/if}
 {/if}

@@ -27,6 +27,7 @@
     chevronLeft: "M15 18l-6-6 6-6",
     chevronRight: "M9 18l6-6-6-6",
     layers: "M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
+    graph: "",
   } as const;
 
   export type IconName = keyof typeof ICONS;
@@ -75,6 +76,11 @@
   {:else if name === "info"}
     <circle cx="12" cy="12" r="10" />
     <path d="M12 16v-4M12 8h.01" />
+  {:else if name === "graph"}
+    <circle cx="5" cy="6" r="2.4" />
+    <circle cx="5" cy="18" r="2.4" />
+    <circle cx="19" cy="12" r="2.4" />
+    <path d="M7.4 6.7 16.6 11M7.4 17.3 16.6 13" />
   {:else}
     <path d={ICONS[name]} />
   {/if}
