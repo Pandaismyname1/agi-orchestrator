@@ -18,9 +18,15 @@
     "pingPongThreshold": 3,
     "stuckTurns": 4
   },
-  "_brain_note": "Brain-decision policy. confidenceThreshold (0..1, default 0 = off): if a 'continue' decision's self-reported confidence is below it, the operator auto-escalates to you instead of guessing the next step (pairs with escalationProvider — a gated escalation gets refined by the bigger model). 0.5 is a reasonable start; 0 keeps today's behavior.",
+  "_brain_note": "Brain-decision policy. confidenceThreshold (0..1, default 0 = off): if a 'continue' decision's self-reported confidence is below it, the operator auto-escalates to you instead of guessing the next step (pairs with escalationProvider — a gated escalation gets refined by the bigger model). 0.5 is a reasonable start; 0 keeps today's behavior. rollingSummary (default off): feed the brain a maintained running summary + a short fresh tail instead of the raw last-8 messages — less drift and cheaper context on long runs. everyTurns = how often to re-summarize (one local-LLM call); tailMessages = raw messages still passed alongside; maxChars caps the summary.",
   "brain": {
-    "confidenceThreshold": 0
+    "confidenceThreshold": 0,
+    "rollingSummary": {
+      "enabled": false,
+      "everyTurns": 4,
+      "maxChars": 1200,
+      "tailMessages": 3
+    }
   },
   "port": 4317,
   "budget": {

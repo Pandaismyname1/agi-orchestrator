@@ -13,6 +13,7 @@ import { ClaudeSession, AuthError, RateLimitError } from "./session/claudeSessio
 import { decideNextStep } from "./brain/decide.js";
 import { readRecentMessages, readLastAssistantMessage } from "./transcript/reader.js";
 import { gitSummary } from "./brain/repoState.js";
+import { RollingSummary, type RollingSummaryOptions } from "./brain/summary.js";
 import { LocalLLM } from "./brain/provider.js";
 import { Guards } from "./policy/guards.js";
 import { StuckDetector, fingerprintDir } from "./policy/stuck.js";
@@ -90,6 +91,7 @@ export interface RunOptions {
     turnNumber: number,
     history?: Array<{ role: "user" | "assistant"; text: string }>,
     repoState?: string,
+    projectSummary?: string,
   ) => Promise<Decision>;
   /** Current mode, read each loop iteration. Default "autopilot" if omitted. */
   mode?: () => "manual" | "autopilot";
@@ -117,6 +119,11 @@ export interface RunOptions {
    * (possibly edited) goal / next instruction into a resumed conversation.
    */
   seedPrompt?: string;
+  /**
+   * Feed the brain a maintained running summary (+ short fresh tail) instead of
+   * the raw last-N history. Off unless enabled — then history shrinks to the tail.
+   */
+  rollingSummary?: RollingSummaryOptions;
 }
 
 export async function runSession(session: SessionConfig, opts: RunOptions): Promise<void> {
@@ -125,6 +132,8 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
   const limits: Limits = { ...opts.limits, ...(session.limits ?? {}) };
   const guards = new Guards(limits);
   const stuck = new StuckDetector();
+  // Optional maintained running summary fed to the brain (else raw history).
+  const summarizer = opts.rollingSummary?.enabled ? new RollingSummary(opts.rollingSummary) : undefined;
   // opts.resumeId (a "continue") takes precedence over the session's own resumeId.
   const sess = new ClaudeSession(
     opts.resumeId ? { ...session, resumeId: opts.resumeId } : session,
@@ -208,13 +217,22 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
             // Git ground truth — lets the brain trust the disk over the agent's
             // claims. "" for a non-repo cwd (then the brain sees no REPO STATE).
             const repoState = await gitSummary(session.cwd);
-            // The default maps our (…, history, repoState) contract onto
-            // decideNextStep's (…, history, learnedGuidance, repoState) — no
-            // learned guidance here; the supervisor's wrapper supplies that.
+            // Rolling summary (when enabled): fold recent steps forward and feed
+            // {summary + short tail} instead of the full raw history.
+            let projectSummary: string | undefined;
+            let brainHistory = history;
+            if (summarizer) {
+              await summarizer.maybeUpdate(llm, guards.turnCount, history);
+              projectSummary = summarizer.text || undefined;
+              brainHistory = summarizer.tailMessages > 0 ? history.slice(-summarizer.tailMessages) : [];
+            }
+            // The default maps our (…, history, repoState, projectSummary) contract onto
+            // decideNextStep's (…, learnedGuidance, repoState, confidenceThreshold, projectSummary)
+            // — no learned guidance / gate here; the supervisor's wrapper supplies those.
             const decide =
               opts.decide ??
-              ((llm2, s, lt, tn, h, rs) => decideNextStep(llm2, s, lt, tn, h, undefined, rs));
-            let decision = await decide(llm, session, lastText, guards.turnCount, history, repoState);
+              ((llm2, s, lt, tn, h, rs, ps) => decideNextStep(llm2, s, lt, tn, h, undefined, rs, undefined, ps));
+            let decision = await decide(llm, session, lastText, guards.turnCount, brainHistory, repoState, projectSummary);
 
             // No file changes for a while + still "continue" => likely spinning.
             if (decision.action === "continue" && stuck.isStuck(limits.stuckTurns ?? 0)) {

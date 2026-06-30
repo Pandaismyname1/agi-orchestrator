@@ -124,6 +124,11 @@ export interface BrainOptions {
    * human, so they're never gated.
    */
   confidenceThreshold?: number;
+  /**
+   * Feed the brain a maintained running summary (+ a short fresh tail) instead of
+   * the raw last-N messages. Off by default (raw history unchanged).
+   */
+  rollingSummary?: import("./brain/summary.js").RollingSummaryOptions;
 }
 
 /**

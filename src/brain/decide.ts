@@ -99,12 +99,16 @@ function buildUserMessage(
   turnNumber: number,
   history?: Array<{ role: "user" | "assistant"; text: string }>,
   repoState?: string,
+  projectSummary?: string,
 ): string {
   const parts: string[] = [
     `ORIGINAL GOAL:\n${session.goal}`,
     `DONE WHEN:\n${session.doneCriteria}`,
     `TURN NUMBER: ${turnNumber}`,
   ];
+  if (projectSummary && projectSummary.trim()) {
+    parts.push(`PROJECT SO FAR (maintained running summary):\n${projectSummary.trim()}`);
+  }
   if (history && history.length > 0) {
     const block = renderHistory(history);
     if (block) parts.push(`RECENT STEPS (oldest first):\n${block}`);
@@ -144,10 +148,11 @@ export async function decideNextStep(
   learnedGuidance?: string,
   repoState?: string,
   confidenceThreshold?: number,
+  projectSummary?: string,
 ): Promise<Decision> {
   const messages: ChatMessage[] = [
     { role: "system", content: buildSystemPrompt(session.autonomy, learnedGuidance) },
-    { role: "user", content: buildUserMessage(session, lastAssistantText, turnNumber, history, repoState) },
+    { role: "user", content: buildUserMessage(session, lastAssistantText, turnNumber, history, repoState, projectSummary) },
   ];
   const raw = await llm.chat(messages);
   const obj = extractJson(raw);

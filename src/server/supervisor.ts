@@ -296,12 +296,12 @@ export class Supervisor {
     const confThreshold = this.cfg.brain?.confidenceThreshold ?? 0;
     const wantsWrapper = (learning?.enabled || heavy || confThreshold > 0) && !this.decide;
     const decide: RunOptions["decide"] = wantsWrapper
-      ? async (llm, session, lastText, turnNumber, history, repoState) => {
+      ? async (llm, session, lastText, turnNumber, history, repoState, projectSummary) => {
           const guidance = learning?.enabled ? learning.guidanceFor(session.cwd) : undefined;
           // decideNextStep applies the low-confidence gate (continue → escalate)
           // internally, so a gated decision flows straight into heavy refinement.
           const decision = await decideNextStep(
-            llm, session, lastText, turnNumber, history, guidance, repoState, confThreshold,
+            llm, session, lastText, turnNumber, history, guidance, repoState, confThreshold, projectSummary,
           );
           if (decision.action === "escalate" && heavy) {
             return refineEscalation(heavy, session, lastText, turnNumber, history, repoState, decision);
@@ -316,6 +316,7 @@ export class Supervisor {
       decide,
       contextGuard: new ContextGuard(this.cfg.contextGuard),
       usageGuard: this.usageGuard,
+      rollingSummary: this.cfg.brain?.rollingSummary,
       resumeId,
       seedPrompt,
       onSession: (s) => {
