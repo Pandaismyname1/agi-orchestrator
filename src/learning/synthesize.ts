@@ -40,8 +40,12 @@ const SYSTEM_PROMPT =
   "VALUES: what I repeatedly push for or push back on — priorities, quality bars, things I forbid.\n\n" +
   "Be concrete and specific to THIS user; quote characteristic phrasings. Capture durable " +
   "PREFERENCES, never task specifics, never generic safety rules. Short first-person " +
-  "bullets under each heading, ≤220 words total. Output ONLY the headed bullets — no " +
-  "preamble, no closing remarks.";
+  "bullets under each heading, ≤220 words total.\n\n" +
+  "Some inputs are marked AVOID — these are decisions the user explicitly REJECTED " +
+  "(thumbed down). Treat them as anti-patterns: infer what the user did NOT want and " +
+  "fold it into the guidance as something I avoid (e.g. under VALUES or the relevant " +
+  "heading). Never present an AVOID example as something I would do.\n\n" +
+  "Output ONLY the headed bullets — no preamble, no closing remarks.";
 
 const NO_SIGNAL_GUIDANCE =
   "Not enough signal yet — keep using sessions to build a profile.";
@@ -102,7 +106,12 @@ export async function synthesizeProfile(
   const fromLiveCorrections =
     opts.liveCount ?? examples.filter((e) => e.source === "live").length;
 
-  const ranked = rank(examples);
+  // Anti-examples (thumbed down) never become few-shot demonstrations or the
+  // "how I steer" list — they're rendered as a separate AVOID block.
+  const positives = examples.filter((e) => e.kind !== "negative");
+  const negatives = rank(examples.filter((e) => e.kind === "negative"));
+
+  const ranked = rank(positives);
   const fewShot = ranked.slice(0, maxFewShot).map((e) => ({
     situation: e.situation,
     instruction: e.instruction,
@@ -131,18 +140,34 @@ export async function synthesizeProfile(
   });
 
   // Nothing to learn from — return a valid, honest draft without calling the LLM.
-  if (ranked.length === 0) {
+  if (ranked.length === 0 && negatives.length === 0) {
     return wrap({ ...baseDraft, guidance: NO_SIGNAL_GUIDANCE, examples: [] });
   }
 
-  const rendered = ranked
-    .slice(0, maxExamples)
+  // Positives get most of the budget; reserve a slice for AVOID anti-examples.
+  const maxAvoid = Math.min(negatives.length, Math.max(3, Math.floor(maxExamples / 4)));
+  const positiveBudget = maxExamples - (maxAvoid > 0 ? maxAvoid : 0);
+
+  const renderedPositives = ranked
+    .slice(0, positiveBudget)
     .map(
       (e) =>
         `SITUATION: ${truncate(e.situation, SITUATION_CHARS)}\n` +
         `INSTRUCTION: ${truncate(e.instruction, INSTRUCTION_CHARS)}`,
     )
     .join("\n\n");
+
+  const renderedAvoid = negatives
+    .slice(0, maxAvoid)
+    .map(
+      (e) =>
+        `AVOID — the user thumbed this DOWN:\n` +
+        `SITUATION: ${truncate(e.situation, SITUATION_CHARS)}\n` +
+        `REJECTED INSTRUCTION: ${truncate(e.instruction, INSTRUCTION_CHARS)}`,
+    )
+    .join("\n\n");
+
+  const rendered = [renderedPositives, renderedAvoid].filter(Boolean).join("\n\n");
 
   const reply = await llm.chat([
     { role: "system", content: SYSTEM_PROMPT },

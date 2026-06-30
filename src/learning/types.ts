@@ -21,6 +21,12 @@ export interface ExampleBankItem {
   /** What the owner actually told the agent to do next (truncated). */
   instruction: string;
   source: "past" | "live";
+  /**
+   * Whether this is something to emulate ("positive", the default) or to AVOID
+   * ("negative" — e.g. a brain decision the owner thumbed DOWN). Absent ⇒ positive,
+   * so older banks and all mined/correction examples keep their meaning.
+   */
+  kind?: "positive" | "negative";
   /** Stable hash of (situation+instruction) for dedupe. */
   hash: string;
   count: number;

@@ -14,6 +14,7 @@ import type { LearningOptions } from "../types.js";
 import { ProfileStore } from "./profileStore.js";
 import { mineExamples } from "./miner.js";
 import { deriveRecentCorrections, deriveEscalationChoices } from "./liveSignals.js";
+import { deriveRecentFeedback } from "./feedbackSignals.js";
 import { synthesizeProfile } from "./synthesize.js";
 import { replayEval } from "./eval.js";
 import { truncate } from "./util.js";
@@ -146,15 +147,26 @@ export class LearningService implements ILearningService {
     const mined = await mineExamples({ scanLimit: this.opts.scanLimit });
     const live = deriveRecentCorrections(this.store, 50);
     const escalations = deriveEscalationChoices(this.store, 50);
-    this.profiles.appendExamples(GLOBAL_SCOPE, dedupe([...mined.global, ...live, ...escalations]));
+    // Explicit thumbs up/down on brain decisions — the strongest signal we have.
+    const feedback = deriveRecentFeedback(this.store, 50);
+    this.profiles.appendExamples(
+      GLOBAL_SCOPE,
+      dedupe([...mined.global, ...live, ...escalations, ...feedback]),
+    );
     for (const [cwd, items] of mined.byCwd) {
       this.profiles.appendExamples(cwdScope(cwd), items);
     }
 
+    // Split the bank: positives feed the few-shot + held-out eval ("the owner
+    // would say X"); negatives are anti-examples and must NEVER seed the eval
+    // (they're "don't do X"), but they DO inform synthesis as an AVOID block.
     const bank = this.profiles.getExampleBank(target).items;
-    const heldN = Math.min(this.opts.evalHeldOut, Math.floor(bank.length / 3));
-    const synthInput = heldN > 0 ? bank.slice(0, bank.length - heldN) : bank;
-    const heldOut = heldN > 0 ? bank.slice(bank.length - heldN) : [];
+    const positives = bank.filter((i) => i.kind !== "negative");
+    const negatives = bank.filter((i) => i.kind === "negative");
+    const heldN = Math.min(this.opts.evalHeldOut, Math.floor(positives.length / 3));
+    const synthPositives = heldN > 0 ? positives.slice(0, positives.length - heldN) : positives;
+    const heldOut = heldN > 0 ? positives.slice(positives.length - heldN) : [];
+    const synthInput = [...synthPositives, ...negatives];
 
     const pastCount = bank.filter((i) => i.source === "past").length;
     const liveCount = bank.filter((i) => i.source === "live").length;
