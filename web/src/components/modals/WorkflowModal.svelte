@@ -25,7 +25,8 @@
     ZOOM_MAX,
   } from "../../lib/graph";
   import { buildSessionDraft, type DraftMode } from "../../lib/nodeform";
-  import type { AutomationInput } from "../../lib/types";
+  import { DRAW_EVENTS, defaultEventFor, buildDrawnAutomation, eventPhrase } from "../../lib/drawauto";
+  import type { WebhookEvent } from "../../lib/types";
   import Modal from "../Modal.svelte";
   import StatusBadge from "../StatusBadge.svelte";
   import Icon from "../Icon.svelte";
@@ -150,6 +151,13 @@
     { id: "start", label: "Start", icon: "play" },
     { id: "stop", label: "Stop", icon: "stop" },
   ];
+  // Trigger event a drawn start/stop edge fires on (operator-pickable; seeded with
+  // the sensible default when the action mode changes).
+  let drawEvent = $state<WebhookEvent>("done");
+  function pickMode(m: LinkMode): void {
+    linkMode = m;
+    if (m !== "depends") drawEvent = defaultEventFor(m);
+  }
 
   // Drop-to-create a session node: a "+ Session" chip drags a ghost; dropping on
   // the canvas opens a tiny inline create card at that point.
@@ -269,28 +277,25 @@
   }
 
   /**
-   * Create an automation rule by drawing: "when FROM fires <event>, <kind> TO".
-   * Sensible default trigger per action — start-on-done (forward chaining),
-   * stop-on-error (halt a dependent when its source breaks). Editable afterward
-   * in the Automations manager.
+   * Create an automation rule by drawing: "when FROM fires <drawEvent>, <kind> TO".
+   * The trigger event is operator-pickable (defaults: start-on-done forward
+   * chaining, stop-on-error halt-on-break). Editable afterward in the Automations
+   * manager.
    */
   function attemptAutomation(from: string, to: string, kind: "start" | "stop"): void {
     if (hasAutomationEdge(automations, from, to, kind)) {
       ui.toast(`that ${kind} automation already exists`);
       return;
     }
-    const event = kind === "start" ? "done" : "error";
-    const name =
-      kind === "start"
-        ? `Start ${shortId(to)} when ${shortId(from)} is done`
-        : `Stop ${shortId(to)} when ${shortId(from)} errors`;
-    const automation: AutomationInput = {
-      name,
-      enabled: true,
-      on: [event],
-      match: { sessionId: from },
-      actions: [{ kind, target: to }],
-    };
+    const event = drawEvent;
+    const automation = buildDrawnAutomation({
+      from,
+      to,
+      kind,
+      event,
+      fromLabel: shortId(from),
+      toLabel: shortId(to),
+    });
     wsStore.send({ type: "automationSave", automation });
     ui.toast(`automation added — ${kind} ${shortId(to)} on ${shortId(from)} ${event}`);
   }
@@ -469,7 +474,7 @@
       <span class="wf-hint">
         Drag a node to move it. Drag the <span class="wf-dot-inline" class:start={linkMode === "start"} class:stop={linkMode === "stop"}></span>
         handle onto another node to
-        {#if linkMode === "depends"}make it <b>run after</b> this one{:else if linkMode === "start"}<b>start</b> it when this finishes{:else}<b>stop</b> it when this errors{/if}.
+        {#if linkMode === "depends"}make it <b>run after</b> this one{:else if linkMode === "start"}<b>start</b> it when this {eventPhrase(drawEvent)}{:else}<b>stop</b> it when this {eventPhrase(drawEvent)}{/if}.
         Click an edge to remove it.
       </span>
       <span class="wf-modes" role="group" aria-label="What a connection creates">
@@ -478,13 +483,23 @@
             class="wf-mode {m.id}"
             class:on={linkMode === m.id}
             aria-pressed={linkMode === m.id}
-            title={m.id === "depends" ? "Draw a dependency (runs after)" : `Draw an automation (${m.id} on ${m.id === "start" ? "done" : "error"})`}
-            onclick={() => (linkMode = m.id)}
+            title={m.id === "depends" ? "Draw a dependency (runs after)" : `Draw an automation (${m.id})`}
+            onclick={() => pickMode(m.id)}
           >
             <Icon name={m.icon} size={12} /> {m.label}
           </button>
         {/each}
       </span>
+      {#if linkMode !== "depends"}
+        <label class="wf-evt" title="Trigger event for the automation you draw">
+          on
+          <select bind:value={drawEvent} aria-label="Trigger event">
+            {#each DRAW_EVENTS as ev (ev)}
+              <option value={ev}>{ev}</option>
+            {/each}
+          </select>
+        </label>
+      {/if}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="wf-newchip"
@@ -715,6 +730,28 @@
   .wf-mode.on.stop {
     background: rgba(248, 113, 113, 0.16);
     color: var(--st-error);
+  }
+  .wf-evt {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: none;
+    font-size: 11.5px;
+    color: var(--color-neutral-content);
+  }
+  .wf-evt select {
+    font: inherit;
+    font-size: 11.5px;
+    color: var(--color-base-content);
+    background: var(--color-base-200);
+    border: 1px solid var(--border-soft);
+    border-radius: 7px;
+    padding: 4px 6px;
+    cursor: pointer;
+  }
+  .wf-evt select:focus {
+    outline: none;
+    border-color: var(--color-primary);
   }
   .wf-legend {
     display: flex;
