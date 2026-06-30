@@ -3,6 +3,7 @@
   import type { Metrics, RunRow, RunDetail, TurnDiff } from "../../lib/types";
   import { api } from "../../lib/api";
   import { ui } from "../../lib/ui.svelte";
+  import { wsStore } from "../../lib/ws.svelte";
   import { minutes, clamp } from "../../lib/format";
   import Modal from "../Modal.svelte";
 
@@ -61,6 +62,18 @@
   function toggleDiff(n: number) {
     openDiffs = { ...openDiffs, [n]: !openDiffs[n] };
   }
+  /** Roll the session's working tree back to the snapshot taken after this turn. */
+  function rollback(snapshot: string, turnN: number): void {
+    const ok = confirm(
+      `Roll the working tree back to the state after turn ${turnN}?\n\n` +
+        `This restores files on disk in ${sid} — undoing changes made after this turn. ` +
+        `Your current state is backed up first (a notice will show the backup id). The session must be stopped.`,
+    );
+    if (!ok) return;
+    wsStore.send({ type: "rollback", id: sid, snapshot });
+    ui.toast("rolling back…");
+  }
+
   /** Classify a patch line for +/- coloring. */
   function lineKind(l: string): "add" | "del" | "hunk" | "meta" | "" {
     if (l.startsWith("+++") || l.startsWith("---")) return "meta";
@@ -102,6 +115,18 @@
                 </span>
               {/each}
               {#if td.files.length > 4}<span class="more">+{td.files.length - 4} more</span>{/if}
+              {#if t.snapshot}
+                <button
+                  class="rollbtn"
+                  title="Restore the working tree to the state after this turn"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    rollback(t.snapshot!, t.n);
+                  }}
+                >
+                  ↩ roll back to here
+                </button>
+              {/if}
             </div>
             {#if openDiffs[t.n] && td.patch}
               <pre class="patch">{#each td.patch.split("\n") as ln, i (i)}<span class="pl {lineKind(ln)}">{ln + "\n"}</span>{/each}</pre>
@@ -291,6 +316,21 @@
   .more {
     font-size: 10px;
     color: var(--faint);
+  }
+  .rollbtn {
+    margin-left: auto;
+    font: inherit;
+    font-size: 10px;
+    color: var(--st-stopped);
+    background: transparent;
+    border: 1px solid rgba(251, 191, 36, 0.4);
+    border-radius: 20px;
+    padding: 1px 9px;
+    cursor: pointer;
+  }
+  .rollbtn:hover {
+    background: rgba(251, 191, 36, 0.1);
+    border-color: var(--st-stopped);
   }
   .patch {
     margin: 7px 0 0;

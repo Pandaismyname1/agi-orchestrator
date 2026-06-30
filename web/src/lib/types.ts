@@ -320,7 +320,8 @@ export type ClientMsg =
   | { type: "saveAsTemplate"; id: string; name: string }
   | { type: "webhookSave"; webhook: WebhookInput }
   | { type: "webhookDelete"; id: string }
-  | { type: "webhookTest"; id: string };
+  | { type: "webhookTest"; id: string }
+  | { type: "rollback"; id: string; snapshot: string };
 
 /** Discovered on-disk Claude Code session (GET /api/discover). */
 export interface DiscoveredSession {
@@ -377,6 +378,8 @@ export interface TurnRow {
   files_changed?: number | null;
   /** JSON-encoded TurnDiff, or null (parse with JSON.parse). */
   diff?: string | null;
+  /** Pinned git sha of the worktree after this turn (rollback target), or null. */
+  snapshot?: string | null;
 }
 
 export interface DecisionRow {

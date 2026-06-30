@@ -38,6 +38,7 @@ export class Recorder {
             gatesHandled: e.result.gatesHandled,
             filesChanged: diff ? diff.files.length : null,
             diff: diff ? JSON.stringify(diff) : null,
+            snapshot: e.result.snapshot ?? null,
           });
           this.lastTurnBySession.set(e.sessionId, turnId);
           this.store.addEvent({ sessionId: e.sessionId, runId, type: "turn", payload: { n: e.turnNumber } });

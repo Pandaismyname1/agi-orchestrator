@@ -433,6 +433,7 @@ export const MOCK_RUN: RunDetail = {
       assistant_text:
         "Added refresh-token rotation in src/auth/tokens.ts and a regression test in tests/auth.spec.ts.\n\nRunning 14 tests…\n  ✓ issues a refresh token on login\n  ✓ rotates the token on refresh\n  ✓ rejects a reused token\nAll passing.",
       files_changed: 2,
+      snapshot: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
       diff: JSON.stringify({
         files: [
           { file: "src/auth/tokens.ts", added: 38, removed: 4 },

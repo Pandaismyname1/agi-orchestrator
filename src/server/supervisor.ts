@@ -17,6 +17,7 @@ import { UsageGuard, type UsageStatus } from "../policy/usage.js";
 import { decideNextStep, refineEscalation } from "../brain/decide.js";
 import { assessGoal, type IntakeInput, type IntakeResult } from "../brain/intake.js";
 import { isDue, hasActiveTrigger, parseHHMM } from "../policy/schedule.js";
+import { restoreTo, type RestoreResult } from "../git/diff.js";
 import { LearningService, emptyLearningSummary } from "../learning/service.js";
 import { Notifier, type DeliveryResult, type NotifyContext } from "../notify/notifier.js";
 import type {
@@ -209,6 +210,27 @@ export class Supervisor {
    */
   assessGoal(input: IntakeInput): Promise<IntakeResult> {
     return assessGoal(this.llm, input);
+  }
+
+  /**
+   * Roll a session's working tree back to a per-turn snapshot (undo every later
+   * turn). Guarded: the session must exist and be idle (no agent touching the
+   * repo), and `sha` must be a snapshot THIS session actually recorded. Pins a
+   * backup of the current state first so the rollback is itself recoverable.
+   */
+  rollback(sessionId: string, sha: string): RestoreResult {
+    const m = this.sessions.get(sessionId);
+    if (!m) throw new Error(`no session with id "${sessionId}".`);
+    if (["running", "queued", "needs-input", "manual", "blocked"].includes(m.status)) {
+      throw new Error("stop the session before rolling back its working tree.");
+    }
+    if (!/^[0-9a-f]{7,40}$/.test(sha)) throw new Error("invalid snapshot id.");
+    if (!this.store || !this.store.snapshotBelongsToSession(sessionId, sha)) {
+      throw new Error("that snapshot doesn't belong to this session.");
+    }
+    const res = restoreTo(m.config.cwd, sha);
+    if (res.ok) m.lastDecision = `rolled back to an earlier snapshot${res.backupSha ? ` (backup ${res.backupSha.slice(0, 8)})` : ""}`;
+    return res;
   }
 
   /**

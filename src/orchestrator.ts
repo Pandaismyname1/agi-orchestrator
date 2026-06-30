@@ -17,7 +17,7 @@ import { RollingSummary, type RollingSummaryOptions } from "./brain/summary.js";
 import { LocalLLM } from "./brain/provider.js";
 import { Guards } from "./policy/guards.js";
 import { StuckDetector, fingerprintDir } from "./policy/stuck.js";
-import { isGitRepo, snapshotRef, turnDiff } from "./git/diff.js";
+import { isGitRepo, snapshotRef, turnDiff, protectSnapshot } from "./git/diff.js";
 import type { ContextGuard } from "./policy/context.js";
 import type { UsageGuard } from "./policy/usage.js";
 import type { UsageStatus } from "./policy/usage.js";
@@ -299,12 +299,17 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
         break;
       }
       const result = await sess.runTurn(pending);
-      // Capture what changed on disk this turn (best-effort; never throws).
+      // Capture what changed on disk this turn (best-effort; never throws), and
+      // pin the post-turn snapshot so it can be rolled back to later.
       if (gitTracked) {
         const curSnapshot = snapshotRef(session.cwd);
         const diff = turnDiff(session.cwd, prevSnapshot, curSnapshot);
         if (diff && diff.files.length > 0) result.diff = diff;
-        if (curSnapshot) prevSnapshot = curSnapshot;
+        if (curSnapshot) {
+          protectSnapshot(session.cwd, curSnapshot);
+          result.snapshot = curSnapshot;
+          prevSnapshot = curSnapshot;
+        }
       }
       emit({ type: "turn", sessionId: session.id, turnNumber: guards.turnCount, result });
       stuck.record(fingerprintDir(session.cwd)); // did anything change this turn?

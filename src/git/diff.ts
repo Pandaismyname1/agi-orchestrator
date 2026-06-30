@@ -57,6 +57,62 @@ export function isGitRepo(cwd: string): boolean {
 }
 
 /**
+ * Pin a snapshot commit under refs/agi/snap/<sha> so git GC can never prune it —
+ * the per-turn snapshots must survive long enough to roll back to. Idempotent.
+ */
+export function protectSnapshot(cwd: string, sha: string | null): void {
+  if (!sha) return;
+  git(cwd, ["update-ref", `refs/agi/snap/${sha}`, sha]);
+}
+
+/** True if `sha` resolves to a real commit (or tree) object in this repo. */
+export function snapshotExists(cwd: string, sha: string): boolean {
+  if (!/^[0-9a-f]{7,40}$/.test(sha)) return false;
+  return (
+    git(cwd, ["rev-parse", "--verify", "--quiet", `${sha}^{commit}`]) !== null ||
+    git(cwd, ["rev-parse", "--verify", "--quiet", `${sha}^{tree}`]) !== null
+  );
+}
+
+/** Outcome of a rollback. `backupSha` is a pinned snapshot of the pre-rollback state. */
+export interface RestoreResult {
+  ok: boolean;
+  backupSha?: string;
+  error?: string;
+}
+
+/**
+ * Restore the working tree + index to EXACTLY match snapshot `sha` — re-adding
+ * files deleted since, removing files created since, and reverting edits — WITHOUT
+ * moving HEAD or touching .gitignored paths. A safety snapshot of the current
+ * state is pinned first so the rollback is itself recoverable.
+ *
+ * Caller MUST ensure no agent/PTY is touching the repo concurrently.
+ */
+export function restoreTo(cwd: string, sha: string): RestoreResult {
+  if (!isGitRepo(cwd)) return { ok: false, error: "not a git repository" };
+  if (!snapshotExists(cwd, sha)) return { ok: false, error: "snapshot not found in this repo" };
+  // Safety net: pin the current state so the operator can undo the rollback.
+  const backupSha = snapshotRef(cwd);
+  protectSnapshot(cwd, backupSha);
+  const bk = backupSha ?? undefined;
+  // Make index+worktree match the snapshot tree EXACTLY, without moving HEAD:
+  //   1) point the index at the snapshot tree,
+  //   2) force-write every one of those files to the working tree (reverts edits,
+  //      restores deleted files),
+  //   3) remove files added since (now untracked) — `clean -fd` keeps .gitignored
+  //      paths (no -x), so node_modules etc. are never touched.
+  if (git(cwd, ["read-tree", "--reset", `${sha}^{tree}`]) === null) {
+    return { ok: false, error: "restore failed (read-tree)", backupSha: bk };
+  }
+  if (git(cwd, ["checkout-index", "-f", "-a"]) === null) {
+    return { ok: false, error: "restore failed (checkout-index)", backupSha: bk };
+  }
+  git(cwd, ["clean", "-fd"]); // best-effort; nothing-to-clean is not a failure
+  return { ok: true, backupSha: bk };
+}
+
+/**
  * Snapshot the FULL current working tree (tracked + untracked, minus ignored) as
  * a dangling commit and return its sha — without touching the real index/worktree.
  * Returns null if `cwd` isn't a usable repo.

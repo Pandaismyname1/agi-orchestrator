@@ -82,7 +82,8 @@ interface ClientMsg {
     | "setMode" | "sendMessage" | "updateSettings" | "continue"
     | "learnSynthesize" | "learnApprove" | "learnReject" | "learnRevert"
     | "templateSave" | "templateDelete" | "saveAsTemplate"
-    | "webhookSave" | "webhookDelete" | "webhookTest";
+    | "webhookSave" | "webhookDelete" | "webhookTest"
+    | "rollback";
   id?: string;
   session?: SessionInput;
   patch?: SessionPatch;
@@ -92,6 +93,8 @@ interface ClientMsg {
   webhook?: WebhookInput;
   /** For "saveAsTemplate": the new template's name. */
   name?: string;
+  /** For "rollback": the per-turn snapshot sha to restore the working tree to. */
+  snapshot?: string;
   /** For "updateSettings": the global-settings fields to change. */
   settings?: SettingsPatch;
   /** For "continue": the edited goal / instruction / mode to resume with. */
@@ -518,6 +521,18 @@ async function main(): Promise<void> {
             const note = r.ok
               ? `✓ webhook test delivered${r.status ? ` (HTTP ${r.status})` : ""}`
               : `✗ webhook test failed: ${r.error ?? "unknown error"}`;
+            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "notice", message: note }));
+          } catch (e) {
+            sendError(e instanceof Error ? e.message : String(e));
+          }
+          break;
+        case "rollback":
+          try {
+            if (!msg.id || !msg.snapshot) throw new Error("missing session id or snapshot.");
+            const r = sup.rollback(msg.id, msg.snapshot);
+            const note = r.ok
+              ? `✓ rolled back working tree${r.backupSha ? ` — pre-rollback state backed up as ${r.backupSha.slice(0, 8)}` : ""}`
+              : `✗ rollback failed: ${r.error ?? "unknown error"}`;
             if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "notice", message: note }));
           } catch (e) {
             sendError(e instanceof Error ? e.message : String(e));

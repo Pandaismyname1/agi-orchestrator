@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS turns (
   gates_handled   INTEGER NOT NULL DEFAULT 0,
   files_changed   INTEGER,                         -- # files the agent changed this turn (git)
   diff            TEXT,                            -- per-turn unified diff (JSON: {files, patch, truncated})
+  snapshot        TEXT,                            -- pinned git sha of the worktree after this turn (rollback target)
   created_at      INTEGER NOT NULL,
   FOREIGN KEY (run_id) REFERENCES runs(id)
 );

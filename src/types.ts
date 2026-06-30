@@ -364,4 +364,9 @@ export interface TurnResult {
    * is a git repo). Undefined for non-repo projects or when capture failed.
    */
   diff?: import("./git/diff.js").TurnDiff;
+  /**
+   * Pinned git snapshot sha of the working tree AFTER this turn (set when the cwd
+   * is a git repo). Rolling back to it undoes every later turn.
+   */
+  snapshot?: string;
 }

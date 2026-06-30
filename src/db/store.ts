@@ -41,6 +41,8 @@ export interface TurnRow {
   files_changed: number | null;
   /** JSON-encoded TurnDiff ({files, patch, truncated}) or null. */
   diff: string | null;
+  /** Pinned git sha of the worktree after this turn (rollback target) or null. */
+  snapshot: string | null;
   created_at: number;
 }
 
@@ -64,7 +66,7 @@ export class Store {
 
   /** Idempotent column adds for DBs created before a column existed. */
   private migrate(): void {
-    for (const col of ["files_changed INTEGER", "diff TEXT"]) {
+    for (const col of ["files_changed INTEGER", "diff TEXT", "snapshot TEXT"]) {
       try {
         this.db.exec(`ALTER TABLE turns ADD COLUMN ${col}`);
       } catch {
@@ -133,12 +135,13 @@ export class Store {
       gatesHandled: number;
       filesChanged?: number | null;
       diff?: string | null;
+      snapshot?: string | null;
     },
   ): number {
     const r = this.db
       .prepare(
-        `INSERT INTO turns (run_id, n, injected_prompt, assistant_text, duration_ms, gates_handled, files_changed, diff, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO turns (run_id, n, injected_prompt, assistant_text, duration_ms, gates_handled, files_changed, diff, snapshot, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         runId,
@@ -149,9 +152,25 @@ export class Store {
         t.gatesHandled,
         t.filesChanged ?? null,
         t.diff ?? null,
+        t.snapshot ?? null,
         Date.now(),
       );
     return Number(r.lastInsertRowid);
+  }
+
+  /**
+   * True if `sha` is a per-turn snapshot recorded for ANY run of `sessionId`.
+   * Gates rollback so a client can only restore to a snapshot this session
+   * actually produced (not an arbitrary sha).
+   */
+  snapshotBelongsToSession(sessionId: string, sha: string): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM turns t JOIN runs r ON r.id = t.run_id
+         WHERE r.session_id = ? AND t.snapshot = ? LIMIT 1`,
+      )
+      .get(sessionId, sha);
+    return !!row;
   }
 
   addDecision(turnId: number, d: { action: string; prompt?: string; reason: string }): void {

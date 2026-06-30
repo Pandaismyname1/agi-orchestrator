@@ -10,7 +10,15 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isGitRepo, snapshotRef, turnDiff, parseNumstat } from "../src/git/diff.js";
+import {
+  isGitRepo,
+  snapshotRef,
+  turnDiff,
+  parseNumstat,
+  restoreTo,
+  snapshotExists,
+  protectSnapshot,
+} from "../src/git/diff.js";
 
 let pass = true;
 const check = (n: string, c: boolean) => {
@@ -76,6 +84,46 @@ check("numstat parses counts", parsed[0]?.added === 3 && parsed[0]?.removed === 
 check("numstat marks binary as -1", parsed[1]?.added === -1 && parsed[1]?.removed === -1);
 
 check("temp repo created cleanly", existsSync(path.join(repo, ".git")));
+
+// ---- rollback (restoreTo) ---------------------------------------------------
+// Fresh repo: commit a baseline, snapshot it, then make a messy set of changes
+// (modify + new file + delete a tracked file), and roll back to the snapshot.
+const rb = mkdtempSync(path.join(os.tmpdir(), "agi-rollback-"));
+run(rb, ["init", "-q"]);
+run(rb, ["config", "user.email", "t@a.local"]);
+run(rb, ["config", "user.name", "T"]);
+writeFileSync(path.join(rb, "keep.txt"), "original\n");
+writeFileSync(path.join(rb, "doomed.txt"), "delete me later\n");
+run(rb, ["add", "-A"]);
+run(rb, ["commit", "-qm", "base"]);
+
+const target = snapshotRef(rb);
+protectSnapshot(rb, target);
+check("rollback target snapshot exists", !!target && snapshotExists(rb, target!));
+
+// Agent makes a mess: edit keep.txt, create new.txt, delete doomed.txt.
+writeFileSync(path.join(rb, "keep.txt"), "MODIFIED by agent\n");
+writeFileSync(path.join(rb, "new.txt"), "agent created this\n");
+execFileSync("git", ["rm", "-q", "doomed.txt"], { cwd: rb, stdio: ["ignore", "pipe", "ignore"] });
+
+const res = restoreTo(rb, target!);
+check("restoreTo reports success", res.ok);
+check("restoreTo pinned a backup of the pre-rollback state", !!res.backupSha && snapshotExists(rb, res.backupSha!));
+
+// normalize CRLF — git autocrlf may rewrite line endings on checkout (Windows).
+const keepContent = readFileSync(path.join(rb, "keep.txt"), "utf8").replace(/\r/g, "");
+check("modified file reverted", keepContent === "original\n");
+check("agent-created file removed", !existsSync(path.join(rb, "new.txt")));
+check("deleted file restored", existsSync(path.join(rb, "doomed.txt")));
+
+// the backup can itself be restored (rollback is recoverable).
+const back = restoreTo(rb, res.backupSha!);
+check("can restore the backup (undo the rollback)", back.ok);
+check("after undo, agent's file is back", existsSync(path.join(rb, "new.txt")));
+
+// guards: unknown / malformed sha is refused.
+check("restoreTo refuses an unknown sha", !restoreTo(rb, "0".repeat(40)).ok);
+check("snapshotExists rejects junk", !snapshotExists(rb, "not-a-sha"));
 
 console.log(`\n[gitdiff] => ${pass ? "PASS ✅" : "FAIL ⚠️"}`);
 process.exit(pass ? 0 : 1);
