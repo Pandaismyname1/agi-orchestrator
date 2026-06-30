@@ -453,6 +453,16 @@ async function main(): Promise<void> {
   });
 
   const port = cfg.port ?? 4317;
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(
+        `\n✖ Port ${port} is already in use — another AGI dashboard is probably still running.\n` +
+          `  Use \`npm start\` (it reclaims the port automatically), or stop the other process first.\n`,
+      );
+      process.exit(1);
+    }
+    throw err;
+  });
   server.listen(port, () => {
     const url = `http://localhost:${port}`;
     console.log(`\n🟢 dashboard → ${url}\n`);
