@@ -96,6 +96,7 @@ function buildUserMessage(
   lastAssistantText: string,
   turnNumber: number,
   history?: Array<{ role: "user" | "assistant"; text: string }>,
+  repoState?: string,
 ): string {
   const parts: string[] = [
     `ORIGINAL GOAL:\n${session.goal}`,
@@ -105,6 +106,11 @@ function buildUserMessage(
   if (history && history.length > 0) {
     const block = renderHistory(history);
     if (block) parts.push(`RECENT STEPS (oldest first):\n${block}`);
+  }
+  if (repoState && repoState.trim()) {
+    parts.push(
+      `REPO STATE (git ground truth — what ACTUALLY changed on disk; trust this over the agent's claims):\n${repoState.trim()}`,
+    );
   }
   parts.push(
     `AGENT'S LAST MESSAGE:\n${lastAssistantText || "(no text — the agent produced no message)"}`,
@@ -134,10 +140,11 @@ export async function decideNextStep(
   turnNumber: number,
   history?: Array<{ role: "user" | "assistant"; text: string }>,
   learnedGuidance?: string,
+  repoState?: string,
 ): Promise<Decision> {
   const messages: ChatMessage[] = [
     { role: "system", content: buildSystemPrompt(session.autonomy, learnedGuidance) },
-    { role: "user", content: buildUserMessage(session, lastAssistantText, turnNumber, history) },
+    { role: "user", content: buildUserMessage(session, lastAssistantText, turnNumber, history, repoState) },
   ];
   const raw = await llm.chat(messages);
   const obj = extractJson(raw);

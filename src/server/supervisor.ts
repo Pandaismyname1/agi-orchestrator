@@ -290,8 +290,8 @@ export class Supervisor {
     const learning = this.learning;
     const decide: RunOptions["decide"] =
       learning?.enabled && !this.decide
-        ? (llm, session, lastText, turnNumber, history) =>
-            decideNextStep(llm, session, lastText, turnNumber, history, learning.guidanceFor(session.cwd))
+        ? (llm, session, lastText, turnNumber, history, repoState) =>
+            decideNextStep(llm, session, lastText, turnNumber, history, learning.guidanceFor(session.cwd), repoState)
         : this.decide;
 
     void this.runner(m.config, {

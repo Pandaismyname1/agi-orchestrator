@@ -12,6 +12,7 @@
 import { ClaudeSession, AuthError, RateLimitError } from "./session/claudeSession.js";
 import { decideNextStep } from "./brain/decide.js";
 import { readRecentMessages, readLastAssistantMessage } from "./transcript/reader.js";
+import { gitSummary } from "./brain/repoState.js";
 import { LocalLLM } from "./brain/provider.js";
 import { Guards } from "./policy/guards.js";
 import { StuckDetector, fingerprintDir } from "./policy/stuck.js";
@@ -88,6 +89,7 @@ export interface RunOptions {
     lastAssistantText: string,
     turnNumber: number,
     history?: Array<{ role: "user" | "assistant"; text: string }>,
+    repoState?: string,
   ) => Promise<Decision>;
   /** Current mode, read each loop iteration. Default "autopilot" if omitted. */
   mode?: () => "manual" | "autopilot";
@@ -203,8 +205,16 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
             pending = session.goal;
           } else {
             const history = await readRecentMessages(session.cwd, sess.sessionId, 8);
-            const decide = opts.decide ?? decideNextStep;
-            let decision = await decide(llm, session, lastText, guards.turnCount, history);
+            // Git ground truth — lets the brain trust the disk over the agent's
+            // claims. "" for a non-repo cwd (then the brain sees no REPO STATE).
+            const repoState = await gitSummary(session.cwd);
+            // The default maps our (…, history, repoState) contract onto
+            // decideNextStep's (…, history, learnedGuidance, repoState) — no
+            // learned guidance here; the supervisor's wrapper supplies that.
+            const decide =
+              opts.decide ??
+              ((llm2, s, lt, tn, h, rs) => decideNextStep(llm2, s, lt, tn, h, undefined, rs));
+            let decision = await decide(llm, session, lastText, guards.turnCount, history, repoState);
 
             // No file changes for a while + still "continue" => likely spinning.
             if (decision.action === "continue" && stuck.isStuck(limits.stuckTurns ?? 0)) {
