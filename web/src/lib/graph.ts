@@ -143,6 +143,18 @@ export interface AutomationEdge {
   ruleName: string;
 }
 
+/** Does an automation edge `from → to` (optionally of a given kind) already exist? */
+export function hasAutomationEdge(
+  rules: AutomationRuleLike[] | undefined,
+  from: string,
+  to: string,
+  kind?: "start" | "stop",
+): boolean {
+  return deriveAutomationEdges(rules, [from, to]).some(
+    (e) => e.from === from && e.to === to && (!kind || e.kind === kind),
+  );
+}
+
 /**
  * Derive the automation edges that connect two distinct, known sessions: a rule
  * scoped to a specific firing session (`match.sessionId`) whose start/stop action

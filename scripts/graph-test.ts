@@ -13,6 +13,7 @@ import {
   withDependency,
   withoutDependency,
   deriveAutomationEdges,
+  hasAutomationEdge,
   type GraphSession,
   type AutomationRuleLike,
 } from "../web/src/lib/graph.js";
@@ -105,6 +106,12 @@ check("accepts a Set of ids", deriveAutomationEdges(rules, new Set(ids)).length 
   ];
   check("dedups identical automation edges", deriveAutomationEdges(dup, ids).length === 1);
 }
+
+// ── hasAutomationEdge ─────────────────────────────────────────────────────────────
+check("hasAutomationEdge true for existing A-start->B", hasAutomationEdge(rules, "A", "B"));
+check("hasAutomationEdge respects kind", hasAutomationEdge(rules, "A", "B", "start") && !hasAutomationEdge(rules, "A", "B", "stop"));
+check("hasAutomationEdge false for missing edge", !hasAutomationEdge(rules, "A", "C"));
+check("hasAutomationEdge false on empty rules", !hasAutomationEdge([], "A", "B"));
 
 console.log(`\n[graph] => ${pass ? "PASS ✅" : "FAIL ⚠️"}`);
 process.exit(pass ? 0 : 1);

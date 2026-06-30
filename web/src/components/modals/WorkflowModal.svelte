@@ -12,12 +12,14 @@
   import {
     deriveEdges,
     deriveAutomationEdges,
+    hasAutomationEdge,
     layeredLayout,
     wouldCreateCycle,
     hasEdge,
     withDependency,
     withoutDependency,
   } from "../../lib/graph";
+  import type { AutomationInput } from "../../lib/types";
   import Modal from "../Modal.svelte";
   import StatusBadge from "../StatusBadge.svelte";
   import Icon from "../Icon.svelte";
@@ -93,6 +95,15 @@
   let conn = $state<{ from: string; x1: number; y1: number; cx: number; cy: number } | null>(null);
   let hoverId = $state<string | null>(null);
 
+  // What a handle-drag creates: a dependency, or an automation (start/stop) rule.
+  type LinkMode = "depends" | "start" | "stop";
+  let linkMode = $state<LinkMode>("depends");
+  const LINK_MODES: { id: LinkMode; label: string; icon: "chevronRight" | "play" | "stop" }[] = [
+    { id: "depends", label: "Depends on", icon: "chevronRight" },
+    { id: "start", label: "Start", icon: "play" },
+    { id: "stop", label: "Stop", icon: "stop" },
+  ];
+
   function local(e: PointerEvent): { x: number; y: number } {
     const r = canvasEl?.getBoundingClientRect();
     return { x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) };
@@ -151,7 +162,10 @@
     } else if (conn) {
       const l = local(e);
       const target = nodeAt(l.x, l.y, conn.from);
-      if (target) attemptConnect(conn.from, target);
+      if (target) {
+        if (linkMode === "depends") attemptConnect(conn.from, target);
+        else attemptAutomation(conn.from, target, linkMode);
+      }
       conn = null;
       hoverId = null;
     }
@@ -168,6 +182,33 @@
     }
     wsStore.send({ type: "update", id: to, patch: { dependsOn: withDependency(sessions, from, to) } });
     ui.toast(`${shortId(to)} now runs after ${shortId(from)}`);
+  }
+
+  /**
+   * Create an automation rule by drawing: "when FROM fires <event>, <kind> TO".
+   * Sensible default trigger per action — start-on-done (forward chaining),
+   * stop-on-error (halt a dependent when its source breaks). Editable afterward
+   * in the Automations manager.
+   */
+  function attemptAutomation(from: string, to: string, kind: "start" | "stop"): void {
+    if (hasAutomationEdge(automations, from, to, kind)) {
+      ui.toast(`that ${kind} automation already exists`);
+      return;
+    }
+    const event = kind === "start" ? "done" : "error";
+    const name =
+      kind === "start"
+        ? `Start ${shortId(to)} when ${shortId(from)} is done`
+        : `Stop ${shortId(to)} when ${shortId(from)} errors`;
+    const automation: AutomationInput = {
+      name,
+      enabled: true,
+      on: [event],
+      match: { sessionId: from },
+      actions: [{ kind, target: to }],
+    };
+    wsStore.send({ type: "automationSave", automation });
+    ui.toast(`automation added — ${kind} ${shortId(to)} on ${shortId(from)} ${event}`);
   }
 
   function removeEdge(from: string, to: string): void {
@@ -248,10 +289,15 @@
 
   let hasAuto = $derived(autoEdges.length > 0);
 
-  // Pending-connection validity (drives the live-line color + drop highlight).
-  let connValid = $derived(
-    conn && hoverId ? !hasEdge(sessions, conn.from, hoverId) && !wouldCreateCycle(sessions, conn.from, hoverId) : false,
-  );
+  // Pending-connection validity (drives the live-line color + drop highlight),
+  // evaluated against the active link mode.
+  let connValid = $derived.by(() => {
+    if (!conn || !hoverId) return false;
+    if (linkMode === "depends") {
+      return !hasEdge(sessions, conn.from, hoverId) && !wouldCreateCycle(sessions, conn.from, hoverId);
+    }
+    return !hasAutomationEdge(automations, conn.from, hoverId, linkMode);
+  });
 </script>
 
 <svelte:window onpointermove={onMove} onpointerup={onUp} />
@@ -262,17 +308,34 @@
   {:else}
     <div class="wf-bar">
       <span class="wf-hint">
-        Drag a node to move it. Drag the <span class="wf-dot-inline"></span> handle onto another node to make
-        it <b>run after</b> this one. Click an edge to remove it.
+        Drag a node to move it. Drag the <span class="wf-dot-inline" class:start={linkMode === "start"} class:stop={linkMode === "stop"}></span>
+        handle onto another node to
+        {#if linkMode === "depends"}make it <b>run after</b> this one{:else if linkMode === "start"}<b>start</b> it when this finishes{:else}<b>stop</b> it when this errors{/if}.
+        Click an edge to remove it.
       </span>
-      <span class="wf-legend">
-        <span class="lg"><span class="lg-line dep"></span> depends on</span>
-        {#if hasAuto}<span class="lg"><span class="lg-line auto"></span> automation</span>{/if}
+      <span class="wf-modes" role="group" aria-label="What a connection creates">
+        {#each LINK_MODES as m (m.id)}
+          <button
+            class="wf-mode {m.id}"
+            class:on={linkMode === m.id}
+            aria-pressed={linkMode === m.id}
+            title={m.id === "depends" ? "Draw a dependency (runs after)" : `Draw an automation (${m.id} on ${m.id === "start" ? "done" : "error"})`}
+            onclick={() => (linkMode = m.id)}
+          >
+            <Icon name={m.icon} size={12} /> {m.label}
+          </button>
+        {/each}
       </span>
       <button class="btn btn-xs" onclick={autoArrange} title="Reset node positions to the auto layout">
         <Icon name="layers" size={12} /> Auto-arrange
       </button>
     </div>
+    {#if hasDeps || hasAuto}
+      <div class="wf-legend">
+        <span class="lg"><span class="lg-line dep"></span> depends on</span>
+        {#if hasAuto}<span class="lg"><span class="lg-line auto"></span> automation</span>{/if}
+      </div>
+    {/if}
     {#if !hasDeps}
       <div class="wf-note">
         No dependencies yet. Connect two nodes (drag a handle) to chain them — a dependent auto-starts
@@ -326,7 +389,7 @@
           {#if conn}
             <path
               d={path({ x1: conn.x1, y1: conn.y1, x2: conn.cx, y2: conn.cy })}
-              class="wf-edge pending"
+              class="wf-edge pending {linkMode}"
               class:invalid={!!hoverId && !connValid}
             />
           {/if}
@@ -376,13 +439,15 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
   }
   .wf-hint {
     font-size: 12px;
     color: var(--color-neutral-content);
     line-height: 1.5;
     flex: 1;
+    min-width: 240px;
   }
   .wf-dot-inline {
     display: inline-block;
@@ -392,12 +457,59 @@
     background: var(--color-primary);
     vertical-align: middle;
   }
+  .wf-dot-inline.start {
+    background: var(--st-running);
+  }
+  .wf-dot-inline.stop {
+    background: var(--st-error);
+  }
+  /* link-mode segmented control */
+  .wf-modes {
+    display: inline-flex;
+    flex: none;
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .wf-mode {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font: inherit;
+    font-size: 11.5px;
+    padding: 5px 9px;
+    border: none;
+    border-right: 1px solid var(--border-soft);
+    background: var(--color-base-200);
+    color: var(--color-neutral-content);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+  .wf-mode:last-child {
+    border-right: none;
+  }
+  .wf-mode:hover {
+    color: var(--color-base-content);
+  }
+  .wf-mode.on.depends {
+    background: rgba(96, 165, 250, 0.16);
+    color: var(--st-done);
+  }
+  .wf-mode.on.start {
+    background: rgba(34, 197, 94, 0.16);
+    color: var(--st-running);
+  }
+  .wf-mode.on.stop {
+    background: rgba(248, 113, 113, 0.16);
+    color: var(--st-error);
+  }
   .wf-legend {
     display: flex;
     gap: 12px;
     flex: none;
     font-size: 11px;
     color: var(--faint);
+    margin-bottom: 10px;
   }
   .wf-legend .lg {
     display: inline-flex;
@@ -477,8 +589,15 @@
     opacity: 0.9;
     stroke-dasharray: 6 4;
   }
+  .wf-edge.pending.start {
+    stroke: var(--st-running);
+  }
+  .wf-edge.pending.stop {
+    stroke: var(--st-error);
+  }
   .wf-edge.pending.invalid {
     stroke: var(--st-error);
+    opacity: 0.6;
   }
   /* automation trigger edges — dashed + arrowhead + coloured by action */
   .wf-auto-edge {
