@@ -9,7 +9,7 @@
  * on a bad session — a malformed/huge transcript is just skipped. Downstream
  * synthesis turns the returned items into a draft operator profile.
  */
-import { SessionDiscovery } from "../discovery.js";
+import { discoverAll } from "../discovery.js";
 import { readRecentMessages } from "../transcript/reader.js";
 import type { ExampleBankItem } from "./types.js";
 import { hashExample, truncate } from "./util.js";
@@ -65,15 +65,18 @@ function upsert(
  */
 export async function mineExamples(opts?: {
   root?: string;
+  desktopRoot?: string;
   scanLimit?: number;
   maxPerSession?: number;
 }): Promise<MineResult> {
   const scanLimit = opts?.scanLimit ?? DEFAULT_SCAN_LIMIT;
   const maxPerSession = opts?.maxPerSession ?? DEFAULT_MAX_PER_SESSION;
 
-  let sessions: Awaited<ReturnType<SessionDiscovery["list"]>>;
+  // CLI ∪ Desktop sessions (deduped). Desktop sessions carry projectCwd so a
+  // worktree session is attributed to its real project, not the worktree dir.
+  let sessions: Awaited<ReturnType<typeof discoverAll>>;
   try {
-    sessions = await new SessionDiscovery(opts?.root).list(scanLimit);
+    sessions = await discoverAll(scanLimit, opts?.root, opts?.desktopRoot);
   } catch {
     return { global: [], byCwd: new Map(), sessionsScanned: 0 };
   }
@@ -93,14 +96,18 @@ export async function mineExamples(opts?: {
     }
     sessionsScanned++;
 
+    // Group by the real project (originCwd for Desktop worktree sessions), so a
+    // session's examples land in the right per-project bank.
+    const groupCwd = s.projectCwd || s.cwd;
+
     // Per-cwd output list + dedupe index (created lazily).
-    let cwdList = byCwd.get(s.cwd);
-    let cwdIdx = cwdIndex.get(s.cwd);
+    let cwdList = byCwd.get(groupCwd);
+    let cwdIdx = cwdIndex.get(groupCwd);
     if (!cwdList || !cwdIdx) {
       cwdList = [];
       cwdIdx = new Map<string, ExampleBankItem>();
-      byCwd.set(s.cwd, cwdList);
-      cwdIndex.set(s.cwd, cwdIdx);
+      byCwd.set(groupCwd, cwdList);
+      cwdIndex.set(groupCwd, cwdIdx);
     }
 
     let mintedThisSession = 0;

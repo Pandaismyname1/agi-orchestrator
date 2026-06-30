@@ -11,7 +11,65 @@ import type {
   LearningSummary,
   DraftProposal,
   OperatorProfile,
+  DiscoveredSession,
 } from "./types";
+
+/** Demo discovery list (CLI + Desktop) for the Adopt browser under `?mock`. */
+export const MOCK_DISCOVER: DiscoveredSession[] = [
+  {
+    sessionId: "0ec58aba-ce87-4ecb-8517-76c9acb246d7",
+    cwd: "C:\\Users\\panda\\Desktop\\AGI",
+    projectCwd: "C:\\Users\\panda\\Desktop\\AGI",
+    summary: "AGI Project Starter",
+    title: "AGI Project Starter",
+    turns: 0,
+    lastActivity: Date.now() - 1000 * 60 * 20,
+    source: "desktop",
+    resumable: true,
+  },
+  {
+    sessionId: "fa0cadfe-91cc-41fd-af5e-d0321f226cd5",
+    cwd: "C:\\Users\\panda\\PhpstormProjects\\eve",
+    projectCwd: "C:\\Users\\panda\\PhpstormProjects\\eve",
+    summary: "Analyze database performance and optimization",
+    title: "Analyze database performance and optimization",
+    turns: 0,
+    lastActivity: Date.now() - 1000 * 60 * 60 * 5,
+    source: "desktop",
+    resumable: true,
+  },
+  {
+    sessionId: "1654fcb6-f1fc-499b-8348-8cb0e61f6478",
+    cwd: "C:\\Users\\panda\\PhpstormProjects\\eve\\.claude\\worktrees\\dazzling-clarke",
+    projectCwd: "C:\\Users\\panda\\PhpstormProjects\\eve",
+    summary: "Initialize project setup",
+    title: "Initialize project setup",
+    turns: 0,
+    lastActivity: Date.now() - 1000 * 60 * 60 * 24 * 9,
+    source: "desktop",
+    resumable: false,
+  },
+  {
+    sessionId: "19b2afb5-06af-4fa1-b903-853bf5fd061d",
+    cwd: "C:\\Users\\panda\\IdeaProjects\\Satisfactory",
+    projectCwd: "C:\\Users\\panda\\IdeaProjects\\Satisfactory",
+    summary: "Satisfactory MC mod",
+    title: "Satisfactory MC mod",
+    turns: 0,
+    lastActivity: Date.now() - 1000 * 60 * 60 * 24 * 2,
+    source: "desktop",
+    resumable: true,
+  },
+  {
+    sessionId: "7c2e1d40-9a8b-4c1d-bf21-1122aa334455",
+    cwd: "C:\\dev\\scratch",
+    summary: "Fix the failing CI lint step and push",
+    turns: 14,
+    lastActivity: Date.now() - 1000 * 60 * 60 * 3,
+    source: "cli",
+    resumable: true,
+  },
+];
 
 /** Demo learning-loop data (api.ts serves these when `?mock`). */
 export const MOCK_LEARNING: LearningSummary = {

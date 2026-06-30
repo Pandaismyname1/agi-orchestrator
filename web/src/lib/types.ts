@@ -224,6 +224,14 @@ export interface DiscoveredSession {
   summary: string;
   turns: number;
   lastActivity: number;
+  /** "cli" (terminal) or "desktop" (Claude Desktop's agent mode). */
+  source?: "cli" | "desktop";
+  /** Desktop sessions carry a human title. */
+  title?: string;
+  /** Real project root (Desktop runs in a worktree under it). */
+  projectCwd?: string;
+  /** False when the transcript is gone (archived/worktree removed) — can't resume. */
+  resumable?: boolean;
 }
 
 /** History/metrics rows (GET /api/runs, /api/run, /api/metrics). */

@@ -16,7 +16,7 @@ import { preflight, BillingSafetyError } from "../util/env.js";
 import { loadConfig, saveConfig } from "../config.js";
 import { Supervisor } from "./supervisor.js";
 import { openStore } from "../db/store.js";
-import { SessionDiscovery } from "../discovery.js";
+import { discoverAll } from "../discovery.js";
 import { AttachManager } from "../attach/attachManager.js";
 import { decideNextStep } from "../brain/decide.js";
 import { LocalLLM } from "../brain/provider.js";
@@ -126,8 +126,6 @@ async function main(): Promise<void> {
     limits: cfg.limits,
   });
 
-  const discovery = new SessionDiscovery();
-
   // Frontend: serve the built Svelte SPA from web/dist when present (run
   // `npm run web:build`), else fall back to the legacy single-file dashboard.
   // __dirname = src/server → repo root is two levels up.
@@ -215,7 +213,7 @@ async function main(): Promise<void> {
         const session = u.searchParams.get("session") ?? undefined;
         if (u.pathname === "/api/runs") return sendJson(res, 200, store.getRuns(session, 50));
         if (u.pathname === "/api/metrics") return sendJson(res, 200, store.metrics(session));
-        if (u.pathname === "/api/discover") return sendJson(res, 200, await discovery.list(60));
+        if (u.pathname === "/api/discover") return sendJson(res, 200, await discoverAll(80));
         if (u.pathname === "/api/learning") return sendJson(res, 200, sup.learningSummary());
         if (u.pathname === "/api/learning/draft") {
           return sendJson(res, 200, sup.learningDraft(u.searchParams.get("scope") ?? undefined));

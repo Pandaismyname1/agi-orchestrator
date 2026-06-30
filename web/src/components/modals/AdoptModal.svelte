@@ -14,13 +14,18 @@
     .catch(() => (sessions = []));
 
   function adopt(s: DiscoveredSession) {
+    if (s.resumable === false) {
+      ui.toast("this session's transcript is gone (archived) — can't resume it");
+      return;
+    }
     ui.openModal({ kind: "adopt-form", cwd: s.cwd, resumeId: s.sessionId });
   }
 </script>
 
-<Modal title="Adopt an existing session" width={580} onclose={() => ui.closeModal()}>
+<Modal title="Adopt an existing session" width={600} onclose={() => ui.closeModal()}>
   <div class="hint">
-    Claude Code sessions found on this machine. Pick one to resume it in the cockpit.
+    Claude Code sessions found on this machine — from the CLI and the Claude Desktop app. Pick one to
+    resume it in the cockpit.
   </div>
 
   {#if sessions === null}
@@ -31,10 +36,15 @@
     <div class="list">
       {#each sessions as s (s.sessionId)}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <div class="row" onclick={() => adopt(s)}>
-          <span class="rid">{s.sessionId.slice(0, 8)}</span>
-          <span class="summary">{s.summary}</span>
-          <span class="meta">{s.turns}t · {ago(s.lastActivity)}</span>
+        <div class="row" class:gone={s.resumable === false} onclick={() => adopt(s)}>
+          <span class="src {s.source ?? 'cli'}">{s.source === "desktop" ? "desktop" : "cli"}</span>
+          <div class="body">
+            <div class="summary">{s.title || s.summary}</div>
+            <div class="path">{s.projectCwd || s.cwd}</div>
+          </div>
+          <span class="meta">
+            {#if s.resumable === false}archived{:else}{ago(s.lastActivity)}{/if}
+          </span>
         </div>
       {/each}
     </div>
@@ -72,17 +82,47 @@
     border-color: var(--color-primary);
     background: var(--color-base-200);
   }
-  .rid {
+  .row.gone {
+    opacity: 0.5;
+  }
+  .row.gone:hover {
+    border-color: var(--border-soft);
+    background: transparent;
+  }
+  .src {
+    flex: none;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 6px;
+    border: 1px solid var(--border-soft);
     color: var(--color-neutral-content);
-    font-size: 12px;
+  }
+  .src.desktop {
+    color: var(--color-secondary);
+    border-color: rgba(96, 165, 250, 0.4);
+    background: rgba(96, 165, 250, 0.08);
+  }
+  .body {
+    flex: 1;
+    min-width: 0;
   }
   .summary {
-    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .path {
+    font-size: 11px;
+    color: var(--faint);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .meta {
+    flex: none;
     color: var(--color-neutral-content);
     font-size: 12px;
   }

@@ -32,7 +32,10 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
 }
 
 export const api = {
-  discover: () => getJson<DiscoveredSession[]>("/api/discover"),
+  discover: () =>
+    isMock()
+      ? import("./mock").then((m) => m.MOCK_DISCOVER)
+      : getJson<DiscoveredSession[]>("/api/discover"),
   runs: (sessionId: string) =>
     isMock()
       ? import("./mock").then((m) => m.MOCK_RUNS)

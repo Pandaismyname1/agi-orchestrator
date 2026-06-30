@@ -24,6 +24,14 @@ export interface DiscoveredSession {
   turns: number;
   /** Last-activity timestamp (transcript mtime, ms). */
   lastActivity: number;
+  /** Where it came from: the CLI store, or the Claude Desktop app (its embedded Claude Code). */
+  source?: "cli" | "desktop";
+  /** Desktop sessions carry a human title; CLI sessions don't. */
+  title?: string;
+  /** The real project root (Desktop runs in a git worktree under originCwd). For grouping/mining. */
+  projectCwd?: string;
+  /** False when the transcript is gone (archived / worktree removed) so it can't be resumed. */
+  resumable?: boolean;
 }
 
 const MAX_PARSE_BYTES = 4_000_000; // skip pathologically huge transcripts
@@ -113,6 +121,8 @@ export class SessionDiscovery {
           summary: meta.summary || "(no summary)",
           turns: meta.turns,
           lastActivity: mtime,
+          source: "cli",
+          resumable: true,
         });
       }
     }
@@ -120,4 +130,147 @@ export class SessionDiscovery {
     out.sort((a, b) => b.lastActivity - a.lastActivity);
     return out.slice(0, limit);
   }
+
+  /** Set of session ids (transcript basenames) present in the CLI store. */
+  async transcriptIds(): Promise<Set<string>> {
+    const ids = new Set<string>();
+    let dirs: string[];
+    try {
+      dirs = await readdir(this.root);
+    } catch {
+      return ids;
+    }
+    for (const dir of dirs) {
+      let files: string[];
+      try {
+        files = await readdir(path.join(this.root, dir));
+      } catch {
+        continue;
+      }
+      for (const f of files) if (f.endsWith(".jsonl")) ids.add(f.replace(/\.jsonl$/, ""));
+    }
+    return ids;
+  }
+}
+
+/** Default location of Claude Desktop's embedded-Claude-Code session descriptors. */
+export function defaultDesktopRoot(): string {
+  return path.join(os.homedir(), "AppData", "Roaming", "Claude", "claude-code-sessions");
+}
+
+interface DesktopDescriptor {
+  cliSessionId?: string;
+  cwd?: string;
+  originCwd?: string;
+  title?: string;
+  model?: string;
+  createdAt?: number;
+  lastActivityAt?: number;
+  isArchived?: boolean;
+}
+
+/**
+ * Discover sessions from the Claude DESKTOP app. Desktop's "agent mode" runs the
+ * embedded Claude Code and records a descriptor per session under
+ *   ~/AppData/Roaming/Claude/claude-code-sessions/<id>/<id>/local_*.json
+ * Each descriptor has a `cliSessionId` (a real Claude Code session id), the run
+ * cwd / origin project, a human title, and timestamps. The actual transcript —
+ * when it still exists — lives in the SAME ~/.claude/projects store the CLI uses,
+ * so a Desktop session with a present transcript is resumable + minable exactly
+ * like a CLI one.
+ */
+export class DesktopDiscovery {
+  constructor(
+    private readonly root = defaultDesktopRoot(),
+    private readonly cliRoot = path.join(os.homedir(), ".claude", "projects"),
+  ) {}
+
+  private async readDescriptors(): Promise<DesktopDescriptor[]> {
+    const out: DesktopDescriptor[] = [];
+    const walk = async (dir: string, depth: number): Promise<void> => {
+      if (depth > 4) return;
+      let entries: import("node:fs").Dirent[];
+      try {
+        entries = await readdir(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of entries) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) await walk(p, depth + 1);
+        else if (e.name.startsWith("local_") && e.name.endsWith(".json")) {
+          try {
+            out.push(JSON.parse(await readFile(p, "utf8")) as DesktopDescriptor);
+          } catch {
+            /* skip unparseable descriptor */
+          }
+        }
+      }
+    };
+    await walk(this.root, 0);
+    return out;
+  }
+
+  /** List Desktop sessions (those with a cliSessionId), most-recent first. */
+  async list(limit = 80, transcriptIds?: Set<string>): Promise<DiscoveredSession[]> {
+    const descriptors = await this.readDescriptors();
+    const present =
+      transcriptIds ?? (await new SessionDiscovery(this.cliRoot).transcriptIds());
+
+    const out: DiscoveredSession[] = [];
+    for (const d of descriptors) {
+      const id = d.cliSessionId;
+      if (!id || id === "undefined") continue; // descriptor with no underlying CC session
+      const runCwd = d.cwd || d.originCwd || "";
+      out.push({
+        sessionId: id,
+        cwd: runCwd,
+        projectCwd: d.originCwd || runCwd,
+        summary: d.title || "(untitled desktop session)",
+        title: d.title,
+        turns: 0, // descriptors don't carry a turn count; transcript parse is too costly here
+        lastActivity: d.lastActivityAt ?? d.createdAt ?? 0,
+        source: "desktop",
+        resumable: present.has(id),
+      });
+    }
+    // newest first; dedupe descriptors that point at the same cliSessionId (keep newest)
+    out.sort((a, b) => b.lastActivity - a.lastActivity);
+    const seen = new Set<string>();
+    const deduped = out.filter((s) => (seen.has(s.sessionId) ? false : (seen.add(s.sessionId), true)));
+    return deduped.slice(0, limit);
+  }
+}
+
+/**
+ * Merge CLI + Desktop discovery into one list, deduped by session id. When a
+ * session is in both, keep the CLI entry's parsed cwd/turns but adopt the
+ * Desktop title + project + the "desktop" source (it's the friendlier label).
+ */
+export async function discoverAll(
+  limit = 80,
+  cliRoot?: string,
+  desktopRoot?: string,
+): Promise<DiscoveredSession[]> {
+  const cliDisc = new SessionDiscovery(cliRoot);
+  const [cli, ids] = await Promise.all([cliDisc.list(500), cliDisc.transcriptIds()]);
+  const desktop = await new DesktopDiscovery(desktopRoot, cliRoot).list(500, ids);
+
+  const byId = new Map<string, DiscoveredSession>();
+  for (const s of cli) byId.set(s.sessionId, s);
+  for (const d of desktop) {
+    const existing = byId.get(d.sessionId);
+    if (existing) {
+      byId.set(d.sessionId, {
+        ...existing,
+        source: "desktop",
+        title: d.title,
+        projectCwd: d.projectCwd,
+        summary: d.title || existing.summary,
+      });
+    } else {
+      byId.set(d.sessionId, d);
+    }
+  }
+  return [...byId.values()].sort((a, b) => b.lastActivity - a.lastActivity).slice(0, limit);
 }
