@@ -18,31 +18,30 @@
   let { sessionId, reloadKey }: Props = $props();
 
   let runs = $state<RunRow[]>([]);
-  let selectedId = $state<number | null>(null);
-  let detail = $state<RunDetail | null>(null);
+  // "all" merges every run into one chronological history (the default); a number
+  // shows a single run.
+  let selected = $state<number | "all">("all");
+  let details = $state<RunDetail[]>([]);
   let loading = $state(true);
   let failed = $state(false);
 
-  async function loadRun(id: number): Promise<void> {
-    try {
-      detail = await api.run(id);
-    } catch {
-      failed = true;
-    }
-  }
-
-  async function loadRuns(): Promise<void> {
+  async function load(): Promise<void> {
     loading = true;
     failed = false;
     try {
-      runs = await api.runs(sessionId);
-      if (runs.length) {
-        if (selectedId === null || !runs.some((r) => r.id === selectedId)) {
-          selectedId = runs[0].id;
-        }
-        await loadRun(selectedId);
+      runs = await api.runs(sessionId); // newest first
+      if (!runs.length) {
+        details = [];
+        return;
+      }
+      if (selected !== "all" && !runs.some((r) => r.id === selected)) selected = "all";
+      if (selected === "all") {
+        const all = await Promise.all(runs.map((r) => api.run(r.id)));
+        // Oldest run first so the merged history reads top-to-bottom in time.
+        details = all.filter((d): d is RunDetail => !!d).sort((a, b) => (a.run?.id ?? 0) - (b.run?.id ?? 0));
       } else {
-        detail = null;
+        const one = await api.run(selected);
+        details = one ? [one] : [];
       }
     } catch {
       failed = true;
@@ -54,29 +53,33 @@
   // Refetch whenever the session or its progress changes.
   let lastKey = "";
   $effect(() => {
-    const key = `${sessionId}:${String(reloadKey)}`;
+    const key = `${sessionId}:${String(reloadKey)}:${selected}`;
     if (key !== lastKey) {
       lastKey = key;
-      selectedId = null;
-      void loadRuns();
+      void load();
     }
   });
 
   function pick(e: Event): void {
-    const id = Number((e.target as HTMLSelectElement).value);
-    selectedId = id;
-    void loadRun(id);
+    const v = (e.target as HTMLSelectElement).value;
+    selected = v === "all" ? "all" : Number(v);
+    void load();
   }
 
   type Row = RunDetail["turns"][number] & {
     source: "goal" | "qwen" | "you";
     decision: DecisionRow | null;
   };
+  interface RunBlock {
+    id: number;
+    meta: string;
+    stopReason?: string;
+    rows: Row[];
+  }
 
   // The first turn is the goal seed; a later turn whose prompt matches the prior
   // decision's prompt came from Qwen (autopilot); otherwise you typed it (manual).
-  let convo = $derived.by((): Row[] => {
-    if (!detail) return [];
+  function rowsFor(detail: RunDetail): Row[] {
     const decByN = new Map(detail.decisions.map((d) => [d.n, d]));
     return detail.turns.map((t) => {
       const prev = decByN.get(t.n - 1);
@@ -84,7 +87,19 @@
         t.n === 1 ? "goal" : prev?.prompt && prev.prompt === t.injected_prompt ? "qwen" : "you";
       return { ...t, source, decision: decByN.get(t.n) ?? null };
     });
-  });
+  }
+
+  let blocks = $derived.by((): RunBlock[] =>
+    details.map((d) => ({
+      id: d.run?.id ?? 0,
+      meta: `run #${d.run?.id ?? "?"} · ${d.turns.length}t${d.run?.elapsed_min ? " · " + minutes(d.run.elapsed_min) : ""}`,
+      stopReason: d.run?.stop_reason ?? undefined,
+      rows: rowsFor(d),
+    })),
+  );
+  let totalTurns = $derived(blocks.reduce((n, b) => n + b.rows.length, 0));
+  // Show per-run dividers only when more than one run is in view.
+  let showDividers = $derived(blocks.length > 1);
 
   const SRC_LABEL: Record<Row["source"], string> = { goal: "Goal", qwen: "Qwen", you: "You" };
 </script>
@@ -93,7 +108,8 @@
   <div class="thead">
     <span class="tlabel"><Icon name="clock" size={13} /> Transcript</span>
     {#if runs.length > 1}
-      <select class="runsel" onchange={pick} value={selectedId}>
+      <select class="runsel" onchange={pick} value={String(selected)}>
+        <option value="all">All runs · {runs.length} runs</option>
         {#each runs as r (r.id)}
           <option value={r.id}>run #{r.id} · {r.turns}t · {minutes(r.elapsed_min)}</option>
         {/each}
@@ -101,8 +117,8 @@
     {:else if runs.length === 1}
       <span class="runmeta">run #{runs[0].id}</span>
     {/if}
-    {#if detail?.run?.stop_reason}
-      <span class="stopreason" title={detail.run.stop_reason}>{detail.run.stop_reason}</span>
+    {#if totalTurns > 0}
+      <span class="runmeta turns">{totalTurns} turns</span>
     {/if}
   </div>
 
@@ -111,32 +127,40 @@
       <div class="note">loading conversation…</div>
     {:else if failed}
       <div class="note">couldn't load the transcript.</div>
-    {:else if convo.length === 0}
+    {:else if totalTurns === 0}
       <div class="note">
         <Icon name="terminal" size={28} />
         <p>No conversation recorded yet. Runs started from the dashboard are saved here.</p>
       </div>
     {:else}
-      {#each convo as turn (turn.n)}
-        <div class="turn">
-          <div class="bubble sent {turn.source}">
-            <div class="who">{SRC_LABEL[turn.source]}<span class="tn">turn {turn.n}</span></div>
-            <div class="text">{turn.injected_prompt ?? ""}</div>
+      {#each blocks as block, bi (bi)}
+        {#if showDividers}
+          <div class="rundiv">
+            <span class="rd-label">{block.meta}</span>
+            {#if block.stopReason}<span class="rd-stop" title={block.stopReason}>{block.stopReason}</span>{/if}
           </div>
-
-          <div class="bubble claude">
-            <div class="who">Claude</div>
-            <div class="text">{turn.assistant_text ?? ""}</div>
-          </div>
-
-          {#if turn.decision}
-            <div class="brainrow {turn.decision.action}">
-              <Icon name="bot" size={12} />
-              <span class="ba">Qwen · {turn.decision.action}</span>
-              {#if turn.decision.reason}<span class="br">{turn.decision.reason}</span>{/if}
+        {/if}
+        {#each block.rows as turn (turn.n)}
+          <div class="turn">
+            <div class="bubble sent {turn.source}">
+              <div class="who">{SRC_LABEL[turn.source]}<span class="tn">turn {turn.n}</span></div>
+              <div class="text">{turn.injected_prompt ?? ""}</div>
             </div>
-          {/if}
-        </div>
+
+            <div class="bubble claude">
+              <div class="who">Claude</div>
+              <div class="text">{turn.assistant_text ?? ""}</div>
+            </div>
+
+            {#if turn.decision}
+              <div class="brainrow {turn.decision.action}">
+                <Icon name="bot" size={12} />
+                <span class="ba">Qwen · {turn.decision.action}</span>
+                {#if turn.decision.reason}<span class="br">{turn.decision.reason}</span>{/if}
+              </div>
+            {/if}
+          </div>
+        {/each}
       {/each}
     {/if}
   </div>
@@ -181,14 +205,32 @@
     font-size: 12px;
     color: var(--faint);
   }
-  .stopreason {
+  .runmeta.turns {
     margin-left: auto;
-    font-size: 12px;
+  }
+  .rundiv {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 4px 0 14px;
+    padding-bottom: 6px;
+    border-bottom: 1px dashed var(--border-soft);
+  }
+  .rd-label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    font-weight: 700;
+    color: var(--color-neutral-content);
+  }
+  .rd-stop {
+    margin-left: auto;
+    font-size: 11px;
     color: var(--color-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 50%;
+    max-width: 55%;
   }
   .tbody {
     flex: 1;

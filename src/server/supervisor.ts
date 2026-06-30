@@ -545,7 +545,19 @@ export class Supervisor {
   ): SessionView {
     const m = this.sessions.get(id);
     if (!m) throw new Error(`no session with id "${id}".`);
-    if (m.status === "running") throw new Error("stop the session before editing it.");
+
+    // Edits apply LIVE: the brain reads m.config (goal / doneCriteria / autonomy)
+    // by reference on its next decision. Only cwd + permissionMode are fixed at
+    // launch — those can't change mid-run, so reject just those while active.
+    const live = ["running", "manual", "needs-input", "queued"].includes(m.status);
+    if (live) {
+      if (patch.cwd !== undefined && path.resolve(patch.cwd.trim() || ".") !== m.config.cwd) {
+        throw new Error("can't change the working directory while running — stop the session first.");
+      }
+      if (patch.permissionMode !== undefined && patch.permissionMode !== m.config.permissionMode) {
+        throw new Error("permission mode is set when the session launches — stop and restart to change it.");
+      }
+    }
 
     if (patch.cwd !== undefined) {
       const cwd = patch.cwd.trim();

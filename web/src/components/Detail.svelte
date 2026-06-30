@@ -74,6 +74,13 @@
         >
           <Icon name="clock" size={13} /> History
         </button>
+        <button
+          class="btn btn-sm"
+          title={active ? "Edit goal / instructions live (applies next turn)" : "Edit this session"}
+          onclick={() => ui.openModal({ kind: "edit", session: s })}
+        >
+          <Icon name="edit" size={13} /> Edit
+        </button>
       </div>
       <div class="goal">{s.goal}</div>
       <div class="statrow">

@@ -14,6 +14,11 @@
 
   let editing = $derived(!!session);
   let adopting = $derived(!!adopt);
+  // Editing a live session: goal / done / autonomy apply on the next turn; cwd and
+  // permission mode are fixed at launch, so they're locked until it's stopped.
+  let live = $derived(
+    !!session && ["running", "manual", "needs-input", "queued"].includes(session.status),
+  );
 
   // The modal is remounted per open, so these intentionally seed once from props.
   let id = $state(untrack(() => session?.id ?? ""));
@@ -66,8 +71,15 @@
   <label for="f_id">id / label (optional)</label>
   <input id="f_id" bind:value={id} disabled={editing} placeholder="auto-generated if blank" />
 
+  {#if live}
+    <div class="livehint">
+      ● Live edit — <b>goal</b>, <b>done criteria</b> and <b>autonomy</b> take effect on the next
+      turn. cwd and permission mode are locked while it runs.
+    </div>
+  {/if}
+
   <label for="f_cwd">cwd (project directory)</label>
-  <input id="f_cwd" bind:value={cwd} placeholder="C:\path\to\project" />
+  <input id="f_cwd" bind:value={cwd} disabled={live} placeholder="C:\path\to\project" />
 
   <label for="f_goal">goal</label>
   <textarea id="f_goal" bind:value={goal} placeholder="what claude should accomplish"></textarea>
@@ -76,7 +88,7 @@
   <textarea id="f_done" bind:value={doneCriteria} placeholder="you are done when…"></textarea>
 
   <label for="f_perm">permission mode</label>
-  <select id="f_perm" bind:value={permissionMode}>
+  <select id="f_perm" bind:value={permissionMode} disabled={live}>
     <option value="default">default</option>
     <option value="acceptEdits">acceptEdits</option>
     <option value="auto">auto</option>
@@ -139,6 +151,21 @@
     font-size: 12px;
     color: var(--color-neutral-content);
     margin-bottom: 10px;
+  }
+  .livehint {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--color-primary);
+    background: rgba(34, 197, 94, 0.08);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 4px;
+  }
+  input:disabled,
+  select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
   .ferr {
     color: var(--color-error);
