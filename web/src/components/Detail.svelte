@@ -104,6 +104,17 @@
         <span class="dstat">turns <b class="tnum">{s.turns}</b></span>
         <span class="dstat">elapsed <b class="tnum">{minutes(s.elapsedMin)}</b></span>
         <span class="dstat">cwd <b>{s.cwd}</b></span>
+        {#if s.feedback && (s.feedback.up || s.feedback.down)}
+          <span
+            class="dstat fb"
+            title="Your thumbs on this agent's brain decisions — {Math.round(
+              (s.feedback.up / (s.feedback.up + s.feedback.down)) * 100,
+            )}% approved"
+          >
+            <Icon name="thumbsUp" size={12} /> <b class="tnum">{s.feedback.up}</b>
+            <Icon name="thumbsDown" size={12} /> <b class="tnum">{s.feedback.down}</b>
+          </span>
+        {/if}
       </div>
     </div>
 
@@ -197,6 +208,13 @@
     color: var(--color-base-content);
     font-weight: 600;
     overflow-wrap: anywhere;
+  }
+  .dstat.fb {
+    gap: 4px;
+    align-items: center;
+  }
+  .dstat.fb :global(svg) {
+    opacity: 0.75;
   }
   .empty {
     color: var(--faint);

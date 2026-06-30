@@ -83,10 +83,16 @@ interface ClientMsg {
     | "learnSynthesize" | "learnApprove" | "learnReject" | "learnRevert"
     | "templateSave" | "templateDelete" | "saveAsTemplate"
     | "webhookSave" | "webhookDelete" | "webhookTest"
-    | "rollback" | "detach";
+    | "rollback" | "detach"
+    | "decisionFeedback" | "decisionFeedbackAt";
   id?: string;
   session?: SessionInput;
   patch?: SessionPatch;
+  /** For "decisionFeedback"/"decisionFeedbackAt": the operator's thumb. */
+  feedback?: "up" | "down" | "clear";
+  /** For "decisionFeedbackAt": which run + turn number's decision to rate. */
+  runId?: number;
+  n?: number;
   /** For "templateSave": the template to create/update. */
   template?: TemplateInput;
   /** For "webhookSave": the webhook to create/update. */
@@ -554,6 +560,29 @@ async function main(): Promise<void> {
               );
             }
             push();
+          }
+          break;
+        case "decisionFeedback":
+          // Thumbs on the session's current/last brain decision.
+          try {
+            if (!msg.id || !msg.feedback) throw new Error("missing session id or feedback.");
+            const r = sup.rateDecision(msg.id, msg.feedback);
+            if (!r.ok) sendError(r.error ?? "could not record feedback");
+            else push(); // reflect the thumb immediately
+          } catch (e) {
+            sendError(e instanceof Error ? e.message : String(e));
+          }
+          break;
+        case "decisionFeedbackAt":
+          // Thumbs on a specific past decision (history timeline).
+          try {
+            if (!msg.id || !msg.feedback || typeof msg.runId !== "number" || typeof msg.n !== "number") {
+              throw new Error("missing session id, run id, turn number, or feedback.");
+            }
+            const r = sup.rateDecisionAt(msg.id, msg.runId, msg.n, msg.feedback);
+            if (!r.ok) sendError(r.error ?? "could not record feedback");
+          } catch (e) {
+            sendError(e instanceof Error ? e.message : String(e));
           }
           break;
         case "focus":

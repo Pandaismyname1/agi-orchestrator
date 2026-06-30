@@ -54,6 +54,10 @@ export interface SessionView {
   elapsedMin: number;
   lastReply: string;
   lastDecision: string;
+  /** Operator thumbs on the current/last brain decision ('up'|'down'), if rated. */
+  lastDecisionFeedback?: "up" | "down";
+  /** Aggregated thumbs tally across this session's decisions. */
+  feedback?: { up: number; down: number };
   error?: string;
   attention?: AttentionRequest | null;
   /** True when the session has run before and can be continued (resumed). */
@@ -342,7 +346,9 @@ export type ClientMsg =
   | { type: "webhookDelete"; id: string }
   | { type: "webhookTest"; id: string }
   | { type: "rollback"; id: string; snapshot: string }
-  | { type: "detach"; id: string };
+  | { type: "detach"; id: string }
+  | { type: "decisionFeedback"; id: string; feedback: "up" | "down" | "clear" }
+  | { type: "decisionFeedbackAt"; id: string; runId: number; n: number; feedback: "up" | "down" | "clear" };
 
 /** Discovered on-disk Claude Code session (GET /api/discover). */
 export interface DiscoveredSession {
@@ -408,6 +414,8 @@ export interface DecisionRow {
   action: "continue" | "stop" | "escalate";
   prompt?: string | null;
   reason?: string | null;
+  /** Operator thumbs on this decision ('up'|'down'), or null/absent if unrated. */
+  feedback?: "up" | "down" | null;
 }
 
 export interface RunDetail {

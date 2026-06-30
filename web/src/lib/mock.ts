@@ -246,7 +246,9 @@ export const MOCK: Snapshot = {
       turns: 23,
       elapsedMin: 41.2,
       lastReply: "",
-      lastDecision: "continue → wire the /auth refresh-token endpoint and add a test",
+      lastDecision: "→ wire the /auth refresh-token endpoint and add a test (tests still red on refresh)",
+      lastDecisionFeedback: "up",
+      feedback: { up: 5, down: 1 },
       attention: null,
     },
     {
@@ -261,7 +263,8 @@ export const MOCK: Snapshot = {
       turns: 11,
       elapsedMin: 18.7,
       lastReply: "",
-      lastDecision: "continue → add a quickstart code sample to the landing page",
+      lastDecision: "→ add a quickstart code sample to the landing page (docs need a runnable example)",
+      feedback: { up: 2, down: 3 },
       attention: null,
     },
     {
@@ -489,12 +492,14 @@ export const MOCK_RUN: RunDetail = {
       action: "continue",
       reason: "Scaffold is in place; proceed to the core auth endpoints.",
       prompt: "Implement the login + refresh-token endpoints, with tests.",
+      feedback: "up",
     },
     {
       n: 2,
       action: "continue",
       reason: "Auth works and the tests pass; next add rate limiting.",
       prompt: "Add rate-limiting middleware and document it.",
+      feedback: "down",
     },
     {
       n: 3,

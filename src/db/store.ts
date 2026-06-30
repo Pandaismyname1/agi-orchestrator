@@ -73,6 +73,11 @@ export class Store {
         // already present — node:sqlite throws "duplicate column name"; ignore.
       }
     }
+    try {
+      this.db.exec(`ALTER TABLE decisions ADD COLUMN feedback TEXT`);
+    } catch {
+      // already present — ignore.
+    }
   }
 
   close(): void {
@@ -179,6 +184,69 @@ export class Store {
       .run(turnId, d.action, d.prompt ?? null, d.reason, Date.now());
   }
 
+  // ---- decision feedback (operator thumbs up/down; learning loop, T3) ------
+
+  /**
+   * Rate the MOST RECENT decision recorded for a session (the one the live
+   * dashboard shows). `feedback` is 'up' | 'down' | null (null clears it).
+   * Returns the run id + turn number that was rated, or null if the session has
+   * no decisions yet. Resolves the latest decision via runs → turns → decisions.
+   */
+  setLatestDecisionFeedback(
+    sessionId: string,
+    feedback: "up" | "down" | null,
+  ): { runId: number; turnN: number } | null {
+    const row = this.db
+      .prepare(
+        `SELECT d.id AS decId, r.id AS runId, t.n AS turnN
+         FROM decisions d JOIN turns t ON d.turn_id = t.id JOIN runs r ON t.run_id = r.id
+         WHERE r.session_id = ? ORDER BY d.id DESC LIMIT 1`,
+      )
+      .get(sessionId) as { decId: number; runId: number; turnN: number } | undefined;
+    if (!row) return null;
+    this.db.prepare(`UPDATE decisions SET feedback = ? WHERE id = ?`).run(feedback, row.decId);
+    return { runId: row.runId, turnN: row.turnN };
+  }
+
+  /**
+   * Rate the decision that followed turn `turnN` of `runId`, but only if that run
+   * belongs to `sessionId` (so a client can't rate another session's decisions).
+   * Returns true if a row was updated.
+   */
+  setDecisionFeedback(
+    sessionId: string,
+    runId: number,
+    turnN: number,
+    feedback: "up" | "down" | null,
+  ): boolean {
+    const r = this.db
+      .prepare(
+        `UPDATE decisions SET feedback = ?
+         WHERE turn_id = (
+           SELECT t.id FROM turns t JOIN runs r ON t.run_id = r.id
+           WHERE r.id = ? AND t.n = ? AND r.session_id = ?
+         )`,
+      )
+      .run(feedback, runId, turnN, sessionId);
+    return Number(r.changes) > 0;
+  }
+
+  /** Thumbs tally for a session (optionally all sessions when omitted). */
+  feedbackStats(sessionId?: string): { up: number; down: number } {
+    const where = sessionId ? `AND r.session_id = ?` : ``;
+    const args = sessionId ? [sessionId] : [];
+    const row = this.db
+      .prepare(
+        `SELECT
+           COALESCE(SUM(CASE WHEN d.feedback = 'up' THEN 1 ELSE 0 END), 0) AS up,
+           COALESCE(SUM(CASE WHEN d.feedback = 'down' THEN 1 ELSE 0 END), 0) AS down
+         FROM decisions d JOIN turns t ON d.turn_id = t.id JOIN runs r ON t.run_id = r.id
+         WHERE 1=1 ${where}`,
+      )
+      .get(...args) as { up: number; down: number };
+    return { up: row.up, down: row.down };
+  }
+
   // ---- attention (human-decision escalation) ------------------------------
 
   addAttentionRequest(
@@ -280,14 +348,22 @@ export class Store {
   // ---- observability (history / timeline / metrics) -----------------------
 
   /** A run's decisions, keyed by the turn number they followed. */
-  getDecisions(runId: number): Array<{ n: number; action: string; prompt: string | null; reason: string | null }> {
+  getDecisions(
+    runId: number,
+  ): Array<{ n: number; action: string; prompt: string | null; reason: string | null; feedback: string | null }> {
     return this.db
       .prepare(
-        `SELECT t.n AS n, d.action AS action, d.prompt AS prompt, d.reason AS reason
+        `SELECT t.n AS n, d.action AS action, d.prompt AS prompt, d.reason AS reason, d.feedback AS feedback
          FROM decisions d JOIN turns t ON d.turn_id = t.id
          WHERE t.run_id = ? ORDER BY t.n ASC`,
       )
-      .all(runId) as Array<{ n: number; action: string; prompt: string | null; reason: string | null }>;
+      .all(runId) as Array<{
+      n: number;
+      action: string;
+      prompt: string | null;
+      reason: string | null;
+      feedback: string | null;
+    }>;
   }
 
   /** A run's raw event log (start/turn/decision/attention/gate/stop/…). */

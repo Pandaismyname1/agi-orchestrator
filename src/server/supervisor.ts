@@ -93,6 +93,10 @@ export interface SessionView {
   elapsedMin: number;
   lastReply: string;
   lastDecision: string;
+  /** Operator thumbs on the CURRENT/last brain decision ('up'|'down'), if rated. */
+  lastDecisionFeedback?: "up" | "down";
+  /** Aggregated thumbs tally across this session's decisions (the approval ratio). */
+  feedback?: { up: number; down: number };
   error?: string;
   /** Present only while status === "needs-input": the open human decision. */
   attention?: AttentionRequest | null;
@@ -256,7 +260,50 @@ export class Supervisor {
   }
 
   list(): SessionView[] {
-    return [...this.sessions.values()].map(toView);
+    return [...this.sessions.values()].map((m) => {
+      const v = toView(m);
+      // Aggregated thumbs ratio per agent (only when there's something rated).
+      if (this.store) {
+        const f = this.store.feedbackStats(m.id);
+        if (f.up || f.down) v.feedback = f;
+      }
+      return v;
+    });
+  }
+
+  /**
+   * Record operator thumbs on a session's CURRENT (last) brain decision. Persists
+   * to the decisions table and reflects it live so the dashboard updates at once.
+   * `feedback` of "clear" removes a prior rating. No-op if nothing is recorded yet.
+   */
+  rateDecision(sessionId: string, feedback: "up" | "down" | "clear"): { ok: boolean; error?: string } {
+    const m = this.sessions.get(sessionId);
+    if (!m) return { ok: false, error: `unknown session ${sessionId}` };
+    if (!this.store) return { ok: false, error: "no persistent store" };
+    const value = feedback === "clear" ? null : feedback;
+    const rated = this.store.setLatestDecisionFeedback(sessionId, value);
+    if (!rated) return { ok: false, error: "no decision to rate yet" };
+    m.lastDecisionFeedback = value ?? undefined;
+    return { ok: true };
+  }
+
+  /**
+   * Rate a specific past decision (the one after turn `turnN` of `runId`) — backs
+   * the per-turn thumbs in the history timeline. Scoped to the session so a client
+   * can't rate another session's runs.
+   */
+  rateDecisionAt(
+    sessionId: string,
+    runId: number,
+    turnN: number,
+    feedback: "up" | "down" | "clear",
+  ): { ok: boolean; error?: string } {
+    const m = this.sessions.get(sessionId);
+    if (!m) return { ok: false, error: `unknown session ${sessionId}` };
+    if (!this.store) return { ok: false, error: "no persistent store" };
+    const value = feedback === "clear" ? null : feedback;
+    const ok = this.store.setDecisionFeedback(sessionId, runId, turnN, value);
+    return ok ? { ok: true } : { ok: false, error: "no matching decision for this session" };
   }
 
   /** Current clean screen for one session (empty if not running). */
@@ -1094,6 +1141,8 @@ export class Supervisor {
             : e.decision.action === "escalate"
               ? `NEEDS YOU — ${e.decision.question ?? e.decision.reason}`
               : `→ ${e.decision.prompt} (${e.decision.reason})`;
+        // A fresh decision is unrated — clear any thumb carried from the last one.
+        m.lastDecisionFeedback = undefined;
         break;
       case "attention_resolved":
         m.lastDecision =
@@ -1183,6 +1232,7 @@ function toView(m: Managed): SessionView {
     elapsedMin: m.elapsedMin,
     lastReply: m.lastReply,
     lastDecision: m.lastDecision,
+    lastDecisionFeedback: m.lastDecisionFeedback,
     error: m.error,
     attention: m.attention ?? null,
     canContinue: !active && !!(m.claudeSessionId ?? m.config.lastClaudeSessionId),

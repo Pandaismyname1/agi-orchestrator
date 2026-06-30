@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS decisions (
   action      TEXT NOT NULL,                    -- continue | stop
   prompt      TEXT,
   reason      TEXT,
+  feedback    TEXT,                             -- operator thumbs: 'up' | 'down' | NULL (learning loop, T3)
   created_at  INTEGER NOT NULL,
   FOREIGN KEY (turn_id) REFERENCES turns(id)
 );

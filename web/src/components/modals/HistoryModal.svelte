@@ -6,6 +6,7 @@
   import { wsStore } from "../../lib/ws.svelte";
   import { minutes, clamp } from "../../lib/format";
   import Modal from "../Modal.svelte";
+  import Icon from "../Icon.svelte";
 
   interface Props {
     sessionId: string;
@@ -26,13 +27,33 @@
     })
     .catch(() => {});
 
+  // Optimistic overlay of operator thumbs, keyed by turn number, for the open run
+  // (the modal fetches once; we don't re-fetch just to reflect a click).
+  let fbByN = $state<Record<number, "up" | "down" | null>>({});
+
   async function showRun(id: number) {
     openRunId = id;
+    fbByN = {};
     openRun = await api.run(id);
   }
   function backToList() {
     openRun = null;
     openRunId = null;
+    fbByN = {};
+  }
+
+  /** Current thumb for turn n — local overlay wins over the fetched value. */
+  function fbFor(d: RunDetail["decisions"][number] | undefined): "up" | "down" | null {
+    if (!d) return null;
+    return d.n in fbByN ? fbByN[d.n] : (d.feedback ?? null);
+  }
+
+  /** Toggle a thumb on the decision after turn n; clicking the active one clears it. */
+  function rateAt(n: number, current: "up" | "down" | null, thumb: "up" | "down") {
+    if (openRunId === null) return;
+    const next = current === thumb ? "clear" : thumb;
+    fbByN = { ...fbByN, [n]: next === "clear" ? null : next };
+    wsStore.send({ type: "decisionFeedbackAt", id: sid, runId: openRunId, n, feedback: next });
   }
 
   let byStatus = $derived(
@@ -100,7 +121,32 @@
           <div class="you">→ {clamp(t.injected_prompt ?? "", 160)}</div>
           <div class="cl">claude: {clamp((t.assistant_text ?? "").replace(/\s+/g, " "), 220)}</div>
           {#if decLine(decByN.get(t.n))}
-            <div class="dec">{decLine(decByN.get(t.n))}</div>
+            {@const cur = fbFor(decByN.get(t.n))}
+            <div class="dec">
+              <span class="dectext">{decLine(decByN.get(t.n))}</span>
+              <span class="rate">
+                <button
+                  class="thumb up"
+                  class:on={cur === "up"}
+                  aria-pressed={cur === "up"}
+                  aria-label="Good decision"
+                  title="Good decision"
+                  onclick={() => rateAt(t.n, cur, "up")}
+                >
+                  <Icon name="thumbsUp" size={12} />
+                </button>
+                <button
+                  class="thumb down"
+                  class:on={cur === "down"}
+                  aria-pressed={cur === "down"}
+                  aria-label="Bad decision"
+                  title="Bad decision"
+                  onclick={() => rateAt(t.n, cur, "down")}
+                >
+                  <Icon name="thumbsDown" size={12} />
+                </button>
+              </span>
+            </div>
           {/if}
           {#if td && td.files.length}
             <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -280,6 +326,45 @@
     color: var(--color-neutral-content);
     font-size: 12px;
     margin-top: 5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .dectext {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .rate {
+    flex: none;
+    display: inline-flex;
+    gap: 4px;
+  }
+  .thumb {
+    display: inline-grid;
+    place-items: center;
+    width: 24px;
+    height: 22px;
+    border-radius: 6px;
+    border: 1px solid var(--border-soft);
+    background: var(--color-base-100);
+    color: var(--faint);
+    cursor: pointer;
+    transition: color 0.13s, border-color 0.13s, background 0.13s;
+  }
+  .thumb:hover {
+    color: var(--color-base-content);
+    border-color: var(--border-strong);
+  }
+  .thumb.up.on {
+    color: var(--st-running);
+    border-color: rgba(34, 197, 94, 0.55);
+    background: rgba(34, 197, 94, 0.1);
+  }
+  .thumb.down.on {
+    color: var(--st-error);
+    border-color: rgba(248, 113, 113, 0.55);
+    background: rgba(248, 113, 113, 0.1);
   }
   .diffhead {
     display: flex;
