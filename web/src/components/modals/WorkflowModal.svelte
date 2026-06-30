@@ -11,6 +11,7 @@
   import { ui } from "../../lib/ui.svelte";
   import {
     deriveEdges,
+    deriveAutomationEdges,
     layeredLayout,
     wouldCreateCycle,
     hasEdge,
@@ -69,6 +70,10 @@
 
   let edges = $derived(deriveEdges(sessions));
   let hasDeps = $derived(edges.length > 0);
+
+  // Automation rules that link two concrete sessions, drawn as a distinct edge type.
+  let automations = $derived(wsStore.snapshot?.automations ?? []);
+  let autoEdges = $derived(deriveAutomationEdges(automations, sessions.map((s) => s.id)));
 
   // Canvas size grows to contain the furthest node.
   let canvasSize = $derived.by(() => {
@@ -210,6 +215,39 @@
     return `M ${e.x1} ${e.y1} C ${e.x1 + dx} ${e.y1}, ${e.x2 - dx} ${e.y2}, ${e.x2} ${e.y2}`;
   }
 
+  // Automation edges: source's right-center → target's left-center, bowed downward
+  // so they don't sit on top of dependency edges between the same pair.
+  const BOW = 30;
+  let autoEdgeGeo = $derived.by(() =>
+    autoEdges.map((e) => {
+      const f = posOf(e.from);
+      const t = posOf(e.to);
+      const x1 = f.x + NODE_W;
+      const y1 = f.y + NODE_H / 2;
+      const x2 = t.x;
+      const y2 = t.y + NODE_H / 2;
+      const text = `⚡ ${e.events.length ? e.events.join("/") : "any"} → ${e.kind}`;
+      return {
+        ...e,
+        x1,
+        y1,
+        x2,
+        y2,
+        mx: (x1 + x2) / 2,
+        my: (y1 + y2) / 2 + BOW,
+        text,
+        w: text.length * 6.1 + 12,
+      };
+    }),
+  );
+
+  function autoPath(e: { x1: number; y1: number; x2: number; y2: number }): string {
+    const dx = Math.max(24, Math.abs(e.x2 - e.x1) * 0.4);
+    return `M ${e.x1} ${e.y1} C ${e.x1 + dx} ${e.y1 + BOW}, ${e.x2 - dx} ${e.y2 + BOW}, ${e.x2} ${e.y2}`;
+  }
+
+  let hasAuto = $derived(autoEdges.length > 0);
+
   // Pending-connection validity (drives the live-line color + drop highlight).
   let connValid = $derived(
     conn && hoverId ? !hasEdge(sessions, conn.from, hoverId) && !wouldCreateCycle(sessions, conn.from, hoverId) : false,
@@ -226,6 +264,10 @@
       <span class="wf-hint">
         Drag a node to move it. Drag the <span class="wf-dot-inline"></span> handle onto another node to make
         it <b>run after</b> this one. Click an edge to remove it.
+      </span>
+      <span class="wf-legend">
+        <span class="lg"><span class="lg-line dep"></span> depends on</span>
+        {#if hasAuto}<span class="lg"><span class="lg-line auto"></span> automation</span>{/if}
       </span>
       <button class="btn btn-xs" onclick={autoArrange} title="Reset node positions to the auto layout">
         <Icon name="layers" size={12} /> Auto-arrange
@@ -245,6 +287,12 @@
         style="width:{canvasSize.w}px; height:{canvasSize.h}px;"
       >
         <svg class="wf-edges" width={canvasSize.w} height={canvasSize.h}>
+          <defs>
+            <!-- arrowhead inherits the edge's stroke colour (SVG2 context-stroke) -->
+            <marker id="wf-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" />
+            </marker>
+          </defs>
           {#each edgeGeo as e (e.from + "->" + e.to)}
             <!-- wide invisible hit-path so the thin edge is easy to click -->
             <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -257,6 +305,23 @@
               onclick={() => removeEdge(e.from, e.to)}
             />
             <path d={path(e)} class="wf-edge" class:blocked={e.blocked} />
+          {/each}
+          {#each autoEdgeGeo as e (e.ruleId + e.from + e.to + e.kind)}
+            <!-- automation trigger edge — distinct dashed style + arrowhead + label -->
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <path
+              d={autoPath(e)}
+              class="wf-hit"
+              role="button"
+              tabindex="-1"
+              aria-label={`Edit automation ${e.ruleName}`}
+              onclick={() => ui.openModal({ kind: "automations" })}
+            />
+            <path d={autoPath(e)} class="wf-auto-edge {e.kind}" marker-end="url(#wf-arrow)" />
+            <g class="wf-auto-label {e.kind}" transform="translate({e.mx},{e.my})">
+              <rect x={-e.w / 2} y="-9" width={e.w} height="18" rx="9" />
+              <text x="0" y="4" text-anchor="middle">{e.text}</text>
+            </g>
           {/each}
           {#if conn}
             <path
@@ -327,6 +392,33 @@
     background: var(--color-primary);
     vertical-align: middle;
   }
+  .wf-legend {
+    display: flex;
+    gap: 12px;
+    flex: none;
+    font-size: 11px;
+    color: var(--faint);
+  }
+  .wf-legend .lg {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .lg-line {
+    display: inline-block;
+    width: 16px;
+    height: 0;
+    border-top-width: 2px;
+    border-top-style: solid;
+  }
+  .lg-line.dep {
+    border-top-color: var(--st-done, #60a5fa);
+  }
+  .lg-line.auto {
+    border-top-style: dashed;
+    border-top-color: var(--st-running);
+  }
   .wf-note {
     color: var(--faint);
     font-size: 13px;
@@ -387,6 +479,39 @@
   }
   .wf-edge.pending.invalid {
     stroke: var(--st-error);
+  }
+  /* automation trigger edges — dashed + arrowhead + coloured by action */
+  .wf-auto-edge {
+    fill: none;
+    stroke-width: 2;
+    stroke-dasharray: 2 5;
+    stroke-linecap: round;
+    opacity: 0.9;
+    pointer-events: none;
+  }
+  .wf-auto-edge.start {
+    stroke: var(--st-running);
+  }
+  .wf-auto-edge.stop {
+    stroke: var(--st-error);
+  }
+  .wf-auto-label {
+    pointer-events: none;
+  }
+  .wf-auto-label rect {
+    fill: var(--color-base-100);
+    stroke-width: 1;
+  }
+  .wf-auto-label.start rect {
+    stroke: var(--st-running);
+  }
+  .wf-auto-label.stop rect {
+    stroke: var(--st-error);
+  }
+  .wf-auto-label text {
+    font-size: 10px;
+    font-weight: 600;
+    fill: var(--color-base-content);
   }
   .wf-node {
     position: absolute;

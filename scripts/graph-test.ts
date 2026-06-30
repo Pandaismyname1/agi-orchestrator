@@ -12,7 +12,9 @@ import {
   hasEdge,
   withDependency,
   withoutDependency,
+  deriveAutomationEdges,
   type GraphSession,
+  type AutomationRuleLike,
 } from "../web/src/lib/graph.js";
 
 let pass = true;
@@ -71,6 +73,38 @@ check("withDependency adds A to C.dependsOn", withDependency(sessions, "A", "C")
 check("withDependency is idempotent (A→B already there)", withDependency(sessions, "A", "B").join(",") === "A");
 check("withoutDependency removes B from C", withoutDependency(sessions, "B", "C").length === 0);
 check("withoutDependency leaves others (drop A from D)", withoutDependency(sessions, "A", "D").join(",") === "B");
+
+// ── deriveAutomationEdges ────────────────────────────────────────────────────────
+const ids = ["A", "B", "C", "D", "E"];
+const rules: AutomationRuleLike[] = [
+  { id: "r1", name: "deploy after A", on: ["done"], match: { sessionId: "A" }, actions: [{ kind: "start", target: "B" }] },
+  { id: "r2", name: "halt B on err", on: ["error"], match: { sessionId: "B" }, actions: [{ kind: "stop", target: "C" }] },
+  { id: "r3", name: "self only", on: ["error"], match: { sessionId: "A" }, actions: [{ kind: "stop", target: "$self" }] },
+  { id: "r4", name: "notify only", on: ["done"], match: { sessionId: "A" }, actions: [{ kind: "notify" }] },
+  { id: "r5", name: "any session", on: ["done"], actions: [{ kind: "start", target: "B" }] }, // no concrete source
+  { id: "r6", name: "disabled", enabled: false, match: { sessionId: "A" }, actions: [{ kind: "start", target: "C" }] },
+  { id: "r7", name: "unknown target", match: { sessionId: "A" }, actions: [{ kind: "start", target: "ghost" }] },
+];
+const aEdges = deriveAutomationEdges(rules, ids);
+const aStr = aEdges.map((e) => `${e.from}-${e.kind}->${e.to}`).sort().join(",");
+check("derives concrete start/stop automation edges only", aStr === "A-start->B,B-stop->C");
+check("edge carries trigger events", aEdges.find((e) => e.ruleId === "r1")!.events.join() === "done");
+check("edge carries rule name", aEdges.find((e) => e.ruleId === "r1")!.ruleName === "deploy after A");
+check("skips $self action", !aEdges.some((e) => e.ruleId === "r3"));
+check("skips notify-only rule", !aEdges.some((e) => e.ruleId === "r4"));
+check("skips any-session (no concrete source)", !aEdges.some((e) => e.ruleId === "r5"));
+check("skips disabled rule", !aEdges.some((e) => e.ruleId === "r6"));
+check("skips unknown target id", !aEdges.some((e) => e.to === "ghost"));
+check("empty/undefined rules → no edges", deriveAutomationEdges(undefined, ids).length === 0 && deriveAutomationEdges([], ids).length === 0);
+check("accepts a Set of ids", deriveAutomationEdges(rules, new Set(ids)).length === 2);
+{
+  // dedup: two rules producing the same from|to|kind collapse to one edge.
+  const dup: AutomationRuleLike[] = [
+    { id: "x", match: { sessionId: "A" }, actions: [{ kind: "start", target: "B" }] },
+    { id: "y", match: { sessionId: "A" }, actions: [{ kind: "start", target: "B" }] },
+  ];
+  check("dedups identical automation edges", deriveAutomationEdges(dup, ids).length === 1);
+}
 
 console.log(`\n[graph] => ${pass ? "PASS ✅" : "FAIL ⚠️"}`);
 process.exit(pass ? 0 : 1);

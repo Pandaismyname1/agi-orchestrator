@@ -116,3 +116,68 @@ export function withoutDependency(sessions: GraphSession[], from: string, to: st
   const cur = sessions.find((s) => s.id === to)?.dependsOn ?? [];
   return cur.filter((d) => d !== from);
 }
+
+// ── automation rules as edges ──────────────────────────────────────────────────
+
+/** The slice of an automation rule the graph reads (structural; AutomationRule satisfies it). */
+export interface AutomationRuleLike {
+  id?: string;
+  name?: string;
+  enabled?: boolean;
+  on?: string[];
+  match?: { sessionId?: string };
+  actions?: { kind: string; target?: string }[];
+}
+
+/**
+ * An automation rendered as a canvas edge: a rule that, when `from` fires a
+ * lifecycle event, starts or stops a concrete `to` session. Distinct from a
+ * dependency edge — it's a reactive trigger, not a prerequisite.
+ */
+export interface AutomationEdge {
+  from: string;
+  to: string;
+  kind: "start" | "stop";
+  events: string[];
+  ruleId: string;
+  ruleName: string;
+}
+
+/**
+ * Derive the automation edges that connect two distinct, known sessions: a rule
+ * scoped to a specific firing session (`match.sessionId`) whose start/stop action
+ * targets another concrete session (not `$self`). Rules without a concrete
+ * source+target (any-session matches, `$self`, notify-only) aren't drawable edges
+ * and are skipped. Disabled rules are skipped. Deduped by from|to|kind.
+ */
+export function deriveAutomationEdges(
+  rules: AutomationRuleLike[] | undefined,
+  knownIds: string[] | Set<string>,
+): AutomationEdge[] {
+  if (!rules || rules.length === 0) return [];
+  const ids = knownIds instanceof Set ? knownIds : new Set(knownIds);
+  const out: AutomationEdge[] = [];
+  const seen = new Set<string>();
+  for (const r of rules) {
+    if (r.enabled === false) continue;
+    const from = r.match?.sessionId;
+    if (!from || !ids.has(from)) continue;
+    for (const a of r.actions ?? []) {
+      if (a.kind !== "start" && a.kind !== "stop") continue;
+      const to = a.target;
+      if (!to || to === "$self" || to === from || !ids.has(to)) continue;
+      const key = `${from}|${to}|${a.kind}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        from,
+        to,
+        kind: a.kind,
+        events: r.on ?? [],
+        ruleId: r.id ?? key,
+        ruleName: r.name ?? "automation",
+      });
+    }
+  }
+  return out;
+}
