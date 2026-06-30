@@ -21,11 +21,17 @@ import type { ScreenState } from "../types.js";
 
 const GATE_RE =
   /Enter to confirm|Do you want to proceed|Do you want to make this edit|❯\s*\d+\.\s|Yes, and don't ask again|No, and tell Claude/i;
-// Work in flight — the main turn OR background agents/tasks. These are TUI status
-// chrome (an interrupt hint, a live token counter), present only while something
-// is actually running and cleared once it finishes — so they distinguish "idle
-// while agents churn" (WORKING) from "truly idle" (READY).
-const WORKING_RE = /esc to interrupt|↓\s*[\d.,]+\s*tokens|[·•]\s*[\d.,]+k?\s*tokens/i;
+// Work in flight — the main turn OR background agents/tasks. Captured from real
+// Claude Code v2.1 screens (markers cleared once work finishes):
+//   - main turn generating:  "(esc to interrupt)" in the footer.
+//   - blocked on agents:     "✻ Waiting for N background agent to finish" — and the
+//     footer may be the IDLE footer (no "esc to interrupt"), so this line is the
+//     decisive signal that the main is idle ONLY because agents are still running.
+//   - live token counter:    "↑ 21.6k tokens" / "↓ 2.1k tokens" — note the arrow can
+//     be UP or down and the count is abbreviated (k/m). (Anchored on "tokens" so the
+//     "↓ to manage" footer hint does NOT trip it.)
+const WORKING_RE =
+  /esc to interrupt|Waiting for \d+ background agent|[↑↓·•]\s*[\d.,]+\s*[km]?\s*tokens/i;
 // The idle input box, shown only at the main prompt.
 const IDLE_RE = /\?\s*for shortcuts|shift\s*\+\s*tab to cycle|\/effort\b/i;
 

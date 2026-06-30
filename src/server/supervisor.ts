@@ -181,6 +181,35 @@ export class Supervisor {
     return this.lastUsage;
   }
 
+  /** (Re)schedule an auto-resume wakeup for a limit-paused session. */
+  private scheduleResume(id: string, delayMs: number): void {
+    this.clearResumeTimer(id);
+    this.resumeTimers.set(
+      id,
+      setTimeout(() => {
+        this.resumeTimers.delete(id);
+        const m = this.sessions.get(id);
+        // Session removed, or no longer paused (the user started/stopped it) — do
+        // nothing, and DON'T touch the global lastUsage that other sessions gate on.
+        if (!m || m.status !== "rate-limited") return;
+        // Drop only this read so the start gate doesn't refuse; the orchestrator
+        // re-reads fresh /usage at launch and re-pauses if the limit is still spent.
+        this.lastUsage = undefined;
+        m.usage = undefined;
+        this.start(id);
+      }, delayMs),
+    );
+  }
+
+  /** Cancel any pending auto-resume timer for a session. */
+  private clearResumeTimer(id: string): void {
+    const t = this.resumeTimers.get(id);
+    if (t) {
+      clearTimeout(t);
+      this.resumeTimers.delete(id);
+    }
+  }
+
   /**
    * Update the concurrency cap at runtime. Lowering it never stops a running
    * session (it just won't pump new ones until the count drops below the cap);
@@ -548,9 +577,10 @@ export class Supervisor {
 
     // Edits apply LIVE: the brain reads m.config (goal / doneCriteria / autonomy)
     // by reference on its next decision. Only cwd + permissionMode are fixed at
-    // launch — those can't change mid-run, so reject just those while active.
-    const live = ["running", "manual", "needs-input", "queued"].includes(m.status);
-    if (live) {
+    // launch — those can't change once the pty has spawned. A QUEUED session hasn't
+    // launched yet, so it's still fully editable; reject only for active runs.
+    const launched = ["running", "manual", "needs-input"].includes(m.status);
+    if (launched) {
       if (patch.cwd !== undefined && path.resolve(patch.cwd.trim() || ".") !== m.config.cwd) {
         throw new Error("can't change the working directory while running — stop the session first.");
       }
@@ -596,6 +626,7 @@ export class Supervisor {
     const m = this.sessions.get(id);
     if (!m) throw new Error(`no session with id "${id}".`);
     if (m.status === "running") throw new Error("stop the session before deleting it.");
+    this.clearResumeTimer(id); // don't let a pending auto-resume fire for a removed session
     this.sessions.delete(id);
     this.persist();
   }
@@ -611,6 +642,14 @@ export class Supervisor {
   stop(id: string): void {
     const m = this.sessions.get(id);
     if (!m) return;
+    // Cancel any pending auto-resume — an operator stop must stick.
+    this.clearResumeTimer(id);
+    // Paused on a real subscription limit: cancel the resume and mark it stopped.
+    if (m.status === "rate-limited") {
+      m.status = "stopped";
+      m.lastDecision = "stopped by operator";
+      return;
+    }
     // Parked waiting for manual input: unblock the loop with a stop.
     if (m.resolveUserInput) {
       m.stopRequested = true;
@@ -646,6 +685,7 @@ export class Supervisor {
   }
 
   async shutdown(): Promise<void> {
+    for (const id of [...this.resumeTimers.keys()]) this.clearResumeTimer(id);
     await Promise.allSettled(
       [...this.sessions.values()].map(async (m) => {
         m.stopRequested = true;
@@ -689,27 +729,18 @@ export class Supervisor {
         this.lastUsage = e.status;
         break;
       case "limited": {
-        // A real subscription limit is spent — pause and auto-resume at its reset.
+        // A real subscription limit is spent — pause and ALWAYS schedule a wakeup.
         m.status = "rate-limited";
-        const at = e.resumeAt ? new Date(e.resumeAt).toLocaleString() : "the limit reset";
+        const known = !!e.resumeAt && e.resumeAt > Date.now();
+        const at = known ? new Date(e.resumeAt!).toLocaleString() : "soon (re-checking)";
         m.error = `${e.reason} — auto-resumes at ${at}`;
         m.lastDecision = e.sonnetOnly ? `paused (Sonnet pool) — ${e.reason}` : `limit reached — ${e.reason}`;
-        const prev = this.resumeTimers.get(m.id);
-        if (prev) clearTimeout(prev);
-        if (e.resumeAt && e.resumeAt > Date.now()) {
-          const delay = Math.min(e.resumeAt - Date.now() + 5_000, 8 * 24 * 60 * 60_000);
-          this.resumeTimers.set(
-            m.id,
-            setTimeout(() => {
-              this.resumeTimers.delete(m.id);
-              // Drop the stale (spent) reading so the start gate doesn't refuse;
-              // the orchestrator re-reads fresh /usage at launch.
-              this.lastUsage = undefined;
-              m.usage = undefined;
-              this.start(m.id);
-            }, delay),
-          );
-        }
+        // If the reset time is unknown or already past (parse failure / stale read),
+        // fall back to a periodic re-check so a paused session is NEVER wedged forever.
+        const delay = known
+          ? Math.min(e.resumeAt! - Date.now() + 5_000, 8 * 24 * 60 * 60_000)
+          : 5 * 60_000;
+        this.scheduleResume(m.id, delay);
         break;
       }
       case "context":

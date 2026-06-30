@@ -55,6 +55,17 @@ check(
   "time-only on-the-hour '11pm'",
   parseResetAt("11pm (X)", new Date(2026, 5, 30, 13, 0).getTime()) === new Date(2026, 5, 30, 23, 0).getTime(),
 );
+// Fail-closed cases (from the adversarial review) — never return a past/wrong time.
+check("12am → 00:00", parseResetAt("12:00am (X)", new Date(2026, 5, 30, 1, 0).getTime()) === new Date(2026, 6, 1, 0, 0).getTime());
+check("12pm → 12:00", parseResetAt("Jun 30, 12pm (X)", new Date(2026, 5, 30, 8, 0).getTime()) === new Date(2026, 5, 30, 12, 0).getTime());
+check("recent-past dated → undefined (stale, fail closed)", parseResetAt("Jun 30, 6:00am (X)", new Date(2026, 5, 30, 12, 0).getTime()) === undefined);
+check("weekday format 'Monday 10am' → undefined (fail closed)", parseResetAt("Monday 10am (X)", NOW) === undefined);
+check("year rollover 'Jan 2, 11pm' on Dec 31 → next year", parseResetAt("Jan 2, 11pm (X)", new Date(2026, 11, 31, 12, 0).getTime()) === new Date(2027, 0, 2, 23, 0).getTime());
+
+// A spent window with no parseable reset still blocks (caller schedules a fallback).
+const noReset = parseUsage(REAL.replace("13% used", "100% used").replace("Resets 10:49am (Europe/Bucharest)", ""), NOW);
+const vNoReset = usageVerdict(noReset);
+check("session spent with no reset → blocked, resumeAt undefined", vNoReset.blocked === true && vNoReset.resumeAt === undefined);
 
 // Gate: nothing spent → not blocked.
 check("healthy usage → not blocked", usageVerdict(u).blocked === false);

@@ -86,16 +86,23 @@ export function parseResetAt(resetText: string | undefined, now: number): number
     const hour = to24h(Number(dated[3]), dated[5]!);
     const min = Number(dated[4] ?? "0");
     if (mon >= 0) {
-      const ref = new Date(now);
-      let year = ref.getFullYear();
+      const year = new Date(now).getFullYear();
       let when = new Date(year, mon, day, hour, min, 0, 0).getTime();
       // Year rollover (e.g. "Jan 2" seen in late December).
       if (when < now - 8 * 24 * 60 * 60 * 1000) {
         when = new Date(year + 1, mon, day, hour, min, 0, 0).getTime();
       }
-      return when;
+      // A reset must be in the FUTURE. A recent-past dated reset is stale/
+      // untrustworthy — fail closed (the caller schedules a prompt re-check)
+      // rather than returning a past time that would suppress the resume timer.
+      return when > now ? when : undefined;
     }
   }
+
+  // An unrecognized dated format with a word in it (e.g. a weekday "Monday 10am")
+  // must NOT fall through to the bare-time branch and silently resolve to today —
+  // that could resume a weekly limit days early. Fail closed.
+  if (/[A-Za-z]{3,}/.test(s)) return undefined;
 
   // Time-only: "10:49am" or "11pm" → today at that time, or tomorrow if passed.
   const timeOnly = s.match(/(\d{1,2})(?::(\d{2}))?\s*([ap]m)/i);

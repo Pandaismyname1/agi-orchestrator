@@ -2,10 +2,14 @@
  * Config loading. Reads ./config.json (or $AGI_CONFIG), fills defaults, and
  * validates the essentials. See config.example.json for the shape.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AppConfig, Limits } from "./types.js";
+
+// Serializes config writes so rapid/overlapping saves (e.g. live edits + an
+// onSession persist) can't interleave. Kept alive even if one write fails.
+let writeChain: Promise<void> = Promise.resolve();
 
 const DEFAULT_LIMITS: Limits = {
   maxTurns: 25,
@@ -89,5 +93,15 @@ export async function saveConfig(
     dispatch: cfg.dispatch,
     usageGuard: cfg.usageGuard,
   };
-  await writeFile(abs, JSON.stringify(out, null, 2) + "\n", "utf8");
+  const json = JSON.stringify(out, null, 2) + "\n";
+  // Write atomically (temp file + rename) so a crash or an interleaved write can
+  // never leave a half-written, unparseable config.json; serialize via writeChain.
+  const run = async (): Promise<void> => {
+    const tmp = `${abs}.tmp`;
+    await writeFile(tmp, json, "utf8");
+    await rename(tmp, abs);
+  };
+  const result = writeChain.then(run, run);
+  writeChain = result.catch(() => {}); // a failed write must not poison later saves
+  return result;
 }

@@ -15,23 +15,45 @@ const check = (name: string, cond: boolean) => {
   if (!cond) pass = false;
 };
 
-// The reported spin-loop: main idle box but background agents still running.
+// REAL capture (Claude Code v2.1.196): main turn done, a background agent running.
+// The footer is the IDLE footer (no "esc to interrupt"); the only in-flight signals
+// are the "Waiting for N background agent" line and the "↑ 21.6k tokens" counter.
+// This is the exact spin-loop screen — must be WORKING, not ready.
+const realBgAgent = `
+● Agent(Count slowly 1 to 100)
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+● Launched. The counting agent is running in the background — I'll be notified when it finishes.
+✻ Waiting for 1 background agent to finish
+  ⏵⏵ accept edits on (shift+tab to cycle) · ← for agents · ↓ to manage
+  ● main
+  ◯ general-purpose  Count slowly 1 to 100                                       11s · ↑ 21.6k tokens
+`;
+check("REAL background-agent screen => working (the spin-loop case)", classifyScreen(realBgAgent) === "working");
+
+// The other real variant (from the owner's screenshot): footer has "esc to interrupt".
 const idleWithBgAgents = `
 ● Agent 1 building HUB shell… (22s · ↓ 765 tokens)
-  └ Next: Merge Agent 1 (HUB shell) into master
-
-────────────────────────────────────────────────
->
-────────────────────────────────────────────────
-  ▶▶ auto mode on (shift+tab to cycle) · esc to interrupt · ctrl+t to show tasks · ← for agents
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt · ctrl+t to show tasks · ← for agents
 `;
-check("idle box + background agents => working (wait, don't spin)", classifyScreen(idleWithBgAgents) === "working");
+check("idle box + background agents (esc-to-interrupt variant) => working", classifyScreen(idleWithBgAgents) === "working");
 
-// Truly idle: main prompt, nothing running.
-check("plain idle box => ready", classifyScreen("user@x\n> \n  ? for shortcuts") === "ready");
+// REAL idle footer (post-boot): "? for shortcuts · ← for agents ● high · /effort". The
+// "← for agents" hint persists with agents present but is NOT an in-flight signal.
 check(
-  "idle box (auto-accept hint, no in-flight chrome) => ready",
-  classifyScreen("> \n  auto-accept edits on (shift+tab to cycle) · ? for shortcuts") === "ready",
+  "REAL idle footer (with ← for agents, nothing running) => ready",
+  classifyScreen("> \n  ? for shortcuts · ← for agents ● high · /effort") === "ready",
+);
+check("plain idle box => ready", classifyScreen("user@x\n> \n  ? for shortcuts") === "ready");
+// The "↓ to manage" footer hint (agents present) must NOT trip working on its own.
+check(
+  "idle footer with '↓ to manage' but no live counter => ready",
+  classifyScreen("> \n  accept edits on (shift+tab to cycle) · ← for agents · ↓ to manage · ? for shortcuts") === "ready",
+);
+
+// REAL main-generation: footer "esc to interrupt" + abbreviated "↓ 2.1k tokens".
+check(
+  "REAL main generation (↓ 2.1k tokens) => working",
+  classifyScreen("· Thundering… (45s · ↓ 2.1k tokens · esc to interrupt)") === "working",
 );
 
 // Main session actually generating: spinner + interrupt, NO idle hint line.
