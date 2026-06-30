@@ -9,6 +9,7 @@
   import Fleet from "./components/Fleet.svelte";
   import Detail from "./components/Detail.svelte";
   import ModalHost from "./components/ModalHost.svelte";
+  import CommandPalette from "./components/CommandPalette.svelte";
   import Toast from "./components/Toast.svelte";
   import Login from "./components/Login.svelte";
 
@@ -60,6 +61,7 @@
   </div>
 
   <ModalHost />
+  <CommandPalette />
   <Toast />
 {:else}
   <Login />

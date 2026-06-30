@@ -99,6 +99,15 @@
   >
     <Icon name="stop" size={13} /> Stop all
   </button>
+  <button
+    class="btn btn-sm cmdk"
+    title="Command palette — start/stop, jump to a session, open anything (⌘K / Ctrl-K)"
+    aria-label="Open command palette"
+    onclick={() => ui.openPalette()}
+  >
+    <Icon name="spark" size={13} /> <span class="hide-sm">Search</span>
+    <kbd class="hide-sm">⌘K</kbd>
+  </button>
   <button class="btn btn-sm" onclick={() => ui.openModal({ kind: "adopt" })}>
     <Icon name="download" size={13} /> Adopt
   </button>
@@ -174,6 +183,18 @@
     border-bottom: 1px solid var(--border-soft);
     background: rgba(15, 23, 42, 0.85);
     backdrop-filter: blur(8px);
+  }
+  .cmdk {
+    gap: 6px;
+  }
+  .cmdk kbd {
+    font: inherit;
+    font-size: 10px;
+    color: var(--faint);
+    background: var(--color-base-300);
+    border: 1px solid var(--border-strong);
+    border-radius: 5px;
+    padding: 1px 5px;
   }
   .brand {
     display: flex;

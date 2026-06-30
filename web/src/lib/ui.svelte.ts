@@ -38,14 +38,27 @@ class UiState {
   toasts = $state<Toast[]>([]);
   /** Left fleet panel collapsed to the status-dot rail (persisted). */
   fleetCollapsed = $state<boolean>(readFleetCollapsed());
+  /** ⌘K command palette open? */
+  paletteOpen = $state<boolean>(false);
 
   #seq = 0;
 
   openModal(m: Modal): void {
     this.modal = m;
+    this.paletteOpen = false; // a command that opens a modal closes the palette
   }
   closeModal(): void {
     this.modal = null;
+  }
+
+  openPalette(): void {
+    this.paletteOpen = true;
+  }
+  closePalette(): void {
+    this.paletteOpen = false;
+  }
+  togglePalette(): void {
+    this.paletteOpen = !this.paletteOpen;
   }
 
   toggleFleet(): void {
