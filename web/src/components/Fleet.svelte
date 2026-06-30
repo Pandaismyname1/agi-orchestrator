@@ -5,7 +5,7 @@
   import { wsStore } from "../lib/ws.svelte";
   import { filterSessions } from "../lib/filter";
   import { sortSessions, SORT_OPTIONS, type SortKey } from "../lib/sort";
-  import { actionableIds } from "../lib/selection";
+  import { actionableIds, orderByDeps } from "../lib/selection";
   import { planKey, isTypingTarget, type NavSession } from "../lib/keynav";
   import Icon from "./Icon.svelte";
   import AgentCard from "./AgentCard.svelte";
@@ -37,6 +37,7 @@
   let selected = $state(new SvelteSet<string>());
   let startable = $derived(actionableIds(filtered, selected, "start"));
   let stoppable = $derived(actionableIds(filtered, selected, "stop"));
+  let deletable = $derived(actionableIds(filtered, selected, "delete"));
 
   function toggleSelect(id: string): void {
     if (selected.has(id)) selected.delete(id);
@@ -56,6 +57,46 @@
     const ids = action === "start" ? startable : stoppable;
     for (const id of ids) wsStore.send({ type: action, id });
     selected.clear();
+  }
+
+  /**
+   * Delete the selected (non-running) sessions, with a single Undo that re-creates
+   * them. Snapshots are captured before removal; on undo they're re-added in
+   * dependency order so intra-selection `dependsOn` edges survive (the backend
+   * drops a dep whose target doesn't exist yet).
+   */
+  function bulkDelete(): void {
+    const ids = new Set(deletable);
+    const victims = filtered.filter((s) => ids.has(s.id)).map((s) => ({ ...s }));
+    if (victims.length === 0) return;
+    const n = victims.length;
+    // No confirm dialog: the Undo toast is the safety net for this reversible action.
+    for (const s of victims) wsStore.send({ type: "remove", id: s.id });
+    selected.clear();
+    selectMode = false;
+    ui.toast(`deleted ${n} session${n === 1 ? "" : "s"}`, {
+      label: "Undo",
+      run: () => {
+        for (const s of orderByDeps(victims)) {
+          wsStore.send({
+            type: "add",
+            session: {
+              id: s.id,
+              cwd: s.cwd,
+              goal: s.goal,
+              doneCriteria: s.doneCriteria,
+              permissionMode: s.permissionMode,
+              autonomy: s.autonomy,
+              startMode: s.mode,
+              dependsOn: s.dependsOn,
+              schedule: s.schedule,
+              autoPr: s.autoPr,
+            },
+          });
+        }
+        ui.toast(`restored ${n} session${n === 1 ? "" : "s"}`);
+      },
+    });
   }
 
   // Compact status breakdown shown under the section title.
@@ -195,6 +236,9 @@
         </button>
         <button class="btn btn-xs" onclick={() => bulk("stop")} disabled={stoppable.length === 0} title="Stop selected">
           <Icon name="stop" size={11} /> Stop{stoppable.length ? ` ${stoppable.length}` : ""}
+        </button>
+        <button class="btn btn-xs bulk-del" onclick={bulkDelete} disabled={deletable.length === 0} title="Delete selected (with undo)">
+          <Icon name="trash" size={11} /> Delete{deletable.length ? ` ${deletable.length}` : ""}
         </button>
       </div>
     {/if}
@@ -441,6 +485,7 @@
   .bulkbar {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 6px;
     margin: 0 16px 10px;
     padding: 7px 9px;
@@ -458,6 +503,14 @@
   }
   .bulkspace {
     flex: 1;
+  }
+  .bulk-del:not(:disabled) {
+    color: var(--color-error);
+    border-color: rgba(248, 113, 113, 0.4);
+  }
+  .bulk-del:not(:disabled):hover {
+    background: rgba(248, 113, 113, 0.1);
+    border-color: var(--color-error);
   }
   .controls {
     display: flex;
