@@ -516,6 +516,7 @@ async function main(): Promise<void> {
           templates: sup.listTemplates(),
           webhooks: sup.listWebhooks(),
           automations: sup.listAutomations(),
+          automationLog: sup.automationLog(),
           attached: attach.list(),
           sessions: sup.list(),
           focus: focusId ? { id: focusId, screen: sup.screen(focusId) } : undefined,

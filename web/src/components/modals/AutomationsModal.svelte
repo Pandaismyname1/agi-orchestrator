@@ -8,11 +8,15 @@
   import { wsStore } from "../../lib/ws.svelte";
   import { ui } from "../../lib/ui.svelte";
   import { ago } from "../../lib/format";
+  import { summarizeFirings, statsFor, recentFirings, firingLabel } from "../../lib/autohistory";
   import Modal from "../Modal.svelte";
   import Icon from "../Icon.svelte";
 
   let rules = $derived(wsStore.snapshot?.automations ?? []);
   let sessions = $derived(wsStore.snapshot?.sessions ?? []);
+  let log = $derived(wsStore.snapshot?.automationLog ?? []);
+  let summary = $derived(summarizeFirings(log));
+  let recent = $derived(recentFirings(log, 12));
 
   const ALL_EVENTS: { id: AutomationTrigger; label: string }[] = [
     { id: "done", label: "done" },
@@ -193,7 +197,19 @@
                 {#each r.actions as a (a.kind + (a.kind !== "notify" ? a.target : a.message ?? ""))}
                   <span class="au-badge au-{a.kind}">{actionLabel(a)}</span>
                 {/each}
-                <span class="au-when">updated {ago(r.updatedAt)}</span>
+                {#if statsFor(summary, r.id).count > 0}
+                  {@const st = statsFor(summary, r.id)}
+                  <span
+                    class="au-fired"
+                    class:warn={st.lastOutcome !== "ok"}
+                    title={`Fired ${st.count}× · last ${ago(st.lastFired)}${st.problems ? ` · ${st.problems} skipped/failed` : ""}`}
+                  >
+                    <span class="au-dot {st.lastOutcome}"></span>
+                    fired {st.count}× · {ago(st.lastFired)}
+                  </span>
+                {:else}
+                  <span class="au-when">never fired · updated {ago(r.updatedAt)}</span>
+                {/if}
               </div>
             </div>
             <div class="au-actions">
@@ -210,6 +226,24 @@
             </div>
           </div>
         {/each}
+      </div>
+    {/if}
+
+    {#if recent.length}
+      <div class="au-history">
+        <div class="au-hhead"><Icon name="clock" size={12} /> Recent activity</div>
+        <div class="au-hlist">
+          {#each recent as f (f.at + f.ruleId + f.kind + (f.target ?? ""))}
+            <div class="au-hrow" class:warn={f.outcome !== "ok"}>
+              <span class="au-dot {f.outcome}"></span>
+              <span class="au-hname" title={f.ruleName}>{f.ruleName}</span>
+              <span class="au-hwhat">{firingLabel(f)}</span>
+              <span class="au-hfrom" title={`fired by ${f.from}`}>{f.from}</span>
+              {#if f.outcome !== "ok"}<span class="au-hnote">{f.note ?? f.outcome}</span>{/if}
+              <span class="au-hago">{ago(f.at)}</span>
+            </div>
+          {/each}
+        </div>
       </div>
     {/if}
 
@@ -408,6 +442,99 @@
     font-size: 11px;
     color: var(--faint);
     margin-left: auto;
+  }
+  .au-fired {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--color-neutral-content);
+    margin-left: auto;
+  }
+  .au-fired.warn {
+    color: var(--st-needs-input, #fbbf24);
+  }
+  .au-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--faint);
+  }
+  .au-dot.ok {
+    background: var(--st-running);
+  }
+  .au-dot.skipped {
+    background: var(--st-needs-input, #fbbf24);
+  }
+  .au-dot.error {
+    background: var(--st-error);
+  }
+
+  .au-history {
+    margin-top: 16px;
+    border-top: 1px solid var(--border-soft);
+    padding-top: 12px;
+  }
+  .au-hhead {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 700;
+    color: var(--faint);
+    margin-bottom: 8px;
+  }
+  .au-hlist {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 180px;
+    overflow-y: auto;
+  }
+  .au-hrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--color-neutral-content);
+    padding: 4px 2px;
+    border-radius: 6px;
+  }
+  .au-hrow.warn {
+    background: rgba(251, 191, 36, 0.06);
+  }
+  .au-hname {
+    font-weight: 600;
+    color: var(--color-base-content);
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: none;
+  }
+  .au-hwhat {
+    color: var(--color-neutral-content);
+    font-variant-numeric: tabular-nums;
+  }
+  .au-hfrom {
+    color: var(--faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 90px;
+  }
+  .au-hnote {
+    color: var(--st-needs-input, #fbbf24);
+    font-size: 11px;
+  }
+  .au-hago {
+    margin-left: auto;
+    color: var(--faint);
+    font-size: 11px;
+    flex: none;
   }
   .au-actions {
     display: flex;

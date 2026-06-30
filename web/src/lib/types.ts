@@ -346,6 +346,19 @@ export interface AutomationRule {
   updatedAt: number;
 }
 
+/** A recorded automation firing (one action a rule performed). Mirrors the backend. */
+export interface AutomationFiring {
+  at: number;
+  ruleId: string;
+  ruleName: string;
+  event: WebhookEvent;
+  kind: "start" | "stop" | "notify";
+  from: string;
+  target?: string;
+  outcome: "ok" | "skipped" | "error";
+  note?: string;
+}
+
 /** Payload to create (omit id) or update (include id) an automation (automationSave). */
 export type AutomationInput = {
   id?: string;
@@ -400,6 +413,8 @@ export interface Snapshot {
   webhooks?: WebhookConfig[];
   /** Automation rules (newest-updated first). */
   automations?: AutomationRule[];
+  /** Recent automation firings (newest first) for run-history display. */
+  automationLog?: AutomationFiring[];
   /** True when notifications are currently silenced by quiet hours. */
   quietActive?: boolean;
   /** Hand-started sessions driven via the Stop hook (newest-registered first). */

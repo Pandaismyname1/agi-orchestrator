@@ -61,6 +61,7 @@ import type {
   AutomationAction,
   AutomationTrigger,
   AutomationMatch,
+  AutomationFiring,
   QuietHours,
 } from "../types.js";
 
@@ -207,6 +208,9 @@ export class Supervisor {
   private readonly registryFetch: FetchLike;
   /** Epoch ms the supervisor was constructed (for health uptime). */
   private readonly bootAt = Date.now();
+  /** Bounded ring buffer of recent automation firings (newest last), for the dashboard. */
+  private readonly firings: AutomationFiring[] = [];
+  private static readonly FIRINGS_CAP = 100;
 
   constructor(
     private readonly cfg: AppConfig,
@@ -1076,22 +1080,31 @@ export class Supervisor {
     if (!rules || rules.length === 0) return;
     const plan = planAutomations(event, { id: m.id, cwd: m.cwd, goal: m.goal, mode: m.mode }, rules);
     for (const a of plan) {
+      const base = { ruleId: a.ruleId, ruleName: a.ruleName, event, kind: a.kind, from: m.id, target: a.target };
       try {
         if (a.kind === "start" && a.target) {
           if (!this.sessions.has(a.target)) {
             this.log.warn("automation start: no such session", { rule: a.ruleName, target: a.target });
+            this.recordFiring({ ...base, outcome: "skipped", note: "no such session" });
             continue;
           }
           this.log.info("automation: start", { rule: a.ruleName, target: a.target, on: event, from: m.id });
           this.start(a.target);
+          this.recordFiring({ ...base, outcome: "ok" });
         } else if (a.kind === "stop" && a.target) {
           if (!this.sessions.has(a.target)) {
             this.log.warn("automation stop: no such session", { rule: a.ruleName, target: a.target });
+            this.recordFiring({ ...base, outcome: "skipped", note: "no such session" });
             continue;
           }
           this.log.info("automation: stop", { rule: a.ruleName, target: a.target, on: event, from: m.id });
           this.stop(a.target);
-        } else if (a.kind === "notify" && this.notifier.active) {
+          this.recordFiring({ ...base, outcome: "ok" });
+        } else if (a.kind === "notify") {
+          if (!this.notifier.active) {
+            this.recordFiring({ ...base, outcome: "skipped", note: "no webhook configured" });
+            continue;
+          }
           const ctx: NotifyContext = {
             id: m.id,
             label: shortLabel(m),
@@ -1103,8 +1116,10 @@ export class Supervisor {
             detail: (a.message ?? detail)?.trim() || undefined,
           };
           void this.notifier.fire(event, ctx).catch(() => {});
+          this.recordFiring({ ...base, outcome: "ok" });
         }
       } catch (e) {
+        this.recordFiring({ ...base, outcome: "error", note: e instanceof Error ? e.message : String(e) });
         this.log.warn("automation action failed", {
           rule: a.ruleName,
           kind: a.kind,
@@ -1112,6 +1127,18 @@ export class Supervisor {
         });
       }
     }
+  }
+
+  /** Append a firing to the bounded ring buffer (drops the oldest past the cap). */
+  private recordFiring(f: Omit<AutomationFiring, "at">): void {
+    this.firings.push({ ...f, at: Date.now() });
+    const over = this.firings.length - Supervisor.FIRINGS_CAP;
+    if (over > 0) this.firings.splice(0, over);
+  }
+
+  /** Recent automation firings, newest first (a copy; safe to serialize). */
+  automationLog(): AutomationFiring[] {
+    return [...this.firings].reverse();
   }
 
   // ---- automation rules CRUD (automation suite) ----------------------------

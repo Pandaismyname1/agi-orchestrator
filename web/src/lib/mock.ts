@@ -539,6 +539,13 @@ export const MOCK: Snapshot = {
       updatedAt: 1_779_500_000_000,
     },
   ],
+  automationLog: [
+    { at: Date.now() - 4 * 60_000, ruleId: "auto-chain", ruleName: "Deploy after API build", event: "done", kind: "start", from: "api-server", target: "deploy-prod", outcome: "ok" },
+    { at: Date.now() - 38 * 60_000, ruleId: "auto-halt", ruleName: "Halt & notify on any error", event: "error", kind: "stop", from: "data-pipeline", target: "data-pipeline", outcome: "ok" },
+    { at: Date.now() - 38 * 60_000, ruleId: "auto-halt", ruleName: "Halt & notify on any error", event: "error", kind: "notify", from: "data-pipeline", outcome: "skipped", note: "no webhook configured" },
+    { at: Date.now() - 3 * 3600_000, ruleId: "auto-chain", ruleName: "Deploy after API build", event: "done", kind: "start", from: "api-server", target: "deploy-prod", outcome: "ok" },
+    { at: Date.now() - 26 * 3600_000, ruleId: "auto-halt", ruleName: "Halt & notify on any error", event: "error", kind: "stop", from: "refactor-db", target: "refactor-db", outcome: "error", note: "session is running" },
+  ],
   attached: [
     {
       sessionId: "a1b2c3d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d",

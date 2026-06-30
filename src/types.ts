@@ -196,6 +196,31 @@ export interface QuietHours {
   allowUrgent?: boolean;
 }
 
+/**
+ * One recorded automation firing — a single action a rule actually performed (or
+ * skipped/failed) in response to a lifecycle event. The supervisor keeps a bounded
+ * ring buffer of these so the dashboard can show "did my rule fire, and what did
+ * it do?" — the core observability question for the automation suite.
+ */
+export interface AutomationFiring {
+  /** Epoch ms when the action ran. */
+  at: number;
+  ruleId: string;
+  ruleName: string;
+  /** The lifecycle event that triggered the rule. */
+  event: WebhookEvent;
+  /** The action attempted. */
+  kind: "start" | "stop" | "notify";
+  /** Id of the session that fired the event. */
+  from: string;
+  /** Target session for start/stop. */
+  target?: string;
+  /** Whether the action ran, was skipped (e.g. missing target), or threw. */
+  outcome: "ok" | "skipped" | "error";
+  /** Short reason for a skip/error. */
+  note?: string;
+}
+
 /** The lifecycle moment an automation rule triggers on (same set as webhooks). */
 export type AutomationTrigger = WebhookEvent;
 
