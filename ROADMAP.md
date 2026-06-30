@@ -49,7 +49,7 @@ session by hand first, then hand it to Qwen.**
     choose start-manual vs start-autopilot, set autonomy / gatePolicy / budget with explained
     defaults.
 
-### P2. Adopt existing Claude Code (and maybe Desktop) sessions ★ — DONE (resume; Desktop deferred)
+### P2. Adopt existing Claude Code (and maybe Desktop) sessions ★ — DONE (resume + Desktop)
 
 Be able to see and drive sessions that ALREADY exist, not just ones we created.
 
@@ -59,9 +59,13 @@ Be able to see and drive sessions that ALREADY exist, not just ones we created.
   it's a normal session in the cockpit (manual or autopilot).
 - **Attach to a live one** the user started in their own terminal — via the Stop-hook attach mode
   that already exists (wire the UI for `/attach`).
-- **Claude Desktop sessions** — Desktop keeps agent-mode sessions under
-  `~/AppData/Roaming/Claude/local-agent-mode-sessions/…`; different format, may not be drivable.
-  Mark **investigate / if-possible**; don't block the Claude Code path on it.
+- **Claude Desktop sessions — DONE.** Desktop runs embedded Claude Code; descriptors at
+  `~/AppData/Roaming/Claude/claude-code-sessions/<id>/<id>/local_*.json` carry a `cliSessionId`
+  that points at a transcript under `~/.claude/projects/`. `DesktopDiscovery` + `discoverAll()`
+  surface them (deduped with CLI), so they show up in Adopt (DESKTOP/CLI badge, title, archived
+  greyed, resumable ones drivable) and feed the learning miner (attributed to the real project via
+  `originCwd`). **Deferred:** regular Desktop *chats* (non-agent) live in Chromium leveldb — not
+  hooked and not drivable; archived/worktree-removed sessions with no transcript are unrecoverable.
 - **Backend:** a `SessionDiscovery` module (scan + parse transcript heads for metadata); a
   dashboard "Existing sessions" browser to import/resume/attach.
 
