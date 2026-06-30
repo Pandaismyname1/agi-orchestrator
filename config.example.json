@@ -5,7 +5,7 @@
     "apiKey": "local",
     "temperature": 0.3
   },
-  "_escalationProvider_note": "OPTIONAL second LOCAL model used ONLY to regenerate escalation options (rare, worth a bigger model). Omit to use `provider` for everything. Must be a loopback endpoint (localhost/127.0.0.1) — a remote URL is refused to stay subscription-safe. Tip: make `provider` a small/fast model for every-turn triage and set this to a bigger one.",
+  "_escalationProvider_note": "OPTIONAL second LOCAL model used ONLY to regenerate escalation options (rare, worth a bigger model). Omit to use `provider` for everything. Must be a loopback endpoint (localhost/127.0.0.1) — a remote URL is refused to stay subscription-safe. Tip: make `provider` a small/fast model for every-turn triage and set this to a bigger one. LIVE FINDING (2026-06-30): a 30B heavy model added ~24s/escalation and did NOT beat qwen3.5:9b's already-strong escalation options on test scenarios — leave this OFF unless your heavy model is both fast AND clearly sharper. The fast model's escalations are good enough.",
   "escalationProvider": {
     "baseUrl": "http://localhost:1234/v1",
     "model": "qwen3.5:32b",
@@ -18,7 +18,7 @@
     "pingPongThreshold": 3,
     "stuckTurns": 4
   },
-  "_brain_note": "Brain-decision policy. confidenceThreshold (0..1, default 0 = off): if a 'continue' decision's self-reported confidence is below it, the operator auto-escalates to you instead of guessing the next step (pairs with escalationProvider — a gated escalation gets refined by the bigger model). 0.5 is a reasonable start; 0 keeps today's behavior. rollingSummary (default off): feed the brain a maintained running summary + a short fresh tail instead of the raw last-8 messages — less drift and cheaper context on long runs. everyTurns = how often to re-summarize (one local-LLM call); tailMessages = raw messages still passed alongside; maxChars caps the summary.",
+  "_brain_note": "Brain-decision policy. confidenceThreshold (0..1, default 0 = off): if a 'continue' decision's self-reported confidence is below it, the operator auto-escalates to you instead of guessing the next step. LIVE FINDING (2026-06-30): qwen3.5:9b reports HIGH confidence (0.9–0.95) most of the time and ESCALATES on its own when genuinely unsure rather than emitting a low-confidence 'continue' — so this gate rarely fires. Keep it LOW (~0.5) if you use it at all; it's a backstop, not a main control. rollingSummary (default off) — RECOMMENDED ON for long runs: feed the brain a maintained running summary + a short fresh tail instead of the raw last-8 messages. Live-validated accurate (captured all built features + a bug fix in 464 chars). everyTurns = how often to re-summarize (one local-LLM call); tailMessages = raw messages still passed alongside; maxChars caps the summary. NOTE: git ground-truth (REPO STATE) is always-on (no knob) and was the strongest win in validation — it caught an agent falsely claiming a commit.",
   "brain": {
     "confidenceThreshold": 0,
     "rollingSummary": {
