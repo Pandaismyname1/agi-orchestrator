@@ -13,7 +13,7 @@
     "temperature": 0.3
   },
   "limits": {
-    "maxTurns": 25,
+    "maxTurns": 50,
     "maxWallClockMin": 60,
     "pingPongThreshold": 3,
     "stuckTurns": 4
@@ -48,7 +48,7 @@
     "maxTurnsPerDay": 200,
     "maxMinutesPerDay": 300
   },
-  "maxConcurrent": 3,
+  "maxConcurrent": 99,
   "contextGuard": {
     "enabled": false,
     "window": 200000,
