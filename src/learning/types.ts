@@ -110,6 +110,8 @@ export interface LearningSummary {
   enabled: boolean;
   global: ProfileSummary;
   projects: ProfileSummary[];
+  /** Explicit thumbs ratings recorded across all runs — the strongest learning signal. */
+  feedback: { up: number; down: number };
 }
 
 /**

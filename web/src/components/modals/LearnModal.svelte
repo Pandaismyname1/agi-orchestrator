@@ -142,6 +142,18 @@
       {/each}
     </div>
 
+    {#if summary.feedback.up + summary.feedback.down > 0}
+      {@const total = summary.feedback.up + summary.feedback.down}
+      <div
+        class="lm-thumbs"
+        title="Your 👍/👎 on brain decisions are folded into synthesis — up-rated as strong positive examples, down-rated into an AVOID block."
+      >
+        <Icon name="thumbsUp" size={12} />
+        <span>Learning from your <b>{total}</b> thumb{total === 1 ? "" : "s"}</span>
+        <span class="lm-thumbs-detail">👍 {summary.feedback.up} · 👎 {summary.feedback.down}</span>
+      </div>
+    {/if}
+
     {#if selected}
       <div class="lm-selhead">
         <div class="lm-stat"><b>{selected.versions}</b> versions</div>
@@ -305,6 +317,28 @@
     height: 7px;
     border-radius: 50%;
     background: var(--color-warning);
+  }
+
+  .lm-thumbs {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--color-neutral-content);
+    background: var(--color-base-200);
+    border: 1px solid var(--border-soft);
+    border-radius: 9px;
+    padding: 7px 11px;
+    margin-bottom: 14px;
+  }
+  .lm-thumbs b {
+    color: var(--color-base-content);
+    font-weight: 700;
+  }
+  .lm-thumbs-detail {
+    margin-left: auto;
+    color: var(--faint);
+    font-size: 11px;
   }
 
   .lm-selhead {

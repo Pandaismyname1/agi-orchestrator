@@ -125,6 +125,7 @@ export class LearningService implements ILearningService {
       enabled: this.opts.enabled,
       global: this.summaryFor(GLOBAL_SCOPE),
       projects: this.profiles.listProjectScopes().map((s) => this.summaryFor(s)),
+      feedback: this.store.feedbackStats(),
     };
   }
 
@@ -230,5 +231,5 @@ export function emptyLearningSummary(): LearningSummary {
     hasDraft: false,
     updatedAt: null,
   };
-  return { enabled: false, global: empty, projects: [] };
+  return { enabled: false, global: empty, projects: [], feedback: { up: 0, down: 0 } };
 }

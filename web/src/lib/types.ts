@@ -201,6 +201,8 @@ export interface LearningSummary {
   enabled: boolean;
   global: ProfileSummary;
   projects: ProfileSummary[];
+  /** Explicit thumbs ratings across all runs — the strongest learning signal. */
+  feedback: { up: number; down: number };
 }
 
 /** Reusable session preset (everything but the working directory). */

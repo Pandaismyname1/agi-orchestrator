@@ -104,6 +104,15 @@ check("guidanceFor clamps to the budget", g.length <= 205 && g.length > 0);
 const off = new LearningService(store, synthLLM, { enabled: false }, "stub");
 check("guidanceFor returns '' when learning disabled", off.guidanceFor("C:\\proj\\x") === "");
 
+// ── 5b. summary() surfaces global thumbs feedback (Learn-modal note) ────────
+check("summary feedback starts empty", svc.summary().feedback.up === 0 && svc.summary().feedback.down === 0);
+store.upsertSession({ id: "fb1", cwd: "C:\\proj\\x", goal: "g", doneCriteria: "d" });
+const fbRun = store.startRun("fb1");
+const fbTurn = store.addTurn(fbRun, { n: 1, prompt: "p", assistantText: "a", durationMs: 1, gatesHandled: 0 });
+store.addDecision(fbTurn, { action: "continue", prompt: "do it", reason: "r" });
+store.setDecisionFeedback("fb1", fbRun, 1, "up");
+check("summary feedback reflects a recorded thumb", svc.summary().feedback.up === 1 && svc.summary().feedback.down === 0);
+
 // ── 6. replayEval computes a delta (stub brain favors guidance) ────────────
 // The stub echoes the situation as its prompt ONLY when learned guidance is
 // present; held-out items have instruction == situation, so the profile run

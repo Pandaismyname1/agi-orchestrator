@@ -176,6 +176,7 @@ export const MOCK_LEARNING: LearningSummary = {
       updatedAt: null,
     },
   ],
+  feedback: { up: 9, down: 3 },
 };
 
 export const MOCK_VERSIONS: OperatorProfile[] = [
