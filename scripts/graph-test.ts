@@ -16,6 +16,7 @@ import {
   hasAutomationEdge,
   clampZoom,
   stepZoom,
+  panScroll,
   fitScale,
   ZOOM_MIN,
   ZOOM_MAX,
@@ -134,6 +135,16 @@ check("fitScale shrinks big content to fit", fitScale(2000, 1000, 1000, 600, 24)
 check("fitScale never zooms in past 1", fitScale(100, 100, 1000, 600, 24) === 1);
 check("fitScale clamps tiny fit to ZOOM_MIN", fitScale(100000, 100000, 800, 600) === ZOOM_MIN);
 check("fitScale degenerate viewport → 1", fitScale(500, 500, 0, 0) === 1);
+
+// ── panScroll (click-drag pan math) ───────────────────────────────────────────────
+const panStart = { x: 100, y: 80, sl: 200, st: 150 };
+check("drag right moves content right (scrollLeft decreases)", panScroll(panStart, 130, 80).left === 170);
+check("drag left increases scrollLeft", panScroll(panStart, 70, 80).left === 230);
+check("drag down moves content down (scrollTop decreases)", panScroll(panStart, 100, 120).top === 110);
+check("no movement keeps the grab-time offset", (() => {
+  const r = panScroll(panStart, 100, 80);
+  return r.left === 200 && r.top === 150;
+})());
 
 // ── workflow depth helpers (mirror src/policy/wfdepth.ts for the builder) ──────────
 // `sessions` is A→B→C plus D after A&B, E standalone. Longest chain is A→B→C = 3.

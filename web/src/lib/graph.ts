@@ -248,6 +248,19 @@ export function stepZoom(z: number, dir: number, step = 0.15): number {
 }
 
 /**
+ * New scroll offset while click-drag panning: the pointer's travel since grab is
+ * subtracted from the scroll offset captured at grab time, so the content tracks
+ * the cursor (drag right → content moves right). Pure so the math is testable.
+ */
+export function panScroll(
+  start: { x: number; y: number; sl: number; st: number },
+  clientX: number,
+  clientY: number,
+): { left: number; top: number } {
+  return { left: start.sl - (clientX - start.x), top: start.st - (clientY - start.y) };
+}
+
+/**
  * Scale that fits content (contentW×contentH) inside a viewport (viewW×viewH),
  * minus `pad` of breathing room. Never zooms IN past 100% (fit only shrinks),
  * and is clamped to the zoom bounds. Degenerate inputs → 1.

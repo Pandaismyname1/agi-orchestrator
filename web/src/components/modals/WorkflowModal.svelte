@@ -27,6 +27,7 @@
     depthWithEdge,
     overDepthCap,
     DEFAULT_WORKFLOW_DEPTH_CAP,
+    panScroll,
   } from "../../lib/graph";
   import { buildSessionDraft, type DraftMode } from "../../lib/nodeform";
   import { DRAW_EVENTS, defaultEventFor, buildDrawnAutomation, eventPhrase } from "../../lib/drawauto";
@@ -153,6 +154,9 @@
   let drag = $state<{ id: string; ox: number; oy: number; moved: boolean } | null>(null);
   let conn = $state<{ from: string; x1: number; y1: number; cx: number; cy: number } | null>(null);
   let hoverId = $state<string | null>(null);
+  // Click-drag pan: grab empty canvas and drag to scroll (records the start client
+  // point + the scroll offset at grab time). Pairs with wheel/zoom for full nav.
+  let pan = $state<{ x: number; y: number; sl: number; st: number } | null>(null);
 
   // What a handle-drag creates: a dependency, or an automation (start/stop) rule.
   // Both the mode and the trigger event are seeded from the operator's last choice
@@ -228,7 +232,22 @@
     placing = { sx: e.clientX, sy: e.clientY };
   }
 
+  /** Begin a canvas pan — only from empty space (nodes/handles/edges keep their own behavior). */
+  function startPan(e: PointerEvent): void {
+    if (e.button !== 0 || !scrollEl) return;
+    const t = e.target as HTMLElement;
+    if (t.closest(".wf-node, .wf-handle, .wf-del, .wf-create, .wf-hit, .wf-newchip")) return;
+    pan = { x: e.clientX, y: e.clientY, sl: scrollEl.scrollLeft, st: scrollEl.scrollTop };
+    e.preventDefault();
+  }
+
   function onMove(e: PointerEvent): void {
+    if (pan && scrollEl) {
+      const { left, top } = panScroll(pan, e.clientX, e.clientY);
+      scrollEl.scrollLeft = left;
+      scrollEl.scrollTop = top;
+      return;
+    }
     if (placing) {
       placing = { sx: e.clientX, sy: e.clientY };
       return;
@@ -249,6 +268,10 @@
   }
 
   function onUp(e: PointerEvent): void {
+    if (pan) {
+      pan = null;
+      return;
+    }
     if (placing) {
       const l = local(e);
       const inside = l.x >= 0 && l.y >= 0 && l.x <= canvasSize.w && l.y <= canvasSize.h;
@@ -565,7 +588,8 @@
         once everything it runs after has finished.
       </div>
     {/if}
-    <div class="wf-scroll" bind:this={scrollEl} onwheel={onWheel}>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="wf-scroll" class:panning={!!pan} bind:this={scrollEl} onwheel={onWheel} onpointerdown={startPan}>
       <div class="wf-sizer" style="width:{canvasSize.w * zoom}px; height:{canvasSize.h * zoom}px;">
       <div
         class="wf-canvas"
@@ -935,8 +959,13 @@
     max-height: 62vh;
     border: 1px solid var(--border-soft);
     border-radius: 11px;
+    cursor: grab; /* empty canvas is draggable to pan */
     background:
       radial-gradient(circle at 1px 1px, var(--border-soft) 1px, transparent 0) 0 0 / 22px 22px;
+  }
+  .wf-scroll.panning {
+    cursor: grabbing;
+    user-select: none;
   }
   .wf-sizer {
     position: relative;
