@@ -45,6 +45,15 @@ export function classifyScreen(text: string): ScreenState {
   return "unknown";
 }
 
+/**
+ * Claude Code's occasional "How is Claude doing this session?" feedback survey.
+ * It pops up mid-session and can swallow the next keystroke (a stray "1/2/3"),
+ * so the driver dismisses it (Esc) before injecting.
+ */
+export function detectFeedbackSurvey(text: string): boolean {
+  return /How is Claude doing this session\?|1:\s*Bad\s+2:\s*Fine\s+3:\s*Good/i.test(text);
+}
+
 /** Auth / fatal error surfaced in the TUI (e.g. 401). */
 export function detectAuthError(text: string): boolean {
   return /API Error: 401|Invalid authentication credentials|Please run \/login/i.test(text);

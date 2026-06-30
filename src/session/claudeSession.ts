@@ -12,7 +12,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import * as pty from "node-pty";
 import { VirtualScreen } from "../terminal/screen.js";
-import { classifyScreen, detectAuthError, detectRateLimit } from "../terminal/state.js";
+import { classifyScreen, detectAuthError, detectRateLimit, detectFeedbackSurvey } from "../terminal/state.js";
+import { parseContextFraction } from "../policy/context.js";
 import { classifyGate } from "../terminal/gates.js";
 import { readLastAssistantMessage } from "../transcript/reader.js";
 import { parseUsage, type UsageStatus } from "../policy/usage.js";
@@ -138,6 +139,13 @@ export class ClaudeSession {
     if (!this.term || this.exited) throw new Error("session not running");
     const startedAt = Date.now();
 
+    // Dismiss Claude's "How is Claude doing?" survey if it's up — otherwise it can
+    // swallow the first keystroke of our prompt as a 1/2/3 rating.
+    if (detectFeedbackSurvey(this.screen.visibleText())) {
+      this.type(ESC);
+      await sleep(400);
+    }
+
     this.type(prompt);
     await sleep(300);
     this.type("\r"); // submit
@@ -207,6 +215,13 @@ export class ClaudeSession {
       }
       if (detectRateLimit(text)) {
         throw new RateLimitError("claude hit the subscription usage limit — pausing this session.");
+      }
+
+      // Dismiss the feedback survey if it pops up mid-turn.
+      if (detectFeedbackSurvey(text)) {
+        this.type(ESC);
+        await sleep(GATE_COOLDOWN_MS);
+        continue;
       }
 
       const state: ScreenState = classifyScreen(text);
@@ -299,6 +314,23 @@ export class ClaudeSession {
     const status = parseUsage(text);
     if (!status.session && !status.weeklyAll && !status.weeklySonnet) return undefined;
     return status;
+  }
+
+  /**
+   * Read the REAL context-window usage from Claude's `/context` panel (a local
+   * command, no model usage). Returns the used fraction (0..1) or null. Drive
+   * ONLY when idle. The panel is tall, so read the scrollback (fullText).
+   */
+  async readContextFraction(): Promise<number | null> {
+    if (!this.term || this.exited) return null;
+    this.type("/context");
+    await sleep(900); // let the slash-command menu settle before Enter
+    this.type("\r");
+    await sleep(3800); // the /context panel renders progressively
+    const text = this.screen.fullText(160);
+    this.type(ESC); // close the panel
+    await sleep(300);
+    return parseContextFraction(text);
   }
 
   /** Current clean screen text (for the dashboard). */

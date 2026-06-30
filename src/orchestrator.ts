@@ -273,7 +273,11 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
       // ---- context guard: memory-preserving compaction before overflow ----
       const cg = opts.contextGuard;
       if (cg?.enabled) {
-        const used = await cg.usedFraction(session.cwd, sess.sessionId, sess.screenText());
+        // Use Claude's REAL /context usage (tracks the actual window and DROPS
+        // after a /compact). Only fall back to the byte estimate if that fails —
+        // the estimate never shrinks post-compact, which caused a compaction loop.
+        const real = await sess.readContextFraction();
+        const used = real ?? (await cg.usedFraction(session.cwd, sess.sessionId, sess.screenText()));
         if (cg.shouldCompact(used, guards.turnCount)) {
           const usedPercent = Math.round(used * 100);
           emit({ type: "context", sessionId: session.id, phase: "compacting", usedPercent });

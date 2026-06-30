@@ -29,13 +29,38 @@ export const DEFAULT_CONTEXT_GUARD: Required<ContextGuardOptions> = {
 export const TOKENS_PER_BYTE = 1 / 4;
 
 /**
- * Best-effort read of claude's own context gauge from the screen. Returns the
- * USED fraction (0..1) only on a confident match, else null (→ use the estimate).
- * NOTE: claude's exact wording varies by version — validate live and extend.
+ * Parse the REAL context usage from Claude's `/context` panel, e.g. the overall
+ * line "30.7k/1m tokens (3%)". Returns the USED fraction (0..1), or null if the
+ * line isn't present. This is the authoritative source (it tracks the actual
+ * window — 200k or 1M — and DROPS after a /compact, unlike the byte estimate).
+ */
+export function parseContextFraction(screen: string): number | null {
+  if (!screen) return null;
+  // "30.7k/1m tokens (3%)"  — prefer the exact token counts; fall back to the %.
+  const tok = screen.match(/(\d[\d.]*)\s*([km])\s*\/\s*(\d[\d.]*)\s*([km])\s*tokens\s*\((\d+)%\)/i);
+  if (tok) {
+    const scale = (u: string) => (u.toLowerCase() === "m" ? 1_000_000 : 1_000);
+    const used = Number(tok[1]) * scale(tok[2]!);
+    const total = Number(tok[3]) * scale(tok[4]!);
+    if (total > 0) return Math.min(1, used / total);
+    const pct = Number(tok[5]);
+    if (pct >= 0 && pct <= 100) return pct / 100;
+  }
+  return null;
+}
+
+/**
+ * Best-effort read of an inline context gauge from the live screen (only shown
+ * when context is high). Returns the USED fraction, else null.
  */
 export function parseScreenContextFraction(screen: string): number | null {
   if (!screen) return null;
-  // "73% context used" / "context: 73% used"
+  // "73% context used" / "context: 73% used" / "Context left until auto-compact: 27%"
+  const left = screen.match(/context left until auto-?compact:?\s*(\d{1,3})%/i);
+  if (left) {
+    const p = Number(left[1]);
+    if (p >= 0 && p <= 100) return (100 - p) / 100; // "left" → used
+  }
   const used = screen.match(/(\d{1,3})%\s*(?:context\s*)?used/i) ?? screen.match(/context[^%]{0,20}?(\d{1,3})%\s*used/i);
   if (used) {
     const p = Number(used[1]);

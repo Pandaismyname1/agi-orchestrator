@@ -6,7 +6,8 @@
  */
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
-import { ContextGuard, parseScreenContextFraction } from "../src/policy/context.js";
+import { ContextGuard, parseScreenContextFraction, parseContextFraction } from "../src/policy/context.js";
+import { detectFeedbackSurvey } from "../src/terminal/state.js";
 import { transcriptPath } from "../src/transcript/reader.js";
 
 const CWD = "C:\\Users\\panda\\Desktop\\AGI\\.scratch\\ctx-test";
@@ -52,6 +53,23 @@ check("ignores unrelated text", parseScreenContextFraction("building the app, 80
 // A confident screen gauge overrides the byte estimate.
 const fromScreen = await guard.usedFraction(CWD, SID, "90% context used");
 check("screen gauge overrides the estimate", fromScreen === 0.9);
+
+// REAL /context panel parse (the authoritative source) — verbatim from a capture.
+const realCtx = `  ⎿  Context Usage
+     ⛁ ⛁ ⛁ ⛁ ⛀   Opus 4.8 (1M context)
+                  30.7k/1m tokens (3%)
+                  ⛁ System prompt: 4.3k tokens (0.4%)`;
+const cf = parseContextFraction(realCtx);
+check("parses /context '30.7k/1m tokens' => ~0.031", cf !== null && Math.abs(cf - 0.0307) < 0.002);
+check("parses a 200k window line", Math.abs((parseContextFraction("120k/200k tokens (60%)") ?? 0) - 0.6) < 0.001);
+check("returns null when no /context line", parseContextFraction("just some text") === null);
+
+// "Context left until auto-compact: X%" → used.
+check("parses 'left until auto-compact: 27%' => 0.73", parseScreenContextFraction("Context left until auto-compact: 27%") === 0.73);
+
+// Feedback-survey detector.
+check("detects the feedback survey", detectFeedbackSurvey("How is Claude doing this session? 1: Bad  2: Fine  3: Good  0: Dismiss") === true);
+check("survey detector ignores normal text", detectFeedbackSurvey("Building the HUB shell, 3 good tests pass") === false);
 
 rmSync(CWD, { recursive: true, force: true });
 console.log(`\n[context] => ${pass ? "PASS ✅" : "FAIL ⚠️"}`);
