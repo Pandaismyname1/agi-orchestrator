@@ -1031,6 +1031,7 @@ export class Supervisor {
     if (!cwd) throw new Error("cwd is required.");
     if (!goal) throw new Error("goal is required.");
     if (!doneCriteria) throw new Error("doneCriteria is required.");
+    validateSessionEnums(input);
 
     const id = (input.id ?? "").trim() || randomUUID();
     if (this.sessions.has(id)) throw new Error(`a session with id "${id}" already exists.`);
@@ -1091,6 +1092,7 @@ export class Supervisor {
   ): SessionView {
     const m = this.sessions.get(id);
     if (!m) throw new Error(`no session with id "${id}".`);
+    validateSessionEnums(patch);
 
     // Edits apply LIVE: the brain reads m.config (goal / doneCriteria / autonomy)
     // by reference on its next decision. Only cwd + permissionMode are fixed at
@@ -1402,4 +1404,37 @@ function normalizeAutoPr(a: AutoPrConfig | undefined | null): AutoPrConfig | und
   // A branch ref can't contain spaces or most punctuation; keep it conservative.
   if (base && /^[\w./-]+$/.test(base)) out.base = base;
   return out;
+}
+
+// Enum whitelists for client-supplied config fields. These flow into the pty
+// spawn (permissionMode → `--permission-mode`) and the brain persona, so an
+// out-of-range value must be rejected, not silently passed through.
+const PERMISSION_MODES: ReadonlyArray<NonNullable<SessionConfig["permissionMode"]>> = [
+  "default", "acceptEdits", "auto", "bypassPermissions",
+];
+const AUTONOMIES: ReadonlyArray<NonNullable<SessionConfig["autonomy"]>> = [
+  "cautious", "balanced", "autonomous",
+];
+const START_MODES: ReadonlyArray<NonNullable<SessionConfig["startMode"]>> = ["manual", "autopilot"];
+
+/** Throw a clear error if a provided enum value isn't in its whitelist (undefined is allowed). */
+function assertEnum<T extends string>(
+  label: string,
+  value: T | undefined,
+  allowed: ReadonlyArray<T>,
+): void {
+  if (value !== undefined && !allowed.includes(value)) {
+    throw new Error(`${label} must be one of: ${allowed.join(", ")} (got "${String(value)}").`);
+  }
+}
+
+/** Validate the client-supplied enum fields shared by add/update. Throws on a bad value. */
+function validateSessionEnums(input: {
+  permissionMode?: SessionConfig["permissionMode"];
+  autonomy?: SessionConfig["autonomy"];
+  startMode?: SessionConfig["startMode"];
+}): void {
+  assertEnum("permissionMode", input.permissionMode, PERMISSION_MODES);
+  assertEnum("autonomy", input.autonomy, AUTONOMIES);
+  assertEnum("startMode", input.startMode, START_MODES);
 }
