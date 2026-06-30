@@ -177,7 +177,8 @@ async function main(): Promise<void> {
 
   const server = http.createServer((req, res) => {
     void (async () => {
-      if (req.url === "/" || req.url === "/index.html") {
+      const pathname = (req.url ?? "/").split("?")[0];
+      if (pathname === "/" || pathname === "/index.html") {
         const html = await readFile(path.join(staticRoot, "index.html"), "utf8");
         res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         res.end(html);

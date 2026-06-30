@@ -51,11 +51,14 @@
     flex-direction: column;
     color: var(--color-base-content);
   }
+  /* Desktop: fleet is a left sidebar, session detail fills the rest so the
+     content gets the maximum space. */
   main {
     flex: 1;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     min-height: 0;
+    min-width: 0;
   }
 
   /* Mobile: stop being a fixed-height two-pane app; let the whole page scroll
@@ -66,6 +69,7 @@
       min-height: 100vh;
     }
     main {
+      flex-direction: column;
       overflow: visible;
     }
   }

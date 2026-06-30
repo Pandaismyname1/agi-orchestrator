@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SessionView } from "../lib/types";
   import { ui } from "../lib/ui.svelte";
+  import { wsStore } from "../lib/ws.svelte";
   import Icon from "./Icon.svelte";
   import AgentCard from "./AgentCard.svelte";
 
@@ -9,7 +10,7 @@
   }
   let { sessions }: Props = $props();
 
-  // Compact status breakdown shown beside the section title.
+  // Compact status breakdown shown under the section title.
   const BREAKDOWN: { key: string; label: string; match: (s: SessionView) => boolean }[] = [
     { key: "running", label: "running", match: (s) => s.status === "running" || s.status === "manual" },
     { key: "error", label: "error", match: (s) => s.status === "error" },
@@ -20,55 +21,179 @@
   let counts = $derived(
     BREAKDOWN.map((b) => ({ ...b, n: sessions.filter(b.match).length })).filter((b) => b.n > 0),
   );
+
+  function focus(id: string) {
+    ui.focusId = id;
+    wsStore.send({ type: "focus", id });
+  }
 </script>
 
-<section class="fleet">
-  <div class="head">
-    <span class="title">Fleet</span>
-    <span class="count">{sessions.length}</span>
-    <div class="breakdown">
-      {#each counts as c (c.key)}
-        <span class="chip {c.key}"><b class="tnum">{c.n}</b> {c.label}</span>
+<aside class="fleet" class:collapsed={ui.fleetCollapsed}>
+  <!-- Collapsed: a thin rail of status dots so fleet health stays visible
+       while the content area gets the space. -->
+  <div class="rail">
+    <button class="iconbtn" title="Expand fleet" aria-label="Expand fleet panel" onclick={() => ui.toggleFleet()}>
+      <Icon name="chevronRight" size={16} />
+    </button>
+    <span class="railcount tnum" title="{sessions.length} sessions">{sessions.length}</span>
+    <div class="dots">
+      {#each sessions as s (s.id)}
+        <button
+          class="dot {s.status}"
+          class:sel={s.id === ui.focusId}
+          title="{s.id} — {s.status}"
+          aria-label="Focus {s.id} ({s.status})"
+          onclick={() => focus(s.id)}
+        ></button>
       {/each}
     </div>
   </div>
 
-  {#if sessions.length === 0}
-    <div class="onboard">
-      <span class="ob-mark"><Icon name="bot" size={26} /></span>
-      <h3>Mission control is empty</h3>
-      <p>Create a session to put an agent to work, or adopt one you already started in Claude Code.</p>
-      <div class="ob-acts">
-        <button class="btn btn-primary btn-sm" onclick={() => ui.openModal({ kind: "new" })}>
-          <Icon name="plus" size={13} /> New session
-        </button>
-        <button class="btn btn-sm" onclick={() => ui.openModal({ kind: "adopt" })}>
-          <Icon name="download" size={13} /> Adopt existing
-        </button>
+  <!-- Expanded: full fleet list. -->
+  <div class="full">
+    <div class="head">
+      <span class="title">Fleet</span>
+      <span class="count tnum">{sessions.length}</span>
+      <button class="iconbtn collapse" title="Collapse fleet" aria-label="Collapse fleet panel" onclick={() => ui.toggleFleet()}>
+        <Icon name="chevronLeft" size={16} />
+      </button>
+    </div>
+
+    {#if counts.length}
+      <div class="breakdown">
+        {#each counts as c (c.key)}
+          <span class="chip {c.key}"><b class="tnum">{c.n}</b> {c.label}</span>
+        {/each}
       </div>
-    </div>
-  {:else}
-    <div class="grid">
-      {#each sessions as s (s.id)}
-        <AgentCard session={s} selected={s.id === ui.focusId} />
-      {/each}
-    </div>
-  {/if}
-</section>
+    {/if}
+
+    {#if sessions.length === 0}
+      <div class="onboard">
+        <span class="ob-mark"><Icon name="bot" size={26} /></span>
+        <h3>Mission control is empty</h3>
+        <p>Create a session to put an agent to work, or adopt one you already started in Claude Code.</p>
+        <div class="ob-acts">
+          <button class="btn btn-primary btn-sm" onclick={() => ui.openModal({ kind: "new" })}>
+            <Icon name="plus" size={13} /> New session
+          </button>
+          <button class="btn btn-sm" onclick={() => ui.openModal({ kind: "adopt" })}>
+            <Icon name="download" size={13} /> Adopt existing
+          </button>
+        </div>
+      </div>
+    {:else}
+      <div class="stack">
+        {#each sessions as s (s.id)}
+          <AgentCard session={s} selected={s.id === ui.focusId} />
+        {/each}
+      </div>
+    {/if}
+  </div>
+</aside>
 
 <style>
   .fleet {
-    border-bottom: 1px solid var(--border-soft);
+    --fleet-w: 304px;
+    flex: none;
+    width: var(--fleet-w);
+    height: 100%;
+    border-right: 1px solid var(--border-soft);
+    background: var(--color-base-100);
     display: flex;
     flex-direction: column;
     min-height: 0;
-    max-height: 46vh;
+    transition: width 0.2s ease;
+  }
+  .fleet.collapsed {
+    --fleet-w: 56px;
+  }
+
+  /* --- rail (collapsed) --- */
+  .rail {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 0;
+    overflow-y: auto;
+  }
+  .fleet.collapsed .rail {
+    display: flex;
+  }
+  .fleet.collapsed .full {
+    display: none;
+  }
+  .railcount {
+    font-size: 11px;
+    color: var(--faint);
+    font-weight: 700;
+  }
+  .dots {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    margin-top: 2px;
+  }
+  .dot {
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    background: var(--st-idle);
+    padding: 0;
+    cursor: pointer;
+    transition: transform 0.1s ease, box-shadow 0.15s ease;
+  }
+  .dot:hover {
+    transform: scale(1.18);
+  }
+  .dot.sel {
+    box-shadow: 0 0 0 2px var(--color-base-100), 0 0 0 3px var(--color-primary);
+  }
+  .dot.running,
+  .dot.manual {
+    background: var(--st-running);
+  }
+  .dot.done {
+    background: var(--st-done);
+  }
+  .dot.queued {
+    background: var(--st-queued);
+  }
+  .dot.stopped,
+  .dot.rate-limited {
+    background: var(--st-stopped);
+  }
+  .dot.needs-input {
+    background: var(--st-needs-input);
+    animation: dotpulse 1.4s ease-in-out infinite;
+  }
+  .dot.error {
+    background: var(--st-error);
+    animation: dotpulse 1.15s ease-in-out infinite;
+  }
+  @keyframes dotpulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(251, 191, 36, 0);
+    }
+    50% {
+      box-shadow: 0 0 7px 1px currentColor;
+    }
+  }
+
+  /* --- full panel (expanded) --- */
+  .full {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
   }
   .head {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 12px 20px 8px;
+    gap: 9px;
+    padding: 13px 12px 9px 16px;
   }
   .title {
     font-size: 11px;
@@ -85,11 +210,30 @@
     border-radius: 20px;
     padding: 1px 8px;
   }
+  .iconbtn {
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid var(--border-soft);
+    background: var(--color-base-200);
+    color: var(--color-neutral-content);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .iconbtn:hover {
+    color: var(--color-base-content);
+    border-color: var(--border-strong);
+  }
+  .collapse {
+    margin-left: auto;
+  }
   .breakdown {
     display: flex;
     gap: 6px;
-    margin-left: 4px;
     flex-wrap: wrap;
+    padding: 0 16px 10px;
   }
   .chip {
     font-size: 11px;
@@ -129,19 +273,16 @@
   .chip.error b {
     color: var(--st-error);
   }
-  .grid {
+  .stack {
     overflow-y: auto;
-    padding: 4px 20px 16px;
-    display: grid;
-    gap: 12px;
-    grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
-    align-content: start;
+    padding: 2px 16px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
   .onboard {
     text-align: center;
-    padding: 36px 20px 28px;
-    max-width: 440px;
-    margin: 0 auto;
+    padding: 28px 16px;
   }
   .ob-mark {
     width: 52px;
@@ -156,13 +297,13 @@
   }
   .onboard h3 {
     margin: 0 0 6px;
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 700;
     color: var(--color-base-content);
   }
   .onboard p {
     margin: 0 0 16px;
-    font-size: 13px;
+    font-size: 12.5px;
     color: var(--color-neutral-content);
     line-height: 1.5;
   }
@@ -170,16 +311,36 @@
     display: flex;
     gap: 8px;
     justify-content: center;
+    flex-wrap: wrap;
   }
-  @media (max-width: 720px) {
-    .grid {
-      grid-template-columns: 1fr;
-      /* On phones, let the page scroll as one column instead of a cramped
-         inner scroll region (which otherwise compresses the card rows). */
-      overflow-y: visible;
-    }
+
+  @media (prefers-reduced-motion: reduce) {
     .fleet {
-      max-height: none;
+      transition: none;
+    }
+  }
+
+  /* Mobile: full-width stacked list (the collapse rail is a desktop affordance). */
+  @media (max-width: 720px) {
+    .fleet,
+    .fleet.collapsed {
+      width: auto;
+      height: auto;
+      border-right: none;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .fleet.collapsed .rail {
+      display: none;
+    }
+    .fleet.collapsed .full {
+      display: flex;
+    }
+    /* The collapse rail is a desktop affordance — no dead control on mobile. */
+    .collapse {
+      display: none;
+    }
+    .stack {
+      overflow-y: visible;
     }
   }
 </style>
