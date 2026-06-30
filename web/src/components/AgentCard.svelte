@@ -9,8 +9,14 @@
   interface Props {
     session: SessionView;
     selected: boolean;
+    /** Multi-select mode: clicking the card toggles its checkbox instead of focusing. */
+    selectMode?: boolean;
+    /** Whether this card is checked for a bulk action. */
+    checked?: boolean;
+    /** Toggle this card's bulk-selection. */
+    onToggleSelect?: () => void;
   }
-  let { session: s, selected }: Props = $props();
+  let { session: s, selected, selectMode = false, checked = false, onToggleSelect }: Props = $props();
 
   let isActive = $derived(["running", "manual", "needs-input", "paused"].includes(s.status));
 
@@ -37,6 +43,10 @@
   });
 
   function focus() {
+    if (selectMode) {
+      onToggleSelect?.();
+      return;
+    }
     ui.focusId = s.id;
     wsStore.send({ type: "focus", id: s.id });
   }
@@ -49,8 +59,20 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="agent {s.status}" class:sel={selected} onclick={focus}>
+<div class="agent {s.status}" class:sel={selected} class:picked={selectMode && checked} onclick={focus}>
   <div class="top">
+    {#if selectMode}
+      <input
+        type="checkbox"
+        class="pick"
+        {checked}
+        onclick={(e) => {
+          e.stopPropagation();
+          onToggleSelect?.();
+        }}
+        aria-label="Select {s.id} for bulk action"
+      />
+    {/if}
     <span class="name">{s.id}</span>
     <span class="mode-chip {s.mode}">
       <Icon name={s.mode === "manual" ? "hand" : "bot"} size={12} />
@@ -89,6 +111,7 @@
     <div class="dec"><span class="k">brain</span> {s.lastDecision}</div>
   {/if}
 
+  {#if !selectMode}
   <div class="acts">
     {#if isActive}
       <button
@@ -166,6 +189,7 @@
       </button>
     {/if}
   </div>
+  {/if}
 </div>
 
 <style>
@@ -200,6 +224,18 @@
   .agent.sel {
     border-color: var(--color-primary);
     box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.35);
+  }
+  .agent.picked {
+    border-color: var(--color-primary);
+    background: rgba(34, 197, 94, 0.07);
+  }
+  .pick {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    margin: 0;
+    accent-color: var(--color-primary);
+    cursor: pointer;
   }
   .agent.running::before {
     background: var(--st-running);

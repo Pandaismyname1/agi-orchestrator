@@ -1,8 +1,10 @@
 <script lang="ts">
   import type { SessionView } from "../lib/types";
+  import { SvelteSet } from "svelte/reactivity";
   import { ui } from "../lib/ui.svelte";
   import { wsStore } from "../lib/ws.svelte";
   import { filterSessions } from "../lib/filter";
+  import { actionableIds } from "../lib/selection";
   import Icon from "./Icon.svelte";
   import AgentCard from "./AgentCard.svelte";
   import AttachedPanel from "./AttachedPanel.svelte";
@@ -24,6 +26,32 @@
   });
   let filtered = $derived(filterSessions(sessions, debounced));
   let filtering = $derived(debounced.trim().length > 0);
+
+  // Bulk multi-select. Selection persists across snapshots; cleared on exit.
+  let selectMode = $state(false);
+  let selected = $state(new SvelteSet<string>());
+  let startable = $derived(actionableIds(filtered, selected, "start"));
+  let stoppable = $derived(actionableIds(filtered, selected, "stop"));
+
+  function toggleSelect(id: string): void {
+    if (selected.has(id)) selected.delete(id);
+    else selected.add(id);
+  }
+  function toggleSelectMode(): void {
+    selectMode = !selectMode;
+    if (!selectMode) selected.clear();
+  }
+  function selectAllFiltered(): void {
+    for (const s of filtered) selected.add(s.id);
+  }
+  function clearSelection(): void {
+    selected.clear();
+  }
+  function bulk(action: "start" | "stop"): void {
+    const ids = action === "start" ? startable : stoppable;
+    for (const id of ids) wsStore.send({ type: action, id });
+    selected.clear();
+  }
 
   // Compact status breakdown shown under the section title.
   const BREAKDOWN: { key: string; label: string; match: (s: SessionView) => boolean }[] = [
@@ -81,10 +109,37 @@
     <div class="head">
       <span class="title">Fleet</span>
       <span class="count tnum">{filtering ? `${filtered.length}/${sessions.length}` : sessions.length}</span>
+      {#if sessions.length > 0}
+        <button
+          class="iconbtn"
+          class:on={selectMode}
+          title={selectMode ? "Exit selection" : "Select multiple"}
+          aria-label={selectMode ? "Exit selection mode" : "Select multiple sessions"}
+          aria-pressed={selectMode}
+          onclick={toggleSelectMode}
+        >
+          <Icon name="check" size={15} />
+        </button>
+      {/if}
       <button class="iconbtn collapse" title="Collapse fleet" aria-label="Collapse fleet panel" onclick={() => ui.toggleFleet()}>
         <Icon name="chevronLeft" size={16} />
       </button>
     </div>
+
+    {#if selectMode}
+      <div class="bulkbar">
+        <span class="bulkn"><b>{selected.size}</b> selected</span>
+        <button class="btn btn-xs" onclick={selectAllFiltered} title="Select all shown">All</button>
+        <button class="btn btn-xs" onclick={clearSelection} disabled={selected.size === 0}>None</button>
+        <span class="bulkspace"></span>
+        <button class="btn btn-xs btn-primary" onclick={() => bulk("start")} disabled={startable.length === 0} title="Start selected">
+          <Icon name="play" size={11} /> Start{startable.length ? ` ${startable.length}` : ""}
+        </button>
+        <button class="btn btn-xs" onclick={() => bulk("stop")} disabled={stoppable.length === 0} title="Stop selected">
+          <Icon name="stop" size={11} /> Stop{stoppable.length ? ` ${stoppable.length}` : ""}
+        </button>
+      </div>
+    {/if}
 
     {#if sessions.length > 0}
       <div class="search">
@@ -136,7 +191,13 @@
     {:else}
       <div class="stack">
         {#each filtered as s (s.id)}
-          <AgentCard session={s} selected={s.id === ui.focusId} />
+          <AgentCard
+            session={s}
+            selected={s.id === ui.focusId}
+            {selectMode}
+            checked={selected.has(s.id)}
+            onToggleSelect={() => toggleSelect(s.id)}
+          />
         {/each}
       </div>
     {/if}
@@ -302,6 +363,32 @@
   }
   .collapse {
     margin-left: auto;
+  }
+  .iconbtn.on {
+    color: var(--color-primary);
+    border-color: rgba(34, 197, 94, 0.5);
+    background: rgba(34, 197, 94, 0.1);
+  }
+  .bulkbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 16px 10px;
+    padding: 7px 9px;
+    border: 1px solid rgba(34, 197, 94, 0.35);
+    border-radius: 9px;
+    background: rgba(34, 197, 94, 0.06);
+  }
+  .bulkn {
+    font-size: 11.5px;
+    color: var(--color-neutral-content);
+  }
+  .bulkn b {
+    color: var(--color-base-content);
+    font-weight: 700;
+  }
+  .bulkspace {
+    flex: 1;
   }
   .search {
     display: flex;
