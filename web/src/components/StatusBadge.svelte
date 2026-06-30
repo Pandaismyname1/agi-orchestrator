@@ -54,6 +54,12 @@
     color: var(--st-rate-limited);
     border-color: rgba(251, 191, 36, 0.5);
   }
+  /* Auto-paused on an unreachable local model — waiting to resume (amber). */
+  .paused {
+    color: var(--st-stopped);
+    border-color: rgba(251, 191, 36, 0.5);
+    background: rgba(251, 191, 36, 0.06);
+  }
   /* Waiting on unmet dependencies — neutral amber, distinct from the urgent needs-input. */
   .blocked {
     color: var(--st-stopped);

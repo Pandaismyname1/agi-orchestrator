@@ -12,7 +12,7 @@
   }
   let { session: s, selected }: Props = $props();
 
-  let isActive = $derived(["running", "manual", "needs-input"].includes(s.status));
+  let isActive = $derived(["running", "manual", "needs-input", "paused"].includes(s.status));
 
   /** Resolve a dependency id to a short, human label (its goal, else the id). */
   function depLabel(id: string): string {
@@ -212,7 +212,8 @@
     background: var(--st-done);
   }
   .agent.stopped::before,
-  .agent.rate-limited::before {
+  .agent.rate-limited::before,
+  .agent.paused::before {
     background: var(--st-stopped);
   }
   .agent.error::before {

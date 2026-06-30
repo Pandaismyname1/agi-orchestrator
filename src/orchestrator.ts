@@ -14,7 +14,7 @@ import { decideNextStep } from "./brain/decide.js";
 import { readRecentMessages, readLastAssistantMessage } from "./transcript/reader.js";
 import { gitSummary } from "./brain/repoState.js";
 import { RollingSummary, type RollingSummaryOptions } from "./brain/summary.js";
-import { LocalLLM } from "./brain/provider.js";
+import { LocalLLM, isTransientError } from "./brain/provider.js";
 import { Guards } from "./policy/guards.js";
 import { StuckDetector, fingerprintDir } from "./policy/stuck.js";
 import { isGitRepo, snapshotRef, turnDiff, protectSnapshot } from "./git/diff.js";
@@ -48,6 +48,8 @@ export type OrchestratorEvent =
   | { type: "limited"; sessionId: string; reason: string; resumeAt?: number; sonnetOnly: boolean }
   | { type: "stop"; sessionId: string; reason: string; turns: number; elapsedMin: number }
   | { type: "context"; sessionId: string; phase: "compacting" | "resumed"; usedPercent: number }
+  /** The local brain (LLM) went unreachable and the run auto-paused, or recovered. */
+  | { type: "brain"; sessionId: string; phase: "unreachable" | "recovered"; detail?: string }
   | { type: "error"; sessionId: string; error: string };
 
 export type EventSink = (e: OrchestratorEvent) => void;
@@ -177,6 +179,24 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
       return false;
     };
 
+    // Auto-pause when the local brain (LLM) is unreachable (e.g. the model was
+    // unloaded mid-run): wait + poll its health instead of killing the run, and
+    // resume the moment it's back. Returns false only if the operator stopped.
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+    const waitForBrain = async (detail: string): Promise<boolean> => {
+      emit({ type: "brain", sessionId: session.id, phase: "unreachable", detail });
+      for (;;) {
+        if (opts.shouldStop?.()) return false;
+        await sleep(15_000);
+        if (opts.shouldStop?.()) return false;
+        const h = await llm.health();
+        if (h.ok) {
+          emit({ type: "brain", sessionId: session.id, phase: "recovered" });
+          return true;
+        }
+      }
+    };
+
     let pending: string | null = null; // the next prompt to inject, once sourced
     let lastResult: TurnResult | null = null;
     let seeded = false; // whether the opts.seedPrompt (continue) has been injected
@@ -227,18 +247,32 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
             // {summary + short tail} instead of the full raw history.
             let projectSummary: string | undefined;
             let brainHistory = history;
-            if (summarizer) {
-              await summarizer.maybeUpdate(llm, guards.turnCount, history);
-              projectSummary = summarizer.text || undefined;
-              brainHistory = summarizer.tailMessages > 0 ? history.slice(-summarizer.tailMessages) : [];
-            }
             // The default maps our (…, history, repoState, projectSummary) contract onto
             // decideNextStep's (…, learnedGuidance, repoState, confidenceThreshold, projectSummary)
             // — no learned guidance / gate here; the supervisor's wrapper supplies those.
             const decide =
               opts.decide ??
               ((llm2, s, lt, tn, h, rs, ps) => decideNextStep(llm2, s, lt, tn, h, undefined, rs, undefined, ps));
-            let decision = await decide(llm, session, lastText, guards.turnCount, brainHistory, repoState, projectSummary);
+            // The brain calls hit the LOCAL LLM. If it's unreachable (model
+            // unloaded / server restarting) and survives the provider's own
+            // retries, auto-pause and wait for it to return rather than ending
+            // the run; the operator can still stop while paused.
+            let decision: Decision;
+            try {
+              if (summarizer) {
+                await summarizer.maybeUpdate(llm, guards.turnCount, history);
+                projectSummary = summarizer.text || undefined;
+                brainHistory = summarizer.tailMessages > 0 ? history.slice(-summarizer.tailMessages) : [];
+              }
+              decision = await decide(llm, session, lastText, guards.turnCount, brainHistory, repoState, projectSummary);
+            } catch (e) {
+              if (isTransientError(e)) {
+                if (await waitForBrain(e instanceof Error ? e.message : String(e))) continue; // back up → re-source
+                stopRun("stopped while the local model was unreachable");
+                break;
+              }
+              throw e;
+            }
 
             // No file changes for a while + still "continue" => likely spinning.
             if (decision.action === "continue" && stuck.isStuck(limits.stuckTurns ?? 0)) {

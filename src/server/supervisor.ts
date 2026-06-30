@@ -72,6 +72,7 @@ export type SessionStatus =
   | "manual" // active but waiting for the user to drive (Qwen paused)
   | "needs-input"
   | "rate-limited"
+  | "paused" // auto-paused: the local brain (LLM) is unreachable; will resume when it's back
   | "stopped"
   | "done"
   | "error";
@@ -221,7 +222,7 @@ export class Supervisor {
   rollback(sessionId: string, sha: string): RestoreResult {
     const m = this.sessions.get(sessionId);
     if (!m) throw new Error(`no session with id "${sessionId}".`);
-    if (["running", "queued", "needs-input", "manual", "blocked"].includes(m.status)) {
+    if (["running", "queued", "needs-input", "manual", "blocked", "paused"].includes(m.status)) {
       throw new Error("stop the session before rolling back its working tree.");
     }
     if (!/^[0-9a-f]{7,40}$/.test(sha)) throw new Error("invalid snapshot id.");
@@ -241,7 +242,7 @@ export class Supervisor {
    * injected clock; the constructor's interval calls it with Date.now().
    */
   runDueSchedules(now: number): void {
-    const ACTIVE = ["running", "queued", "needs-input", "manual", "blocked"];
+    const ACTIVE = ["running", "queued", "needs-input", "manual", "blocked", "paused"];
     for (const m of this.sessions.values()) {
       const schedule = m.config.schedule;
       if (!hasActiveTrigger(schedule)) continue;
@@ -269,7 +270,7 @@ export class Supervisor {
     let turns = 0;
     let minutes = 0;
     for (const m of this.sessions.values()) {
-      if (m.status === "running" || m.status === "needs-input" || m.status === "manual") {
+      if (["running", "needs-input", "manual", "paused"].includes(m.status)) {
         turns += m.turns;
         if (m.startedAt) minutes += (Date.now() - m.startedAt) / 60_000;
       }
@@ -403,7 +404,7 @@ export class Supervisor {
   /** Request a session to run: launch now if a slot is free, else queue it. */
   start(id: string): void {
     const m = this.sessions.get(id);
-    if (!m || ["running", "queued", "needs-input", "manual"].includes(m.status)) return;
+    if (!m || ["running", "queued", "needs-input", "manual", "paused"].includes(m.status)) return;
     // Workflow gate: hold the session as `blocked` until every session it
     // depends on has finished. promoteReady() releases it when they're done.
     const unmet = this.unmetDeps(m);
@@ -835,7 +836,7 @@ export class Supervisor {
   ): void {
     const m = this.sessions.get(id);
     if (!m) throw new Error(`no session with id "${id}".`);
-    if (["running", "queued", "needs-input", "manual"].includes(m.status)) {
+    if (["running", "queued", "needs-input", "manual", "paused"].includes(m.status)) {
       throw new Error("session is still active — stop it before continuing.");
     }
     const resumeId = m.claudeSessionId ?? m.config.lastClaudeSessionId;
@@ -1061,7 +1062,9 @@ export class Supervisor {
       m.resolveAttention({ kind: "stop" });
       return;
     }
-    if (m.status !== "running") return;
+    // Running, or auto-paused on an unreachable brain (the loop is alive, polling
+    // health): request stop; the wait loop sees it and ends the run.
+    if (m.status !== "running" && m.status !== "paused") return;
     m.stopRequested = true;
     // Force-interrupt a long in-flight turn by tearing down the pty.
     void m.sess?.dispose();
@@ -1135,6 +1138,18 @@ export class Supervisor {
             ? `compacting context (~${e.usedPercent}% used) — saving handoff…`
             : `resumed after compaction (was ~${e.usedPercent}%)`;
         break;
+      case "brain":
+        if (e.phase === "unreachable") {
+          m.status = "paused";
+          m.error = "local model unreachable — auto-resumes when it's back";
+          m.lastDecision = `paused — local model unreachable${e.detail ? ` (${e.detail.slice(0, 80)})` : ""}`;
+        } else {
+          // recovered: the loop resumes on its own; clear the pause.
+          if (m.status === "paused") m.status = "running";
+          m.error = undefined;
+          m.lastDecision = "local model recovered — resuming";
+        }
+        break;
       case "stop":
         // Don't clobber a rate-limited status with the stop that follows it.
         if (m.status !== "rate-limited") {
@@ -1154,7 +1169,7 @@ export class Supervisor {
 }
 
 function toView(m: Managed): SessionView {
-  const active = ["running", "queued", "needs-input", "manual"].includes(m.status);
+  const active = ["running", "queued", "needs-input", "manual", "paused"].includes(m.status);
   return {
     id: m.id,
     cwd: m.cwd,

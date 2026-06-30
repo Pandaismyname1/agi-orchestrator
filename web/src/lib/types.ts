@@ -10,6 +10,7 @@ export type SessionStatus =
   | "manual"
   | "needs-input"
   | "rate-limited"
+  | "paused"
   | "stopped"
   | "blocked"
   | "done"
