@@ -18,6 +18,30 @@ const DEFAULT_LIMITS: Limits = {
   stuckTurns: 4,
 };
 
+/**
+ * Subscription-safety / cost guard: the brain must talk to a LOCAL model server,
+ * never a paid remote API. Returns true only for loopback hosts. Exported so the
+ * provider check is unit-testable.
+ */
+export function isLoopbackEndpoint(baseUrl: string): boolean {
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+/** Throw if a configured provider would reach a non-local (potentially billed) endpoint. */
+function assertLocalProvider(label: string, baseUrl: string): void {
+  if (!isLoopbackEndpoint(baseUrl)) {
+    throw new Error(
+      `config.${label}.baseUrl must be a local endpoint (localhost/127.0.0.1) to stay ` +
+        `subscription-safe — refusing "${baseUrl}". The brain must never call a paid remote API.`,
+    );
+  }
+}
+
 export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json"): Promise<AppConfig> {
   const abs = path.resolve(file);
   let raw: string;
@@ -30,6 +54,13 @@ export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json")
 
   if (!parsed.provider?.baseUrl || !parsed.provider?.model) {
     throw new Error(`config.provider.baseUrl and config.provider.model are required.`);
+  }
+  assertLocalProvider("provider", parsed.provider.baseUrl);
+  if (parsed.escalationProvider) {
+    if (!parsed.escalationProvider.baseUrl || !parsed.escalationProvider.model) {
+      throw new Error(`config.escalationProvider needs both baseUrl and model (or omit it entirely).`);
+    }
+    assertLocalProvider("escalationProvider", parsed.escalationProvider.baseUrl);
   }
   if (!Array.isArray(parsed.sessions) || parsed.sessions.length === 0) {
     throw new Error(`config.sessions must list at least one session.`);
@@ -54,6 +85,9 @@ export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json")
 
   return {
     provider: { temperature: 0.3, apiKey: "local", ...parsed.provider },
+    escalationProvider: parsed.escalationProvider
+      ? { temperature: 0.3, apiKey: "local", ...parsed.escalationProvider }
+      : undefined,
     limits,
     sessions,
     port: parsed.port ?? 4317,
@@ -81,6 +115,7 @@ export async function saveConfig(
   const abs = path.resolve(file);
   const out: AppConfig = {
     provider: cfg.provider,
+    escalationProvider: cfg.escalationProvider,
     limits: cfg.limits,
     sessions: cfg.sessions,
     port: cfg.port,

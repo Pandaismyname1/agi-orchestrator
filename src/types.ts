@@ -74,7 +74,14 @@ export interface ProviderConfig {
 }
 
 export interface AppConfig {
+  /** The every-turn brain: triages continue/stop/escalate. Keep this fast/cheap. */
   provider: ProviderConfig;
+  /**
+   * Optional SECOND local model used ONLY to regenerate escalation options (rare,
+   * worth a bigger model). When omitted, the single `provider` does everything —
+   * byte-identical to before. Must be a loopback endpoint (subscription-safe).
+   */
+  escalationProvider?: ProviderConfig;
   limits: Limits;
   sessions: SessionConfig[];
   /** HTTP port for the dashboard + optional Stop-hook notifier. */

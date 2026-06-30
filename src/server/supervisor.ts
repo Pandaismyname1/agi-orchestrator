@@ -14,7 +14,7 @@ import { Recorder } from "../db/recorder.js";
 import { BudgetTracker, type BudgetStatus } from "../policy/budget.js";
 import { ContextGuard } from "../policy/context.js";
 import { UsageGuard, type UsageStatus } from "../policy/usage.js";
-import { decideNextStep } from "../brain/decide.js";
+import { decideNextStep, refineEscalation } from "../brain/decide.js";
 import { LearningService, emptyLearningSummary } from "../learning/service.js";
 import type {
   DraftProposal,
@@ -93,6 +93,8 @@ interface Managed extends SessionView {
 export class Supervisor {
   private readonly sessions = new Map<string, Managed>();
   private readonly llm: LocalLLM;
+  /** Optional bigger LOCAL model for escalation-option refinement (multi-model brain). */
+  private readonly heavyLlm?: LocalLLM;
   private readonly recorder?: Recorder;
   private budget: BudgetTracker;
   /** Real subscription-limit gate (Claude's /usage) — the primary pause control. */
@@ -116,6 +118,7 @@ export class Supervisor {
     private readonly runner: RunFn = runSession,
   ) {
     this.llm = new LocalLLM(cfg.provider);
+    if (cfg.escalationProvider) this.heavyLlm = new LocalLLM(cfg.escalationProvider);
     this.budget = new BudgetTracker(store, cfg.budget);
     this.usageGuard = new UsageGuard(cfg.usageGuard);
     this.maxConcurrent = cfg.maxConcurrent && cfg.maxConcurrent > 0 ? cfg.maxConcurrent : Infinity;
@@ -284,15 +287,23 @@ export class Supervisor {
     m.continueResumeId = undefined;
     m.continueSeed = undefined;
 
-    // Learned-guidance wrapper: inject the approved operator profile (global ⊕
-    // per-cwd) into the brain. No-op unless learning is enabled AND a profile is
-    // approved. A test-stub `this.decide` override is respected as-is.
+    // Brain wrapper: inject the approved operator profile (learning, global ⊕
+    // per-cwd) and, when a fast-pass escalates, refine its options with the
+    // bigger local model (multi-model brain). Both are no-ops when unconfigured,
+    // so behavior is identical to baseline. A test-stub `this.decide` wins as-is.
     const learning = this.learning;
-    const decide: RunOptions["decide"] =
-      learning?.enabled && !this.decide
-        ? (llm, session, lastText, turnNumber, history, repoState) =>
-            decideNextStep(llm, session, lastText, turnNumber, history, learning.guidanceFor(session.cwd), repoState)
-        : this.decide;
+    const heavy = this.heavyLlm;
+    const wantsWrapper = (learning?.enabled || heavy) && !this.decide;
+    const decide: RunOptions["decide"] = wantsWrapper
+      ? async (llm, session, lastText, turnNumber, history, repoState) => {
+          const guidance = learning?.enabled ? learning.guidanceFor(session.cwd) : undefined;
+          const decision = await decideNextStep(llm, session, lastText, turnNumber, history, guidance, repoState);
+          if (decision.action === "escalate" && heavy) {
+            return refineEscalation(heavy, session, lastText, turnNumber, history, repoState, decision);
+          }
+          return decision;
+        }
+      : this.decide;
 
     void this.runner(m.config, {
       llm: this.llm,

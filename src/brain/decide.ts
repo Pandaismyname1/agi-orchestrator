@@ -182,6 +182,57 @@ export async function decideNextStep(
   return { action: "continue", prompt, reason: String(obj.reason ?? "continuing") };
 }
 
+const ESCALATION_SYSTEM =
+  "You are the SENIOR operator for an autonomous coding agent. A first-pass operator " +
+  "already decided this turn needs a HUMAN decision. Your job is to produce the SHARPEST " +
+  "version of that escalation: a one-line QUESTION naming the decision, and 2-4 strong, " +
+  "genuinely-distinct OPTIONS. Each option has a short \"label\", a one-line \"rationale\" " +
+  "(the REAL tradeoff), and a \"prompt\" — the EXACT instruction to send the agent if the " +
+  "human picks it. Ground every option in the ORIGINAL GOAL, what ACTUALLY changed on disk " +
+  "(REPO STATE), and the agent's state. Do not invent scope. Output ONLY a JSON object, no " +
+  "prose: {\"question\":\"...\",\"options\":[{\"label\":\"...\",\"rationale\":\"...\",\"prompt\":\"...\"}]}";
+
+/**
+ * Second-pass escalation refinement (multi-model brain). When the fast brain
+ * escalates, a bigger LOCAL model regenerates a sharper question + options. Pure
+ * upgrade: any failure (model unreachable, garbage, no usable options) falls back
+ * to the fast model's original escalation, so this never makes a decision worse.
+ */
+export async function refineEscalation(
+  heavy: LocalLLM,
+  session: SessionConfig,
+  lastAssistantText: string,
+  turnNumber: number,
+  history: Array<{ role: "user" | "assistant"; text: string }> | undefined,
+  repoState: string | undefined,
+  draft: Decision,
+): Promise<Decision> {
+  if (draft.action !== "escalate") return draft;
+  try {
+    const user =
+      buildUserMessage(session, lastAssistantText, turnNumber, history, repoState) +
+      `\n\nThe first-pass operator escalated because: ${draft.reason}\n` +
+      `Its draft question was: ${draft.question ?? "(none)"}\n` +
+      `Produce the sharpest question + options. JSON only.`;
+    const raw = await heavy.chat([
+      { role: "system", content: ESCALATION_SYSTEM },
+      { role: "user", content: user },
+    ]);
+    const obj = extractJson(raw);
+    if (!obj) return draft;
+    const options = parseOptions(obj.options);
+    if (options.length === 0) return draft; // keep the fast model's escalation
+    return {
+      action: "escalate",
+      reason: draft.reason,
+      question: String(obj.question ?? draft.question ?? "A decision is needed."),
+      options,
+    };
+  } catch {
+    return draft;
+  }
+}
+
 /** Validate/clean the options array from an escalate decision. */
 function parseOptions(raw: unknown): AttentionOption[] {
   if (!Array.isArray(raw)) return [];

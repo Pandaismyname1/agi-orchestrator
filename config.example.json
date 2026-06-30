@@ -5,6 +5,13 @@
     "apiKey": "local",
     "temperature": 0.3
   },
+  "_escalationProvider_note": "OPTIONAL second LOCAL model used ONLY to regenerate escalation options (rare, worth a bigger model). Omit to use `provider` for everything. Must be a loopback endpoint (localhost/127.0.0.1) — a remote URL is refused to stay subscription-safe. Tip: make `provider` a small/fast model for every-turn triage and set this to a bigger one.",
+  "escalationProvider": {
+    "baseUrl": "http://localhost:1234/v1",
+    "model": "qwen3.5:32b",
+    "apiKey": "local",
+    "temperature": 0.3
+  },
   "limits": {
     "maxTurns": 25,
     "maxWallClockMin": 60,
