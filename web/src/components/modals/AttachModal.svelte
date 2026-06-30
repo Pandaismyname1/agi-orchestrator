@@ -4,6 +4,8 @@
   import { ui } from "../../lib/ui.svelte";
   import { api } from "../../lib/api";
 
+  import type { RunningClaude } from "../../lib/types";
+
   let sessionId = $state("");
   let goal = $state("");
   let doneCriteria = $state("");
@@ -12,6 +14,24 @@
   let registered = $state(false);
 
   let setupEl: HTMLDivElement | undefined;
+
+  // Discover claude processes running on this machine, so the user can attach one
+  // with a click instead of hunting for its uuid. Best-effort; failures are silent.
+  let running = $state<RunningClaude[]>([]);
+  let scanning = $state(true);
+  api
+    .runningClaude()
+    .then((r) => (running = r))
+    .catch(() => (running = []))
+    .finally(() => (scanning = false));
+
+  // Only the ones we can actually drive: a detectable session id, not already attached.
+  let attachable = $derived(running.filter((r) => r.sessionId && !r.attached));
+
+  function pick(r: RunningClaude) {
+    if (r.sessionId) sessionId = r.sessionId;
+    ui.toast("session id filled — add a goal + done criteria");
+  }
 
   // Basic UUID v1–v5 shape check (the id you'll pass to `claude --session-id`).
   const UUID_RE =
@@ -88,6 +108,21 @@
     session.
   </p>
 
+  {#if scanning}
+    <div class="scanrow"><span class="spin"></span> scanning for running claude sessions…</div>
+  {:else if attachable.length}
+    <span class="grouplabel">running on this machine <span class="opt">(click to attach)</span></span>
+    <div class="runlist" role="group" aria-label="running claude sessions">
+      {#each attachable as r (r.pid)}
+        <button class="runitem" onclick={() => pick(r)} title={r.commandLine}>
+          <span class="runsid">{r.sessionId!.slice(0, 8)}…</span>
+          <span class="runpid">pid {r.pid}</span>
+          <span class="runcmd">{r.commandLine}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
+
   <label for="a_sid">session id</label>
   <input
     id="a_sid"
@@ -159,6 +194,85 @@
   .lead strong {
     color: var(--color-base-content);
     font-weight: 600;
+  }
+  .scanrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--faint);
+    margin-top: 12px;
+  }
+  .spin {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--border-strong);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .grouplabel {
+    display: block;
+    font-size: 11px;
+    color: var(--color-neutral-content);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 13px 0 5px;
+    font-weight: 600;
+  }
+  .grouplabel .opt {
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--faint);
+    font-weight: 400;
+  }
+  .runlist {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 132px;
+    overflow-y: auto;
+  }
+  .runitem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    background: var(--color-base-200);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    padding: 7px 10px;
+    cursor: pointer;
+    transition: border-color 0.13s;
+  }
+  .runitem:hover {
+    border-color: var(--color-primary);
+  }
+  .runsid {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-base-content);
+    flex: none;
+  }
+  .runpid {
+    font-size: 10px;
+    color: var(--faint);
+    flex: none;
+  }
+  .runcmd {
+    font-size: 11px;
+    color: var(--faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   label {

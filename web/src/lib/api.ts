@@ -4,6 +4,7 @@
  */
 import type {
   AttachInput,
+  RunningClaude,
   DiscoveredSession,
   DraftProposal,
   IntakeResult,
@@ -89,6 +90,11 @@ export const api = {
           suggestedDoneCriteria: `${input.doneCriteria.trim()}; the full test suite passes and a summary of changes is written.`,
         })
       : postJson<IntakeResult>("/api/intake", input),
+  /** Running `claude` processes on this machine, for one-click attach. */
+  runningClaude: (): Promise<RunningClaude[]> =>
+    isMock()
+      ? import("./mock").then((m) => m.MOCK_RUNNING)
+      : getJson<RunningClaude[]>("/api/running-claude"),
   /** Register a hand-started session for hook-attach driving (POST /attach). */
   attach: (input: AttachInput) =>
     postJson<{ ok: boolean; error?: string }>("/attach", input),

@@ -29,6 +29,12 @@ export interface AttachBrainResult {
   /** Next prompt to inject when action === "continue". */
   prompt?: string;
   reason: string;
+  /**
+   * True when the brain actually wants a HUMAN decision (an escalation). The
+   * hand-driven session still stops (we can't pause someone else's terminal), but
+   * we flag it so the dashboard can show "needs you" on the attached session.
+   */
+  needsInput?: boolean;
 }
 
 /** Injected dependency: ask the brain what to do next, as the user's stand-in. */
@@ -52,6 +58,8 @@ export interface AttachedView {
   lastAction?: "continue" | "stop";
   /** Reason text for the last decision. */
   lastReason?: string;
+  /** True when the brain escalated — a human decision is wanted (can't auto-resolve). */
+  needsInput?: boolean;
 }
 
 /** Guard limits for an attached session. Mirrors the shape `Guards` needs. */
@@ -93,6 +101,7 @@ interface AttachedSession {
   lastActivity?: number;
   lastAction?: "continue" | "stop";
   lastReason?: string;
+  needsInput?: boolean;
 }
 
 export class AttachManager {
@@ -147,6 +156,7 @@ export class AttachManager {
         lastActivity: s.lastActivity,
         lastAction: s.lastAction,
         lastReason: s.lastReason,
+        needsInput: s.needsInput,
       }))
       .sort((a, b) => b.registeredAt - a.registeredAt);
   }
@@ -179,9 +189,10 @@ export class AttachManager {
 
       // Record the final decision on the session (drives the dashboard view),
       // then return it. A "continue" also advances the driven-turn counter.
-      const record = (d: HookDecision): HookDecision => {
+      const record = (d: HookDecision, needsInput = false): HookDecision => {
         sess.lastAction = d.action;
         sess.lastReason = d.reason;
+        sess.needsInput = needsInput;
         if (d.action === "continue") sess.turns += 1;
         return d;
       };
@@ -198,11 +209,14 @@ export class AttachManager {
       });
 
       if (decision.action === "stop") {
-        return record({
-          action: "stop",
-          prompt: null,
-          reason: decision.reason || "brain decided to stop",
-        });
+        return record(
+          {
+            action: "stop",
+            prompt: null,
+            reason: decision.reason || "brain decided to stop",
+          },
+          !!decision.needsInput,
+        );
       }
 
       const prompt = (decision.prompt ?? "").trim();

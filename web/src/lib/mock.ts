@@ -12,7 +12,24 @@ import type {
   DraftProposal,
   OperatorProfile,
   DiscoveredSession,
+  RunningClaude,
 } from "./types";
+
+/** Demo running-claude processes for the Attach modal under `?mock`. */
+export const MOCK_RUNNING: RunningClaude[] = [
+  {
+    pid: 48217,
+    sessionId: "c7d8e9f0-1a2b-3c4d-5e6f-7a8b9c0d1e2f",
+    commandLine: "node /usr/local/bin/claude --session-id c7d8e9f0-1a2b-3c4d-5e6f-7a8b9c0d1e2f --dangerously-skip-permissions",
+    attached: false,
+  },
+  {
+    pid: 50934,
+    sessionId: "a1b2c3d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
+    commandLine: "node /usr/local/bin/claude --session-id a1b2c3d4-… (already driven)",
+    attached: true,
+  },
+];
 
 /** Demo discovery list (CLI + Desktop) for the Adopt browser under `?mock`. */
 export const MOCK_DISCOVER: DiscoveredSession[] = [
@@ -425,8 +442,9 @@ export const MOCK: Snapshot = {
       turns: 7,
       registeredAt: Date.now() - 26 * 60_000,
       lastActivity: Date.now() - 90_000,
-      lastAction: "continue",
-      lastReason: "Tests still failing in pricing.spec — asked it to fix the rounding case.",
+      lastAction: "stop",
+      lastReason: "needs your decision: deploy to staging or wait for review?",
+      needsInput: true,
     },
     {
       sessionId: "f9e8d7c6-b5a4-3210-9876-543210fedcba",

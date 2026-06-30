@@ -19,13 +19,13 @@ const check = (n: string, c: boolean) => {
 let clock = 1_000_000;
 const now = () => (clock += 1000);
 
-// Brain: continue with a prompt for the first 2 calls, then stop.
+// Brain: continue twice, then a needs-input stop (escalation), then a plain stop.
 let brainCalls = 0;
 const stubBrain: AttachBrain = async () => {
   brainCalls++;
-  return brainCalls <= 2
-    ? { action: "continue", prompt: "next step", reason: `continue #${brainCalls}` }
-    : { action: "stop", reason: "done" };
+  if (brainCalls <= 2) return { action: "continue", prompt: "next step", reason: `continue #${brainCalls}` };
+  if (brainCalls === 3) return { action: "stop", reason: "needs your decision: X or Y?", needsInput: true };
+  return { action: "stop", reason: "done" };
 };
 const stubRead: ReadLastMessage = async () => "canned last message";
 
@@ -61,11 +61,16 @@ view = mgr.list();
 check("turns = 2 after a second continue", view[0]?.turns === 2);
 check("lastActivity advanced", (view[0]?.lastActivity ?? 0) > firstActivity);
 
-// ---- a stop does NOT advance the turn counter, but DOES update activity -----
-await mgr.handle(body);
+// ---- an escalation stop flags needsInput, doesn't advance turns -------------
+await mgr.handle(body); // brainCalls === 3 → needs-input stop
 view = mgr.list();
 check("turns stays 2 on a stop decision", view[0]?.turns === 2);
 check("lastAction is stop", view[0]?.lastAction === "stop");
+check("escalation sets needsInput", view[0]?.needsInput === true);
+
+// ---- a later non-escalation decision clears needsInput ----------------------
+await mgr.handle(body); // brainCalls === 4 → plain stop
+check("a plain stop clears needsInput", mgr.list()[0]?.needsInput === false);
 
 // ---- an unregistered session never appears in the view ----------------------
 await mgr.handle({ session_id: "ghost", cwd: "C:/x" });

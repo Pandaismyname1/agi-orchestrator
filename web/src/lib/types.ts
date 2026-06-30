@@ -269,6 +269,18 @@ export interface AttachedView {
   lastAction?: "continue" | "stop";
   /** Reason text for the last decision. */
   lastReason?: string;
+  /** True when the brain escalated — a human decision is wanted. */
+  needsInput?: boolean;
+}
+
+/** A `claude` process running on this machine (GET /api/running-claude). */
+export interface RunningClaude {
+  pid: number;
+  /** The --session-id it was started with, if detectable. */
+  sessionId?: string;
+  commandLine: string;
+  /** True when this session id is already registered for attach driving. */
+  attached?: boolean;
 }
 
 export interface Snapshot {

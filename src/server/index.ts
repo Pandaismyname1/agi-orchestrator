@@ -18,6 +18,7 @@ import { Supervisor, type TemplateInput, type WebhookInput } from "./supervisor.
 import { openStore } from "../db/store.js";
 import { discoverAll } from "../discovery.js";
 import { AttachManager } from "../attach/attachManager.js";
+import { scanRunningClaude } from "../attach/processScan.js";
 import { decideNextStep } from "../brain/decide.js";
 import { LocalLLM } from "../brain/provider.js";
 import { readLastAssistantMessage } from "../transcript/reader.js";
@@ -166,7 +167,7 @@ async function main(): Promise<void> {
       // Attached sessions are hand-driven in the user's own terminal — there's no
       // dashboard pause/resume here, so a genuine decision just hands control back.
       if (d.action === "escalate") {
-        return { action: "stop", reason: `needs your decision: ${d.question ?? d.reason}` };
+        return { action: "stop", reason: `needs your decision: ${d.question ?? d.reason}`, needsInput: true };
       }
       return { action: d.action, prompt: d.prompt, reason: d.reason };
     },
@@ -363,6 +364,15 @@ async function main(): Promise<void> {
         if (u.pathname === "/api/runs") return sendJson(res, 200, store.getRuns(session, 50));
         if (u.pathname === "/api/metrics") return sendJson(res, 200, store.metrics(session));
         if (u.pathname === "/api/discover") return sendJson(res, 200, await discoverAll(80));
+        if (u.pathname === "/api/running-claude") {
+          // Running claude processes on this machine, with which are already attached.
+          const procs = await scanRunningClaude();
+          return sendJson(
+            res,
+            200,
+            procs.map((p) => ({ ...p, attached: p.sessionId ? attach.isRegistered(p.sessionId) : false })),
+          );
+        }
         if (u.pathname === "/api/learning") return sendJson(res, 200, sup.learningSummary());
         if (u.pathname === "/api/learning/draft") {
           return sendJson(res, 200, sup.learningDraft(u.searchParams.get("scope") ?? undefined));

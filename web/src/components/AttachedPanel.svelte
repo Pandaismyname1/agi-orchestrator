@@ -41,9 +41,12 @@
 
   <div class="stack">
     {#each attached as a (a.sessionId)}
-      <div class="acard">
+      <div class="acard" class:needs={a.needsInput}>
         <div class="acard-top">
           <span class="aid mono" title={a.sessionId}>{shortId(a.sessionId)}</span>
+          {#if a.needsInput}
+            <span class="needsbadge" title="The brain wanted a human decision — check this session in its terminal">needs you</span>
+          {/if}
           <span class="aturns tnum" title="Turns driven so far">turn {a.turns}</span>
           <button
             class="detach"
@@ -135,6 +138,20 @@
     background: var(--color-base-200);
     border: 1px solid var(--border-soft);
     border-radius: var(--radius-box);
+  }
+  .acard.needs {
+    border-color: var(--st-needs-input);
+    background: rgba(251, 191, 36, 0.06);
+  }
+  .needsbadge {
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 700;
+    color: var(--color-accent-content, #1a1a1a);
+    background: var(--st-needs-input);
+    border-radius: 20px;
+    padding: 1px 7px;
   }
   .acard-top {
     display: flex;
