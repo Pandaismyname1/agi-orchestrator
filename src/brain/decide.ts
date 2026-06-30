@@ -56,8 +56,10 @@ Hard rules:
 - Stay anchored to the ORIGINAL GOAL. Do not invent scope or gold-plate.
 - Never instruct a destructive/irreversible action yourself — escalate it.
 
+Also report "confidence": a number 0..1 for how sure you are this is the right call (1 = certain; lower it when the agent's state is ambiguous, you're guessing the next step, or you can't tell real progress from the REPO STATE). Be honest — a low score routes the decision to the human instead of guessing.
+
 Respond with ONLY a JSON object, no prose, no code fence:
-{"action":"continue"|"stop"|"escalate","prompt":"<next instruction if continue>","reason":"<one short sentence>","question":"<the decision, if escalate>","options":[{"label":"...","rationale":"...","prompt":"..."}]}`;
+{"action":"continue"|"stop"|"escalate","prompt":"<next instruction if continue>","reason":"<one short sentence>","confidence":<0..1>,"question":"<the decision, if escalate>","options":[{"label":"...","rationale":"...","prompt":"..."}]}`;
 }
 
 /** Max total characters of rendered RECENT STEPS history to include. */
@@ -141,6 +143,7 @@ export async function decideNextStep(
   history?: Array<{ role: "user" | "assistant"; text: string }>,
   learnedGuidance?: string,
   repoState?: string,
+  confidenceThreshold?: number,
 ): Promise<Decision> {
   const messages: ChatMessage[] = [
     { role: "system", content: buildSystemPrompt(session.autonomy, learnedGuidance) },
@@ -156,8 +159,9 @@ export async function decideNextStep(
       reason: `brain returned unparseable decision; stopping for safety. raw="${raw.slice(0, 120)}"`,
     };
   }
+  const confidence = parseConfidence(obj.confidence);
   if (obj.action === "stop") {
-    return { action: "stop", reason: String(obj.reason ?? "brain decided to stop") };
+    return { action: "stop", reason: String(obj.reason ?? "brain decided to stop"), confidence };
   }
   if (obj.action === "escalate") {
     const options = parseOptions(obj.options);
@@ -166,6 +170,7 @@ export async function decideNextStep(
       return {
         action: "stop",
         reason: `brain wanted a human decision but gave no options; stopping for safety. (${String(obj.question ?? "")})`,
+        confidence,
       };
     }
     return {
@@ -173,13 +178,56 @@ export async function decideNextStep(
       reason: String(obj.reason ?? "needs a human decision"),
       question: String(obj.question ?? obj.reason ?? "A decision is needed."),
       options,
+      confidence,
     };
   }
   const prompt = typeof obj.prompt === "string" ? obj.prompt.trim() : "";
   if (!prompt) {
-    return { action: "stop", reason: "brain said continue but gave no prompt; stopping for safety." };
+    return { action: "stop", reason: "brain said continue but gave no prompt; stopping for safety.", confidence };
   }
-  return { action: "continue", prompt, reason: String(obj.reason ?? "continuing") };
+  const decision: Decision = { action: "continue", prompt, reason: String(obj.reason ?? "continuing"), confidence };
+  return gateLowConfidence(decision, confidenceThreshold);
+}
+
+/** Coerce a model-reported confidence to 0..1, tolerating a 0..100 percent. Undefined if unusable. */
+function parseConfidence(v: unknown): number | undefined {
+  if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
+  const n = v > 1 && v <= 100 ? v / 100 : v;
+  if (n < 0 || n > 1) return undefined;
+  return n;
+}
+
+/**
+ * Auto-escalate a low-confidence `continue` to the human instead of guessing.
+ * No-op unless threshold > 0 AND the decision is a `continue` whose reported
+ * confidence is below it. `stop`/`escalate` already involve the human, and a
+ * decision with no reported confidence is never gated (so models that ignore
+ * the field behave exactly as before).
+ */
+export function gateLowConfidence(decision: Decision, threshold?: number): Decision {
+  if (!threshold || threshold <= 0) return decision;
+  if (decision.action !== "continue") return decision;
+  if (typeof decision.confidence !== "number" || decision.confidence >= threshold) return decision;
+  const pct = Math.round(decision.confidence * 100);
+  return {
+    action: "escalate",
+    reason: `auto-escalated: operator confidence ${pct}% < ${Math.round(threshold * 100)}% threshold`,
+    question: `The operator is only ${pct}% sure of the next step — your call.`,
+    confidence: decision.confidence,
+    options: [
+      {
+        label: "Proceed as proposed",
+        rationale: decision.reason,
+        prompt: decision.prompt ?? "Continue toward the goal.",
+      },
+      {
+        label: "Redirect it",
+        rationale: "the operator wasn't sure — re-anchor to the goal",
+        prompt:
+          "Re-read the original goal and the current repo state, state in one line what is actually needed next, then do exactly that.",
+      },
+    ],
+  };
 }
 
 const ESCALATION_SYSTEM =

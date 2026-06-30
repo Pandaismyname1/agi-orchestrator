@@ -18,6 +18,10 @@
     "pingPongThreshold": 3,
     "stuckTurns": 4
   },
+  "_brain_note": "Brain-decision policy. confidenceThreshold (0..1, default 0 = off): if a 'continue' decision's self-reported confidence is below it, the operator auto-escalates to you instead of guessing the next step (pairs with escalationProvider — a gated escalation gets refined by the bigger model). 0.5 is a reasonable start; 0 keeps today's behavior.",
+  "brain": {
+    "confidenceThreshold": 0
+  },
   "port": 4317,
   "budget": {
     "maxTurnsPerDay": 200,

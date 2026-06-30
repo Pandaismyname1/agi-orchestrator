@@ -111,6 +111,19 @@ export interface AppConfig {
   dispatch?: DispatchOptions;
   /** Pause/resume on Claude's REAL subscription limits (read from /usage). */
   usageGuard?: import("./policy/usage.js").UsageGuardOptions;
+  /** Brain-decision policy (confidence gating). */
+  brain?: BrainOptions;
+}
+
+/** Tuning for how the brain's raw decision is gated before it's acted on. */
+export interface BrainOptions {
+  /**
+   * If a `continue` decision's self-reported confidence is BELOW this (0..1), it
+   * is auto-escalated to the human instead of guessing. 0 (default) disables the
+   * gate — behavior identical to before. `stop`/`escalate` already involve the
+   * human, so they're never gated.
+   */
+  confidenceThreshold?: number;
 }
 
 /**
@@ -202,6 +215,12 @@ export interface Decision {
   question?: string;
   /** Concrete choices for the human (when action === "escalate"). */
   options?: AttentionOption[];
+  /**
+   * The brain's self-reported confidence in this decision, 0..1 (1 = certain).
+   * Undefined when the model didn't report one. A low-confidence `continue` is
+   * auto-escalated to the human (see brain.confidenceThreshold).
+   */
+  confidence?: number;
 }
 
 /** One proposed way forward when a decision is escalated to the human. */

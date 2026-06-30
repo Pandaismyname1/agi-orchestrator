@@ -65,6 +65,10 @@ export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json")
   if (!Array.isArray(parsed.sessions) || parsed.sessions.length === 0) {
     throw new Error(`config.sessions must list at least one session.`);
   }
+  const ct = parsed.brain?.confidenceThreshold;
+  if (ct !== undefined && (typeof ct !== "number" || ct < 0 || ct > 1)) {
+    throw new Error(`config.brain.confidenceThreshold must be a number in [0,1] (got ${ct}).`);
+  }
 
   const limits: Limits = { ...DEFAULT_LIMITS, ...(parsed.limits ?? {}) };
 
@@ -99,6 +103,7 @@ export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json")
     learning: parsed.learning,
     dispatch: parsed.dispatch,
     usageGuard: parsed.usageGuard,
+    brain: parsed.brain,
   };
 }
 
@@ -127,6 +132,7 @@ export async function saveConfig(
     learning: cfg.learning,
     dispatch: cfg.dispatch,
     usageGuard: cfg.usageGuard,
+    brain: cfg.brain,
   };
   const json = JSON.stringify(out, null, 2) + "\n";
   // Write atomically (temp file + rename) so a crash or an interleaved write can

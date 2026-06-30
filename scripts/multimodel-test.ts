@@ -6,7 +6,7 @@
  */
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { loadConfig, isLoopbackEndpoint } from "../src/config.js";
-import { refineEscalation } from "../src/brain/decide.js";
+import { refineEscalation, gateLowConfidence } from "../src/brain/decide.js";
 import type { LocalLLM, ChatMessage } from "../src/brain/provider.js";
 import type { Decision, SessionConfig } from "../src/types.js";
 
@@ -70,7 +70,7 @@ check("non-escalate decision passes through unchanged", (await refineEscalation(
 
 const refined = await refineEscalation(goodHeavy, session, "agent said done", 2, undefined, "branch main\nCLEAN", draft);
 check("heavy refines the question", refined.action === "escalate" && refined.question === "sharp?");
-check("heavy replaces the options", refined.action === "escalate" && refined.options.length === 2 && refined.options[0]?.label === "Heavy A");
+check("heavy replaces the options", refined.action === "escalate" && refined.options?.length === 2 && refined.options?.[0]?.label === "Heavy A");
 check("refined keeps the fast model's reason", refined.action === "escalate" && refined.reason === "needs a human");
 
 // heavy model throws → fall back to the fast escalation
@@ -92,6 +92,36 @@ let heavySaw = "";
 const spyHeavy = { chat: async (m: ChatMessage[]) => { heavySaw = m[1]?.content ?? ""; return JSON.stringify({ question: "q?", options: [{ label: "A", rationale: "r", prompt: "p" }] }); } } as unknown as LocalLLM;
 await refineEscalation(spyHeavy, session, "x", 2, undefined, "branch main\n3 uncommitted file(s):", draft);
 check("heavy prompt includes REPO STATE", /REPO STATE/.test(heavySaw) && /3 uncommitted file/.test(heavySaw));
+
+// ── 4. confidence gate: low-confidence continue auto-escalates ─────────────
+const lowConf: Decision = { action: "continue", prompt: "do X", reason: "next step", confidence: 0.3 };
+const hiConf: Decision = { action: "continue", prompt: "do X", reason: "next step", confidence: 0.9 };
+const noConf: Decision = { action: "continue", prompt: "do X", reason: "next step" };
+
+check("threshold 0 disables the gate (no-regression)", gateLowConfidence(lowConf, 0) === lowConf);
+check("threshold undefined disables the gate", gateLowConfidence(lowConf, undefined) === lowConf);
+check("high-confidence continue passes through", gateLowConfidence(hiConf, 0.7) === hiConf);
+check("no reported confidence is never gated", gateLowConfidence(noConf, 0.7) === noConf);
+
+const gated = gateLowConfidence(lowConf, 0.7);
+check("low-confidence continue auto-escalates", gated.action === "escalate");
+check("auto-escalation keeps the proposed step as an option", gated.options?.some((o) => o.prompt === "do X") ?? false);
+check("auto-escalation offers a redirect option", (gated.options?.length ?? 0) >= 2);
+check("auto-escalation carries the confidence through", gated.confidence === 0.3);
+
+const stopLow: Decision = { action: "stop", reason: "done", confidence: 0.2 };
+check("low-confidence STOP is NOT gated (human already involved)", gateLowConfidence(stopLow, 0.7) === stopLow);
+
+// config validation of the threshold range
+let badRange = false;
+try {
+  await loadConfig(writeCfg({ ...base, brain: { confidenceThreshold: 1.5 } }, "badconf.json"));
+} catch {
+  badRange = true;
+}
+check("config rejects confidenceThreshold out of [0,1]", badRange);
+const okBrain = await loadConfig(writeCfg({ ...base, brain: { confidenceThreshold: 0.6 } }, "okconf.json"));
+check("config accepts a valid confidenceThreshold", okBrain.brain?.confidenceThreshold === 0.6);
 
 rmSync(ROOT, { recursive: true, force: true });
 console.log(`\n[multimodel] => ${pass ? "PASS ✅" : "FAIL ⚠️"}`);
