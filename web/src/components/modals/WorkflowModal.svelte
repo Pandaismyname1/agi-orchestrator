@@ -26,6 +26,7 @@
   } from "../../lib/graph";
   import { buildSessionDraft, type DraftMode } from "../../lib/nodeform";
   import { DRAW_EVENTS, defaultEventFor, buildDrawnAutomation, eventPhrase } from "../../lib/drawauto";
+  import { loadWorkflowPrefs, saveWorkflowPrefs, type LinkMode } from "../../lib/wfprefs";
   import type { WebhookEvent } from "../../lib/types";
   import Modal from "../Modal.svelte";
   import StatusBadge from "../StatusBadge.svelte";
@@ -144,8 +145,10 @@
   let hoverId = $state<string | null>(null);
 
   // What a handle-drag creates: a dependency, or an automation (start/stop) rule.
-  type LinkMode = "depends" | "start" | "stop";
-  let linkMode = $state<LinkMode>("depends");
+  // Both the mode and the trigger event are seeded from the operator's last choice
+  // (persisted to localStorage) so the toolbar remembers preferences across sessions.
+  const initialPrefs = loadWorkflowPrefs();
+  let linkMode = $state<LinkMode>(initialPrefs.linkMode);
   const LINK_MODES: { id: LinkMode; label: string; icon: "chevronRight" | "play" | "stop" }[] = [
     { id: "depends", label: "Depends on", icon: "chevronRight" },
     { id: "start", label: "Start", icon: "play" },
@@ -153,11 +156,15 @@
   ];
   // Trigger event a drawn start/stop edge fires on (operator-pickable; seeded with
   // the sensible default when the action mode changes).
-  let drawEvent = $state<WebhookEvent>("done");
+  let drawEvent = $state<WebhookEvent>(initialPrefs.drawEvent);
   function pickMode(m: LinkMode): void {
     linkMode = m;
     if (m !== "depends") drawEvent = defaultEventFor(m);
   }
+  // Persist the toolbar choice whenever it changes (covers pickMode + the event select).
+  $effect(() => {
+    saveWorkflowPrefs({ linkMode, drawEvent });
+  });
 
   // Drop-to-create a session node: a "+ Session" chip drags a ghost; dropping on
   // the canvas opens a tiny inline create card at that point.
