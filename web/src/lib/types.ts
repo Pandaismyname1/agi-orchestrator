@@ -237,6 +237,15 @@ export interface Snapshot {
   webhooks?: WebhookConfig[];
 }
 
+/** Goal intake assessment (POST /api/intake) — does the local brain think the goal is runnable? */
+export interface IntakeResult {
+  clarity: "clear" | "vague";
+  assessment: string;
+  questions: string[];
+  suggestedGoal?: string;
+  suggestedDoneCriteria?: string;
+}
+
 /** Payload to register a hand-started session for hook-attach driving (POST /attach). */
 export interface AttachInput {
   session_id: string;

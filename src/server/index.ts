@@ -302,6 +302,30 @@ async function main(): Promise<void> {
         if (urlPath !== "/" && (await serveStatic(res, urlPath))) return;
       }
 
+      // Goal intake assistant: assess a goal/done-criteria for clarity (one LLM call).
+      if (req.method === "POST" && req.url === "/api/intake") {
+        if (!requireAuth(req, res)) return;
+        let body: { cwd?: string; goal?: string; doneCriteria?: string };
+        try {
+          body = (await readJson(req)) as typeof body;
+        } catch {
+          return sendJson(res, 400, { error: "bad json" });
+        }
+        if (!body.goal?.trim() || !body.doneCriteria?.trim()) {
+          return sendJson(res, 400, { error: "goal and doneCriteria are required" });
+        }
+        try {
+          const result = await sup.assessGoal({
+            cwd: body.cwd,
+            goal: body.goal,
+            doneCriteria: body.doneCriteria,
+          });
+          return sendJson(res, 200, result);
+        } catch (e) {
+          return sendJson(res, 502, { error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+
       // Stop-hook notifier for an attached, hand-started claude session.
       if (req.method === "POST" && req.url === "/hook") {
         if (!requireAuth(req, res)) return;

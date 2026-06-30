@@ -15,6 +15,7 @@ import { BudgetTracker, type BudgetStatus } from "../policy/budget.js";
 import { ContextGuard } from "../policy/context.js";
 import { UsageGuard, type UsageStatus } from "../policy/usage.js";
 import { decideNextStep, refineEscalation } from "../brain/decide.js";
+import { assessGoal, type IntakeInput, type IntakeResult } from "../brain/intake.js";
 import { LearningService, emptyLearningSummary } from "../learning/service.js";
 import { Notifier, type DeliveryResult, type NotifyContext } from "../notify/notifier.js";
 import type {
@@ -185,6 +186,15 @@ export class Supervisor {
 
   health() {
     return this.llm.health();
+  }
+
+  /**
+   * Goal intake assistant: ask the local brain whether a goal + done-criteria are
+   * specific enough to run unattended and, if not, return sharpening questions +
+   * tighter suggestions. One LLM call; subscription-safe (local provider).
+   */
+  assessGoal(input: IntakeInput): Promise<IntakeResult> {
+    return assessGoal(this.llm, input);
   }
 
   list(): SessionView[] {

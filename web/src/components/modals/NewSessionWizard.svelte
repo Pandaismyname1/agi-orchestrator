@@ -10,6 +10,8 @@
   } from "../../lib/types";
   import { wsStore } from "../../lib/ws.svelte";
   import { ui } from "../../lib/ui.svelte";
+  import { api } from "../../lib/api";
+  import type { IntakeResult } from "../../lib/types";
   import Icon from "../Icon.svelte";
 
   interface Props {
@@ -64,6 +66,33 @@
   function toggleDep(id: string): void {
     dependsOn = dependsOn.includes(id) ? dependsOn.filter((d) => d !== id) : [...dependsOn, id];
   }
+  // Goal intake assistant (AI tooling): ask the local brain to sharpen a vague goal.
+  let intake = $state<IntakeResult | null>(null);
+  let refining = $state(false);
+  let refineErr = $state("");
+  async function refineGoal(): Promise<void> {
+    if (!goal.trim() || !doneCriteria.trim()) {
+      refineErr = "fill in the goal and done criteria first.";
+      return;
+    }
+    refining = true;
+    refineErr = "";
+    intake = null;
+    try {
+      intake = await api.intake({ cwd: cwd.trim() || undefined, goal: goal.trim(), doneCriteria: doneCriteria.trim() });
+    } catch (e) {
+      refineErr = e instanceof Error ? e.message : "couldn't reach the assistant.";
+    } finally {
+      refining = false;
+    }
+  }
+  function applySuggestedGoal(): void {
+    if (intake?.suggestedGoal) goal = intake.suggestedGoal;
+  }
+  function applySuggestedDone(): void {
+    if (intake?.suggestedDoneCriteria) doneCriteria = intake.suggestedDoneCriteria;
+  }
+
   let canNext = $derived(step !== 0 || (cwd.trim() && goal.trim() && doneCriteria.trim()));
 
   function next() {
@@ -163,6 +192,41 @@
 
             <label for="w_done">Done criteria</label>
             <textarea id="w_done" bind:value={doneCriteria} placeholder="you are done when…"></textarea>
+
+            <div class="refine-row">
+              <button class="btn btn-xs refine" onclick={refineGoal} disabled={refining}>
+                <Icon name="spark" size={12} />
+                {refining ? "Assessing…" : "Refine with AI"}
+              </button>
+              <span class="refine-hint">checks if the goal is specific enough to run unattended</span>
+            </div>
+            {#if refineErr}<div class="refine-err">{refineErr}</div>{/if}
+            {#if intake}
+              <div class="intake" class:vague={intake.clarity === "vague"}>
+                <div class="intake-top">
+                  <Icon name={intake.clarity === "clear" ? "spark" : "alert"} size={13} />
+                  <b>{intake.clarity === "clear" ? "Looks runnable" : "Could be sharper"}</b>
+                </div>
+                <p class="intake-msg">{intake.assessment}</p>
+                {#if intake.questions.length}
+                  <ul class="intake-q">
+                    {#each intake.questions as q (q)}<li>{q}</li>{/each}
+                  </ul>
+                {/if}
+                {#if intake.suggestedGoal}
+                  <div class="intake-sug">
+                    <div class="intake-sug-text"><span class="sug-tag">goal</span>{intake.suggestedGoal}</div>
+                    <button class="btn btn-xs" onclick={applySuggestedGoal}>Use</button>
+                  </div>
+                {/if}
+                {#if intake.suggestedDoneCriteria}
+                  <div class="intake-sug">
+                    <div class="intake-sug-text"><span class="sug-tag">done</span>{intake.suggestedDoneCriteria}</div>
+                    <button class="btn btn-xs" onclick={applySuggestedDone}>Use</button>
+                  </div>
+                {/if}
+              </div>
+            {/if}
           {:else if step === 1}
             <div class="cards">
               <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -449,6 +513,83 @@
     font-size: 12px;
     color: var(--color-neutral-content);
     margin-bottom: 10px;
+  }
+
+  .refine-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-top: 10px;
+  }
+  .refine {
+    color: var(--color-primary);
+    border-color: rgba(34, 197, 94, 0.4);
+    flex: none;
+  }
+  .refine-hint {
+    font-size: 11px;
+    color: var(--faint);
+  }
+  .refine-err {
+    color: var(--color-error);
+    font-size: 12px;
+    margin-top: 6px;
+  }
+  .intake {
+    margin-top: 10px;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    background: rgba(34, 197, 94, 0.05);
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  .intake.vague {
+    border-color: rgba(251, 191, 36, 0.35);
+    background: rgba(251, 191, 36, 0.06);
+  }
+  .intake-top {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+  }
+  .intake-msg {
+    margin: 6px 0 0;
+    font-size: 12px;
+    color: var(--color-neutral-content);
+    line-height: 1.45;
+  }
+  .intake-q {
+    margin: 8px 0 0;
+    padding-left: 18px;
+    font-size: 12px;
+    color: var(--color-neutral-content);
+    line-height: 1.5;
+  }
+  .intake-sug {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 9px;
+    padding-top: 9px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .intake-sug-text {
+    flex: 1;
+    font-size: 12px;
+    color: var(--color-base-content);
+    line-height: 1.4;
+  }
+  .sug-tag {
+    display: inline-block;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 700;
+    color: var(--faint);
+    border: 1px solid var(--border-soft);
+    border-radius: 5px;
+    padding: 1px 5px;
+    margin-right: 6px;
   }
 
   .cards {

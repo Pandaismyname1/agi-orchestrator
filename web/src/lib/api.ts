@@ -6,6 +6,7 @@ import type {
   AttachInput,
   DiscoveredSession,
   DraftProposal,
+  IntakeResult,
   LearningSummary,
   Metrics,
   OperatorProfile,
@@ -73,6 +74,21 @@ export const api = {
       : getJson<OperatorProfile[]>(
           `/api/learning/versions${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`,
         ),
+  /** Goal intake assistant: assess a goal/done-criteria for clarity (one LLM call). */
+  intake: (input: { cwd?: string; goal: string; doneCriteria: string }): Promise<IntakeResult> =>
+    isMock()
+      ? Promise.resolve({
+          clarity: "vague",
+          assessment: "The goal is broad — scope and a checkable finish line would help.",
+          questions: [
+            "Which modules/areas are in scope vs out of scope?",
+            "What does 'done' look like concretely — tests passing, a deployed build, a PR?",
+            "Any constraints (frameworks, files to avoid, perf targets)?",
+          ],
+          suggestedGoal: `${input.goal.trim()} — limited to the affected module, leaving public APIs unchanged.`,
+          suggestedDoneCriteria: `${input.doneCriteria.trim()}; the full test suite passes and a summary of changes is written.`,
+        })
+      : postJson<IntakeResult>("/api/intake", input),
   /** Register a hand-started session for hook-attach driving (POST /attach). */
   attach: (input: AttachInput) =>
     postJson<{ ok: boolean; error?: string }>("/attach", input),
