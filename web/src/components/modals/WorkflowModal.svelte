@@ -18,6 +18,11 @@
     hasEdge,
     withDependency,
     withoutDependency,
+    clampZoom,
+    stepZoom,
+    fitScale,
+    ZOOM_MIN,
+    ZOOM_MAX,
   } from "../../lib/graph";
   import { buildSessionDraft, type DraftMode } from "../../lib/nodeform";
   import type { AutomationInput } from "../../lib/types";
@@ -33,6 +38,7 @@
   const GAP_Y = 26;
   const PAD = 16;
   const POS_KEY = "agi.wf.pos.v1";
+  const ZOOM_KEY = "agi.wf.zoom.v1";
 
   function label(s: SessionView): string {
     const g = (s.goal ?? "").trim().replace(/\s+/g, " ");
@@ -90,6 +96,46 @@
     return { w, h };
   });
 
+  // ── pan & zoom ────────────────────────────────────────────────────────────────
+  // Pan is the scroll container's native overflow; zoom scales the canvas via a
+  // CSS transform, with a sizer element so the scroll extent tracks the zoom.
+  let scrollEl = $state<HTMLDivElement | null>(null);
+  let zoom = $state<number>(readZoom());
+  function readZoom(): number {
+    try {
+      return clampZoom(Number(localStorage.getItem(ZOOM_KEY)) || 1);
+    } catch {
+      return 1;
+    }
+  }
+  function persistZoom(): void {
+    try {
+      localStorage.setItem(ZOOM_KEY, String(zoom));
+    } catch {
+      /* storage disabled — zoom just won't persist */
+    }
+  }
+  function setZoom(z: number): void {
+    zoom = clampZoom(z);
+    persistZoom();
+  }
+  function zoomBy(dir: number): void {
+    setZoom(stepZoom(zoom, dir));
+  }
+  function resetZoom(): void {
+    setZoom(1);
+  }
+  function fitView(): void {
+    if (!scrollEl) return;
+    setZoom(fitScale(canvasSize.w, canvasSize.h, scrollEl.clientWidth, scrollEl.clientHeight));
+  }
+  function onWheel(e: WheelEvent): void {
+    // Ctrl/⌘ + wheel zooms (like a map); plain wheel scrolls (native).
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    zoomBy(e.deltaY < 0 ? 1 : -1);
+  }
+
   // ── interaction state ────────────────────────────────────────────────────────
   let canvasEl = $state<HTMLDivElement | null>(null);
   let drag = $state<{ id: string; ox: number; oy: number; moved: boolean } | null>(null);
@@ -116,8 +162,10 @@
   let nErr = $state("");
 
   function local(e: PointerEvent): { x: number; y: number } {
+    // canvasEl carries the zoom transform, so its bounding rect is in screen px;
+    // divide by zoom to get untransformed canvas-space coordinates.
     const r = canvasEl?.getBoundingClientRect();
-    return { x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) };
+    return { x: (e.clientX - (r?.left ?? 0)) / zoom, y: (e.clientY - (r?.top ?? 0)) / zoom };
   }
 
   /** Topmost node whose box (grown by a small tolerance) contains (x,y), excluding `skip`. */
@@ -445,6 +493,12 @@
       >
         <Icon name="plus" size={12} /> Session
       </div>
+      <span class="wf-zoom" role="group" aria-label="Zoom">
+        <button class="wf-zbtn" title="Zoom out" aria-label="Zoom out" onclick={() => zoomBy(-1)} disabled={zoom <= ZOOM_MIN}>−</button>
+        <button class="wf-zlevel" title="Reset zoom to 100%" aria-label="Reset zoom" onclick={resetZoom}>{Math.round(zoom * 100)}%</button>
+        <button class="wf-zbtn" title="Zoom in" aria-label="Zoom in" onclick={() => zoomBy(1)} disabled={zoom >= ZOOM_MAX}>+</button>
+        <button class="wf-zbtn wf-zfit" title="Fit to view" aria-label="Fit to view" onclick={fitView}><Icon name="search" size={12} /></button>
+      </span>
       <button class="btn btn-xs" onclick={autoArrange} title="Reset node positions to the auto layout">
         <Icon name="layers" size={12} /> Auto-arrange
       </button>
@@ -461,12 +515,13 @@
         once everything it runs after has finished.
       </div>
     {/if}
-    <div class="wf-scroll">
+    <div class="wf-scroll" bind:this={scrollEl} onwheel={onWheel}>
+      <div class="wf-sizer" style="width:{canvasSize.w * zoom}px; height:{canvasSize.h * zoom}px;">
       <div
         class="wf-canvas"
         class:connecting={!!conn}
         bind:this={canvasEl}
-        style="width:{canvasSize.w}px; height:{canvasSize.h}px;"
+        style="width:{canvasSize.w}px; height:{canvasSize.h}px; transform: scale({zoom}); transform-origin: 0 0;"
       >
         <svg class="wf-edges" width={canvasSize.w} height={canvasSize.h}>
           <defs>
@@ -574,6 +629,7 @@
             </div>
           </div>
         {/if}
+      </div>
       </div>
     </div>
   {/if}
@@ -789,9 +845,57 @@
     background:
       radial-gradient(circle at 1px 1px, var(--border-soft) 1px, transparent 0) 0 0 / 22px 22px;
   }
+  .wf-sizer {
+    position: relative;
+  }
   .wf-canvas {
     position: relative;
     touch-action: none;
+  }
+  /* zoom control cluster */
+  .wf-zoom {
+    display: inline-flex;
+    flex: none;
+    align-items: stretch;
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .wf-zbtn,
+  .wf-zlevel {
+    font: inherit;
+    font-size: 12px;
+    border: none;
+    border-right: 1px solid var(--border-soft);
+    background: var(--color-base-200);
+    color: var(--color-neutral-content);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+  .wf-zbtn {
+    width: 26px;
+    display: inline-grid;
+    place-items: center;
+  }
+  .wf-zlevel {
+    min-width: 46px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  .wf-zoom button:last-child {
+    border-right: none;
+  }
+  .wf-zbtn:hover:not(:disabled),
+  .wf-zlevel:hover {
+    color: var(--color-base-content);
+    background: var(--color-base-300);
+  }
+  .wf-zbtn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .wf-zfit {
+    color: var(--color-primary);
   }
   .wf-canvas.connecting {
     cursor: crosshair;

@@ -14,6 +14,11 @@ import {
   withoutDependency,
   deriveAutomationEdges,
   hasAutomationEdge,
+  clampZoom,
+  stepZoom,
+  fitScale,
+  ZOOM_MIN,
+  ZOOM_MAX,
   type GraphSession,
   type AutomationRuleLike,
 } from "../web/src/lib/graph.js";
@@ -112,6 +117,18 @@ check("hasAutomationEdge true for existing A-start->B", hasAutomationEdge(rules,
 check("hasAutomationEdge respects kind", hasAutomationEdge(rules, "A", "B", "start") && !hasAutomationEdge(rules, "A", "B", "stop"));
 check("hasAutomationEdge false for missing edge", !hasAutomationEdge(rules, "A", "C"));
 check("hasAutomationEdge false on empty rules", !hasAutomationEdge([], "A", "B"));
+
+// ── zoom helpers ──────────────────────────────────────────────────────────────────
+check("clampZoom keeps in-range value", clampZoom(1) === 1);
+check("clampZoom floors at ZOOM_MIN", clampZoom(0.01) === ZOOM_MIN);
+check("clampZoom caps at ZOOM_MAX", clampZoom(99) === ZOOM_MAX);
+check("clampZoom: non-finite → 1", clampZoom(NaN) === 1 && clampZoom(Infinity) === 1);
+check("stepZoom in/out by step", Math.abs(stepZoom(1, 1, 0.15) - 1.15) < 1e-9 && Math.abs(stepZoom(1, -1, 0.15) - 0.85) < 1e-9);
+check("stepZoom clamps at bounds", stepZoom(ZOOM_MAX, 1) === ZOOM_MAX && stepZoom(ZOOM_MIN, -1) === ZOOM_MIN);
+check("fitScale shrinks big content to fit", fitScale(2000, 1000, 1000, 600, 24) < 1);
+check("fitScale never zooms in past 1", fitScale(100, 100, 1000, 600, 24) === 1);
+check("fitScale clamps tiny fit to ZOOM_MIN", fitScale(100000, 100000, 800, 600) === ZOOM_MIN);
+check("fitScale degenerate viewport → 1", fitScale(500, 500, 0, 0) === 1);
 
 console.log(`\n[graph] => ${pass ? "PASS ✅" : "FAIL ⚠️"}`);
 process.exit(pass ? 0 : 1);

@@ -193,3 +193,38 @@ export function deriveAutomationEdges(
   }
   return out;
 }
+
+// ── canvas zoom helpers ───────────────────────────────────────────────────────
+// Pure math for the workflow builder's zoom control: clamping and fit-to-view.
+// Kept here (no DOM) so the bounds and fit calculation are unit-testable.
+
+export const ZOOM_MIN = 0.3;
+export const ZOOM_MAX = 1.6;
+
+/** Clamp a zoom factor into [ZOOM_MIN, ZOOM_MAX]; non-finite → 1. */
+export function clampZoom(z: number): number {
+  if (!Number.isFinite(z)) return 1;
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+}
+
+/** Step the zoom by `dir` (+1 in / -1 out) `step` units, clamped. */
+export function stepZoom(z: number, dir: number, step = 0.15): number {
+  return clampZoom(clampZoom(z) + (dir >= 0 ? step : -step));
+}
+
+/**
+ * Scale that fits content (contentW×contentH) inside a viewport (viewW×viewH),
+ * minus `pad` of breathing room. Never zooms IN past 100% (fit only shrinks),
+ * and is clamped to the zoom bounds. Degenerate inputs → 1.
+ */
+export function fitScale(
+  contentW: number,
+  contentH: number,
+  viewW: number,
+  viewH: number,
+  pad = 24,
+): number {
+  if (contentW <= 0 || contentH <= 0 || viewW <= 0 || viewH <= 0) return 1;
+  const s = Math.min((viewW - pad) / contentW, (viewH - pad) / contentH);
+  return clampZoom(Math.min(1, s));
+}
