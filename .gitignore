@@ -9,6 +9,7 @@ logs/
 .playwright-mcp/
 *.png
 config.json
+config.json.tmp
 
 # local Claude Code settings (personal, not shared)
 .claude/settings.local.json
