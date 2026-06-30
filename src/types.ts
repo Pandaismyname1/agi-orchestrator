@@ -164,6 +164,20 @@ export interface AppConfig {
   webhooks?: WebhookConfig[];
   /** Self-healing knobs: brain-call retries + auto-pause health-poll cadence. */
   reliability?: ReliabilityOptions;
+  /** Structured logging (level + optional rotating file). Console-only if omitted. */
+  logging?: LoggingOptions;
+}
+
+/** Structured-logging config (see src/util/logger.ts). */
+export interface LoggingOptions {
+  /** Minimum level: "debug" | "info" | "warn" | "error". Default "info". */
+  level?: "debug" | "info" | "warn" | "error";
+  /** Append JSON lines to this file (rotated). Omit for console-only. */
+  file?: string;
+  /** Rotate when the file would exceed this many bytes. Default 5 MiB. */
+  maxBytes?: number;
+  /** Keep this many rotated files. Default 5. */
+  maxFiles?: number;
 }
 
 /**

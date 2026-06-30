@@ -80,6 +80,12 @@
     "onOpusExhausted": "continue",
     "refreshEveryTurns": 5
   },
+  "logging": {
+    "level": "info",
+    "file": "logs/agi.log",
+    "maxBytes": 5242880,
+    "maxFiles": 5
+  },
   "sessions": [
     {
       "id": "demo-website",
@@ -116,6 +122,8 @@
     "gatePolicy.note": "see permissionMode — gatePolicy only sees gates when claude actually prompts",
     "autonomy": "operator persona: 'cautious' escalates more decisions to you, 'autonomous' fewer, 'balanced' (default) in between",
     "dependsOn": "workflows: ids of sessions that must reach 'done' before this one auto-starts. 'Start all' launches the roots and parks dependents as 'blocked'; each finishes → its dependents auto-start (a DAG, cycles are rejected). Omit for no dependencies. Edit it live from the session form's 'Runs after' picker. 'Stop all' halts the whole fleet (running, queued, and blocked).",
-    "templates": "reusable session presets (name + goal + doneCriteria + permissionMode + autonomy + startMode, minus cwd). Use one to pre-fill the New Session wizard, or 'Save as template' to capture an existing session. Managed from the dashboard Templates manager."
+    "templates": "reusable session presets (name + goal + doneCriteria + permissionMode + autonomy + startMode, minus cwd). Use one to pre-fill the New Session wizard, or 'Save as template' to capture an existing session. Managed from the dashboard Templates manager.",
+    "logging": "structured logging for unattended runs. level: debug|info|warn|error (default info). file: append rotating JSON-lines here (omit for console-only); it rotates to file.1…file.N when it would exceed maxBytes (default 5 MiB), keeping maxFiles (default 5). Console output is unchanged; the file is the durable record for post-mortems.",
+    "reliability": "self-healing knobs. retries: transient brain-call retry attempts (0–10, default 3) with doubling backoff from retryBackoffMs (default 400). brainPollSeconds: how often to re-check an unreachable local model while auto-paused (5–300, default 15). Tunable live from Settings."
   }
 }

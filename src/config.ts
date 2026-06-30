@@ -107,6 +107,7 @@ export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json")
     templates: Array.isArray(parsed.templates) ? parsed.templates : undefined,
     webhooks: Array.isArray(parsed.webhooks) ? parsed.webhooks : undefined,
     reliability: parsed.reliability,
+    logging: parsed.logging,
   };
 }
 
@@ -139,6 +140,7 @@ export async function saveConfig(
     templates: cfg.templates,
     webhooks: cfg.webhooks,
     reliability: cfg.reliability,
+    logging: cfg.logging,
   };
   const json = JSON.stringify(out, null, 2) + "\n";
   // Write atomically (temp file + rename) so a crash or an interleaved write can

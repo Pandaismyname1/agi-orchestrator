@@ -31,6 +31,7 @@ import {
   type AuthConfig,
 } from "./auth.js";
 import { RateLimiter, resolveRateLimitConfig } from "./rateLimit.js";
+import { createLogger } from "../util/logger.js";
 import type { SessionConfig } from "../types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -134,8 +135,10 @@ async function main(): Promise<void> {
   }
 
   const cfg = await loadConfig();
+  const log = createLogger(cfg.logging);
   const store = openStore(cfg.dbPath ?? "agi.db");
-  console.log(`persistent store → ${cfg.dbPath}`);
+  log.info("persistent store opened", { dbPath: cfg.dbPath });
+  if (cfg.logging?.file) console.log(`logging → ${cfg.logging.file} (level ${cfg.logging.level ?? "info"})`);
   const sup = new Supervisor(cfg, store);
 
   // Dispatch (remote access) gate: token auth + per-IP rate limiting.
@@ -429,7 +432,19 @@ async function main(): Promise<void> {
 
       res.writeHead(404);
       res.end("not found");
-    })();
+    })().catch((e) => {
+      // A handler threw: log it with the route, and 500 if we still can (never
+      // leak the error body to the client).
+      log.error("request handler error", {
+        method: req.method,
+        url: (req.url ?? "").split("?")[0],
+        error: e instanceof Error ? e.stack ?? e.message : String(e),
+      });
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "internal error" }));
+      }
+    });
   });
 
   const wss = new WebSocketServer({
@@ -774,6 +789,7 @@ async function main(): Promise<void> {
   server.listen(port, () => {
     const url = `http://localhost:${port}`;
     console.log(`\n🟢 dashboard → ${url}\n`);
+    log.info("dashboard listening", { url, port, dispatch: !!authCfg.token });
     // Opt-in browser auto-open (set by launch.cmd / `npm run launch`). Off for
     // the daemon and for `tsx watch` restarts so it doesn't spam tabs.
     if (process.env.AGI_OPEN === "1") {
@@ -799,10 +815,10 @@ async function main(): Promise<void> {
   // take the whole dashboard down (it would be an unauthenticated crash-DoS once
   // the port is exposed). Log and keep serving.
   process.on("unhandledRejection", (reason) => {
-    console.error("⚠ unhandledRejection (kept alive):", reason);
+    log.error("unhandledRejection (kept alive)", { reason: reason instanceof Error ? reason.stack ?? reason.message : String(reason) });
   });
   process.on("uncaughtException", (err) => {
-    console.error("⚠ uncaughtException (kept alive):", err);
+    log.error("uncaughtException (kept alive)", { error: err instanceof Error ? err.stack ?? err.message : String(err) });
   });
 }
 
