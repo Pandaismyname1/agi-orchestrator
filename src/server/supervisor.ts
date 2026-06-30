@@ -35,6 +35,8 @@ import { retryOptsFrom, brainPollMsFrom } from "../policy/reliability.js";
 import { LearningService, emptyLearningSummary } from "../learning/service.js";
 import { Notifier, type DeliveryResult, type NotifyContext } from "../notify/notifier.js";
 import { createLogger, type Logger } from "../util/logger.js";
+import { buildHealth, type HealthReport } from "./health.js";
+import { statSync, readFileSync } from "node:fs";
 import type {
   DraftProposal,
   LearningSummary,
@@ -186,6 +188,8 @@ export class Supervisor {
   private readonly log: Logger;
   /** HTTP client for the remote template registry (injectable for offline tests). */
   private readonly registryFetch: FetchLike;
+  /** Epoch ms the supervisor was constructed (for health uptime). */
+  private readonly bootAt = Date.now();
 
   constructor(
     private readonly cfg: AppConfig,
@@ -246,7 +250,8 @@ export class Supervisor {
     this.scheduleTimer.unref?.();
   }
 
-  health() {
+  /** Raw brain (local LLM) reachability probe — used by the startup banner. */
+  llmHealth() {
     return this.llm.health();
   }
 
@@ -939,6 +944,72 @@ export class Supervisor {
     else this.log.warn("template publish failed", { template: tpl.name, error: res.error });
     return res;
   }
+
+  // ---- system health / diagnostics ----------------------------------------
+
+  /**
+   * Probe the live system and roll it into a single health report: brain
+   * reachability (the critical signal), store stats, fleet status, version +
+   * uptime. Never throws — a failed probe degrades gracefully.
+   */
+  async health(): Promise<HealthReport> {
+    let llmOk = false;
+    let detail = "unknown";
+    try {
+      const h = await this.llm.health();
+      llmOk = h.ok;
+      detail = h.detail;
+    } catch (e) {
+      detail = e instanceof Error ? e.message : String(e);
+    }
+
+    const dbPath = this.cfg.dbPath ?? "agi.db";
+    let sizeBytes = 0;
+    try {
+      sizeBytes = statSync(dbPath).size;
+    } catch {
+      /* db may not be created yet */
+    }
+    let runs = 0;
+    let sessions = this.sessions.size;
+    try {
+      runs = this.store?.metrics().runs ?? 0;
+      if (this.store) sessions = this.store.getSessions().length;
+    } catch {
+      /* store not available / mid-migration */
+    }
+
+    const views = this.list();
+    const fleet = {
+      total: views.length,
+      running: views.filter((v) => v.status === "running").length,
+      needsInput: views.filter((v) => v.status === "needs-input").length,
+      error: views.filter((v) => v.status === "error").length,
+    };
+
+    return buildHealth({
+      now: Date.now(),
+      bootAt: this.bootAt,
+      version: this.appVersion(),
+      llm: { ok: llmOk, detail, model: this.cfg.provider.model, baseUrl: this.cfg.provider.baseUrl },
+      db: { path: dbPath, sizeBytes, sessions, runs },
+      fleet,
+    });
+  }
+
+  /** Read the package version once (best-effort; "unknown" if unreadable). */
+  private appVersion(): string {
+    if (this.cachedVersion !== undefined) return this.cachedVersion;
+    let v = "unknown";
+    try {
+      v = (JSON.parse(readFileSync(path.resolve("package.json"), "utf8")) as { version?: string }).version ?? "unknown";
+    } catch {
+      /* keep "unknown" */
+    }
+    this.cachedVersion = v;
+    return v;
+  }
+  private cachedVersion?: string;
 
   /** Snapshot an existing session's settings into a new reusable template. */
   saveSessionAsTemplate(sessionId: string, name: string): SessionTemplate {

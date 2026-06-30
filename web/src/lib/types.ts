@@ -269,6 +269,17 @@ export interface RegistryResult {
   error?: string;
 }
 
+/** System health / diagnostics report (GET /api/health). */
+export interface HealthReport {
+  status: "ok" | "degraded" | "down";
+  version: string;
+  uptimeSec: number;
+  llm: { ok: boolean; detail: string; model: string; baseUrl: string };
+  db: { path: string; sizeBytes: number; sessions: number; runs: number };
+  fleet: { total: number; running: number; needsInput: number; error: number };
+  checkedAt: number;
+}
+
 /** A session lifecycle event a webhook can fire on. */
 export type WebhookEvent = "done" | "error" | "stopped" | "needs-input" | "rate-limited";
 

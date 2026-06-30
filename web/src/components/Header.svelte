@@ -1,7 +1,8 @@
 <script lang="ts">
-  import type { Provider, Budget, SessionView } from "../lib/types";
+  import type { Provider, Budget, SessionView, HealthReport } from "../lib/types";
   import { wsStore } from "../lib/ws.svelte";
   import { ui } from "../lib/ui.svelte";
+  import { api } from "../lib/api";
   import { pip } from "../lib/pip.svelte";
   import { alarm } from "../lib/alarm.svelte";
   import Icon from "./Icon.svelte";
@@ -9,6 +10,23 @@
   import UsageMeter from "./UsageMeter.svelte";
 
   let usage = $derived(wsStore.snapshot?.usage);
+
+  // Lightweight live health poll for the header status dot (the full report is in
+  // the Health modal). Polls on mount + every 20s; cleaned up on unmount.
+  let health = $state<HealthReport | null>(null);
+  $effect(() => {
+    let alive = true;
+    const tick = () => {
+      api.health().then((h) => alive && (health = h)).catch(() => alive && (health = null));
+    };
+    tick();
+    const timer = setInterval(tick, 20_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  });
+  let healthStatus = $derived(health?.status ?? "unknown");
 
   interface Props {
     provider: Provider | undefined;
@@ -138,6 +156,15 @@
     <Icon name="graph" size={15} />
   </button>
   <button
+    class="btn btn-sm btn-square hide-sm health-btn"
+    title={health ? `System health: ${healthStatus}` : "System health"}
+    onclick={() => ui.openModal({ kind: "health" })}
+    aria-label="System health"
+  >
+    <Icon name="pulse" size={15} />
+    <span class="health-dot {healthStatus}"></span>
+  </button>
+  <button
     class="btn btn-sm btn-square hide-sm"
     title="Analytics — fleet & per-agent performance"
     onclick={() => ui.openModal({ kind: "analytics" })}
@@ -199,6 +226,28 @@
     border-bottom: 1px solid var(--border-soft);
     background: rgba(15, 23, 42, 0.85);
     backdrop-filter: blur(8px);
+  }
+  .health-btn {
+    position: relative;
+  }
+  .health-dot {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    border: 1.5px solid var(--color-base-100);
+    background: var(--faint);
+  }
+  .health-dot.ok {
+    background: var(--color-primary);
+  }
+  .health-dot.degraded {
+    background: var(--color-warning);
+  }
+  .health-dot.down {
+    background: var(--color-error);
   }
   .cmdk {
     gap: 6px;

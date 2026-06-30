@@ -12,6 +12,7 @@
   import WebhooksModal from "./modals/WebhooksModal.svelte";
   import WorkflowModal from "./modals/WorkflowModal.svelte";
   import AnalyticsModal from "./modals/AnalyticsModal.svelte";
+  import HealthModal from "./modals/HealthModal.svelte";
 </script>
 
 {#if ui.modal}
@@ -41,5 +42,7 @@
     <WorkflowModal />
   {:else if ui.modal.kind === "analytics"}
     <AnalyticsModal />
+  {:else if ui.modal.kind === "health"}
+    <HealthModal />
   {/if}
 {/if}

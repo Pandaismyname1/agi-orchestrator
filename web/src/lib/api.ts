@@ -6,6 +6,7 @@ import type {
   Analytics,
   AttachInput,
   CatalogEntry,
+  HealthReport,
   RegistryResult,
   RunningClaude,
   DiscoveredSession,
@@ -106,6 +107,9 @@ export const api = {
   /** Remote community recipe registry (GET /api/registry). */
   registry: (): Promise<RegistryResult> =>
     isMock() ? import("./mock").then((m) => m.MOCK_REGISTRY) : getJson<RegistryResult>("/api/registry"),
+  /** System health / diagnostics (GET /api/health). */
+  health: (): Promise<HealthReport> =>
+    isMock() ? import("./mock").then((m) => m.MOCK_HEALTH) : getJson<HealthReport>("/api/health"),
   /** Fleet + per-session performance analytics (GET /api/analytics). */
   analytics: (): Promise<Analytics> =>
     isMock() ? import("./mock").then((m) => m.MOCK_ANALYTICS) : getJson<Analytics>("/api/analytics"),

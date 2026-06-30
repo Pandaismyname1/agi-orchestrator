@@ -16,7 +16,19 @@ import type {
   Analytics,
   CatalogEntry,
   RegistryResult,
+  HealthReport,
 } from "./types";
+
+/** Demo system-health report for the Health modal under `?mock`. */
+export const MOCK_HEALTH: HealthReport = {
+  status: "degraded",
+  version: "0.0.1",
+  uptimeSec: 6 * 3600 + 23 * 60,
+  llm: { ok: true, detail: "qwen3.5:9b ready (1 model loaded)", model: "qwen3.5:9b", baseUrl: "http://localhost:11434/v1" },
+  db: { path: "C:\\Users\\panda\\Desktop\\AGI\\agi.db", sizeBytes: 2_446_336, sessions: 8, runs: 137 },
+  fleet: { total: 8, running: 3, needsInput: 1, error: 1 },
+  checkedAt: Date.now(),
+};
 
 /** Demo remote registry for the Templates modal under `?mock`. */
 export const MOCK_REGISTRY: RegistryResult = {

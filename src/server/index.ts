@@ -157,7 +157,7 @@ async function main(): Promise<void> {
     console.log(`🔒 dispatch disabled — remote access refused (set dispatch.token to enable).`);
   }
 
-  const health = await sup.health();
+  const health = await sup.llmHealth();
   console.log(`local LLM @ ${cfg.provider.baseUrl} (${cfg.provider.model}): ${health.detail}`);
   if (!health.ok) {
     console.error(`⚠ local model not ready — sessions will fail until it's loaded.`);
@@ -391,6 +391,7 @@ async function main(): Promise<void> {
           res.end(csv);
           return;
         }
+        if (u.pathname === "/api/health") return sendJson(res, 200, await sup.health());
         if (u.pathname === "/api/catalog") return sendJson(res, 200, sup.listCatalog());
         if (u.pathname === "/api/registry") return sendJson(res, 200, await sup.fetchRegistry());
         if (u.pathname === "/api/learning") return sendJson(res, 200, sup.learningSummary());
