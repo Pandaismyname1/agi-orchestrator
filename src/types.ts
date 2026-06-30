@@ -174,6 +174,26 @@ export interface AppConfig {
    * layer over webhooks + dependencies. Empty = none. Local-only (no model calls).
    */
   automations?: AutomationRule[];
+  /** Notification quiet hours: silence alerts/webhooks during a daily window. */
+  quietHours?: QuietHours;
+}
+
+/**
+ * A daily notification-silencing window in LOCAL wall-clock time. `end` earlier
+ * than `start` spans midnight (e.g. start 22:00, end 07:00). Optional `days`
+ * restricts which weekdays it applies to (0=Sun … 6=Sat), keyed by the day the
+ * window starts. `allowUrgent` lets `error` events page you even while quiet.
+ */
+export interface QuietHours {
+  enabled?: boolean;
+  /** Local start time, "HH:MM" (24h). */
+  start: string;
+  /** Local end time, "HH:MM" (24h). */
+  end: string;
+  /** Weekdays the window applies to (0=Sun..6=Sat). Empty/undefined = every day. */
+  days?: number[];
+  /** When true, `error` notifications still fire during quiet hours. */
+  allowUrgent?: boolean;
 }
 
 /** The lifecycle moment an automation rule triggers on (same set as webhooks). */

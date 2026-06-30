@@ -39,6 +39,7 @@
   let errored = $derived(sessions.filter((s) => s.status === "error"));
   let running = $derived(sessions.filter((s) => s.status === "running" || s.status === "manual").length);
 
+  let quietActive = $derived(!!wsStore.snapshot?.quietActive);
   let learning = $derived(wsStore.snapshot?.learning);
   let learnDraft = $derived(
     !!learning && (learning.global.hasDraft || learning.projects.some((p) => p.hasDraft)),
@@ -93,6 +94,15 @@
     <button class="alert-pill needsyou" onclick={() => jumpTo(needsYou)}>
       <Icon name="alert" size={14} />
       {needsYou.length} {needsYou.length === 1 ? "needs" : "need"} you
+    </button>
+  {/if}
+  {#if quietActive}
+    <button
+      class="quiet-pill"
+      title="Quiet hours active — alerts &amp; webhooks are silenced. Click to adjust."
+      onclick={() => ui.openModal({ kind: "settings" })}
+    >
+      <Icon name="moon" size={13} /> <span class="hide-sm">Quiet</span>
     </button>
   {/if}
   <button
@@ -381,6 +391,24 @@
   .stop-all:hover {
     background: rgba(248, 113, 113, 0.1);
     border-color: var(--color-error);
+  }
+  .quiet-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-neutral-content);
+    background: rgba(148, 163, 184, 0.1);
+    border: 1px solid var(--border-strong);
+    border-radius: 9px;
+    padding: 6px 11px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .quiet-pill:hover {
+    color: var(--color-base-content);
+    border-color: var(--color-neutral-content);
   }
   .sound.on {
     color: var(--color-primary);

@@ -69,6 +69,7 @@ class Alarm {
   #loop: HTMLAudioElement | null = null;
   #confirm: HTMLAudioElement | null = null;
   #hasAlert = false;
+  #quiet = false;
   #unlocked = false;
 
   constructor() {
@@ -136,11 +137,13 @@ class Alarm {
   /** Feed each snapshot: (re)starts or stops the alarm based on alert states. */
   update(snap: Snapshot): void {
     this.#hasAlert = snap.sessions.some((s) => s.status === "needs-input" || s.status === "error");
+    // Quiet hours silence the audible alert (the server computes the live flag).
+    this.#quiet = !!snap.quietActive;
     this.#refresh();
   }
 
   #refresh(): void {
-    const shouldAlarm = this.enabled && this.#hasAlert;
+    const shouldAlarm = this.enabled && this.#hasAlert && !this.#quiet;
     this.active = shouldAlarm;
     if (!this.#loop) return;
     if (shouldAlarm) {

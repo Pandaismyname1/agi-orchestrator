@@ -132,6 +132,17 @@ export interface Settings {
   defaults: { permissionMode: PermissionMode; autonomy: Autonomy };
   /** Self-healing tuning: brain-call retries + auto-pause health-poll cadence. */
   reliability?: { retries: number; retryBackoffMs: number; brainPollSeconds: number };
+  /** Notification quiet hours, or null when unset. */
+  quietHours?: QuietHours | null;
+}
+
+/** A daily notification-silencing window (local wall-clock). Mirrors the backend. */
+export interface QuietHours {
+  enabled?: boolean;
+  start: string;
+  end: string;
+  days?: number[];
+  allowUrgent?: boolean;
 }
 
 export type SettingsPatch = Partial<{
@@ -144,6 +155,7 @@ export type SettingsPatch = Partial<{
   reliabilityRetries: number;
   reliabilityBackoffMs: number;
   reliabilityPollSeconds: number;
+  quietHours: QuietHours | null;
 }>;
 
 /** Learning loop: synthesized operator profiles that tune the local brain's prompt. */
@@ -388,6 +400,8 @@ export interface Snapshot {
   webhooks?: WebhookConfig[];
   /** Automation rules (newest-updated first). */
   automations?: AutomationRule[];
+  /** True when notifications are currently silenced by quiet hours. */
+  quietActive?: boolean;
   /** Hand-started sessions driven via the Stop hook (newest-registered first). */
   attached?: AttachedView[];
 }

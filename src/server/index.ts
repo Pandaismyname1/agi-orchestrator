@@ -32,7 +32,7 @@ import {
 } from "./auth.js";
 import { RateLimiter, resolveRateLimitConfig } from "./rateLimit.js";
 import { createLogger } from "../util/logger.js";
-import type { SessionConfig } from "../types.js";
+import type { SessionConfig, QuietHours } from "../types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUSH_MS = 1000;
@@ -74,6 +74,8 @@ type SettingsPatch = Partial<{
   reliabilityRetries: number;
   reliabilityBackoffMs: number;
   reliabilityPollSeconds: number;
+  /** Quiet-hours window; null clears it. */
+  quietHours: QuietHours | null;
 }>;
 
 /** Continue a finished session in the same conversation (edited goal + next step). */
@@ -507,7 +509,9 @@ async function main(): Promise<void> {
               autonomy: cfg.defaults?.autonomy ?? "balanced",
             },
             reliability: sup.reliabilitySettings(),
+            quietHours: sup.quietHoursConfig() ?? null,
           },
+          quietActive: sup.quietActive,
           learning: sup.learningSummary(),
           templates: sup.listTemplates(),
           webhooks: sup.listWebhooks(),
@@ -784,6 +788,11 @@ async function main(): Promise<void> {
             if (typeof p.reliabilityBackoffMs === "number") relPatch.retryBackoffMs = p.reliabilityBackoffMs;
             if (typeof p.reliabilityPollSeconds === "number") relPatch.brainPollSeconds = p.reliabilityPollSeconds;
             if (Object.keys(relPatch).length) sup.setReliability(relPatch);
+
+            // Quiet hours: null clears the window; an object replaces it (validated).
+            if (p.quietHours !== undefined) {
+              sup.setQuietHours(p.quietHours);
+            }
 
             // Apply at runtime what's safe.
             if (applyConcurrency) sup.setMaxConcurrent(cfg.maxConcurrent ?? Infinity);

@@ -117,6 +117,8 @@
       "updatedAt": 0
     }
   ],
+  "_quietHours_note": "OPTIONAL notification quiet hours — silence the sound alarm and outbound webhooks during a daily LOCAL-time window. 'start'/'end' are 'HH:MM' (24h); an end earlier than the start spans midnight (e.g. 22:00 -> 07:00). 'days' (0=Sun..6=Sat, keyed by the window's start day) restricts which nights it applies to — omit/empty = every day. 'allowUrgent' lets 'error' notifications page you even while quiet. Operational automations are never affected (only the human-facing notification is gated). Edit this in the dashboard's Settings panel. Omit the block (or set enabled:false) for none.",
+  "quietHours": { "enabled": false, "start": "22:00", "end": "07:00", "days": [], "allowUrgent": true },
   "sessions": [
     {
       "id": "demo-website",

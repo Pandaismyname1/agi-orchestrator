@@ -33,6 +33,27 @@
   let relBackoffMs = $state<number | "">(untrack(() => settings?.reliability?.retryBackoffMs ?? 400));
   let relPollSeconds = $state<number | "">(untrack(() => settings?.reliability?.brainPollSeconds ?? 15));
 
+  // Quiet hours (notification schedule).
+  const qh = untrack(() => settings?.quietHours ?? null);
+  let qhEnabled = $state(!!qh && qh.enabled !== false);
+  let qhStart = $state(qh?.start ?? "22:00");
+  let qhEnd = $state(qh?.end ?? "07:00");
+  let qhAllowUrgent = $state(!!qh?.allowUrgent);
+  let qhDays = $state<number[]>(qh?.days ? [...qh.days] : []);
+  const quietActive = $derived(!!snap?.quietActive);
+  const DAYS = [
+    { d: 1, l: "Mon" },
+    { d: 2, l: "Tue" },
+    { d: 3, l: "Wed" },
+    { d: 4, l: "Thu" },
+    { d: 5, l: "Fri" },
+    { d: 6, l: "Sat" },
+    { d: 0, l: "Sun" },
+  ];
+  function toggleDay(d: number): void {
+    qhDays = qhDays.includes(d) ? qhDays.filter((x) => x !== d) : [...qhDays, d];
+  }
+
   const baseUrl = $derived(settings?.providerBaseUrl ?? provider?.baseUrl ?? "");
   const providerOk = $derived(!!provider?.ok);
 
@@ -48,6 +69,15 @@
     if (relRetries !== "") settingsPatch.reliabilityRetries = Math.max(0, Number(relRetries) || 0);
     if (relBackoffMs !== "") settingsPatch.reliabilityBackoffMs = Math.max(50, Number(relBackoffMs) || 400);
     if (relPollSeconds !== "") settingsPatch.reliabilityPollSeconds = Math.max(5, Number(relPollSeconds) || 15);
+    settingsPatch.quietHours = qhEnabled
+      ? {
+          enabled: true,
+          start: qhStart,
+          end: qhEnd,
+          days: qhDays.length ? qhDays : undefined,
+          allowUrgent: qhAllowUrgent || undefined,
+        }
+      : null;
     wsStore.send({ type: "updateSettings", settings: settingsPatch });
     ui.toast("settings saved");
     ui.closeModal();
@@ -161,6 +191,53 @@
       run auto-pauses and re-checks at this cadence. Retry changes apply on the next start; the poll
       interval applies to the next run.
     </p>
+  </div>
+
+  <!-- Quiet hours -->
+  <div class="sm-section">
+    <div class="sm-head">
+      <Icon name="moon" size={12} /> Quiet hours
+      {#if quietActive}<span class="qh-live">silenced now</span>{/if}
+    </div>
+    <label class="qh-toggle" for="sm_qh">
+      <input id="sm_qh" type="checkbox" bind:checked={qhEnabled} />
+      <span>Silence alerts &amp; webhooks during a daily window</span>
+    </label>
+
+    {#if qhEnabled}
+      <div class="sm-row">
+        <div class="sm-col">
+          <label for="sm_qh_start">from</label>
+          <input id="sm_qh_start" type="time" bind:value={qhStart} />
+        </div>
+        <div class="sm-col">
+          <label for="sm_qh_end">to</label>
+          <input id="sm_qh_end" type="time" bind:value={qhEnd} />
+        </div>
+      </div>
+
+      <div class="fieldlabel">days (none = every day)</div>
+      <div class="qh-days">
+        {#each DAYS as d (d.d)}
+          <button
+            type="button"
+            class="qh-day"
+            class:on={qhDays.includes(d.d)}
+            aria-pressed={qhDays.includes(d.d)}
+            onclick={() => toggleDay(d.d)}>{d.l}</button
+          >
+        {/each}
+      </div>
+
+      <label class="qh-toggle" for="sm_qh_urgent">
+        <input id="sm_qh_urgent" type="checkbox" bind:checked={qhAllowUrgent} />
+        <span>Still alert me on <b>errors</b> during quiet hours</span>
+      </label>
+      <p class="sm-explain">
+        An end earlier than the start spans midnight (e.g. 22:00 → 07:00). Times are your local
+        clock. This gates the sound alarm and outbound webhooks; it never changes fleet automations.
+      </p>
+    {/if}
   </div>
 
   {#if remoteWithToken}
@@ -285,6 +362,75 @@
     border-radius: 9px;
     padding: 8px 10px;
     margin-bottom: 14px;
+  }
+
+  .qh-live {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    color: var(--st-needs-input, #fbbf24);
+    background: rgba(251, 191, 36, 0.12);
+    border: 1px solid rgba(251, 191, 36, 0.35);
+    border-radius: 20px;
+    padding: 1px 8px;
+    text-transform: none;
+  }
+  .qh-toggle {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 10px 0 2px;
+    font-size: 13px;
+    color: var(--color-base-content);
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .qh-toggle input {
+    width: auto;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+  }
+  .qh-toggle b {
+    color: var(--color-base-content);
+    font-weight: 700;
+  }
+  .fieldlabel {
+    font-size: 11px;
+    color: var(--color-neutral-content);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 12px 0 5px;
+    font-weight: 600;
+  }
+  .qh-days {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 5px;
+  }
+  .qh-day {
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-neutral-content);
+    background: var(--color-base-200);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    padding: 5px 10px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+  .qh-day:hover {
+    color: var(--color-base-content);
+    border-color: var(--color-neutral-content);
+  }
+  .qh-day.on {
+    color: var(--color-primary);
+    border-color: rgba(34, 197, 94, 0.5);
+    background: rgba(34, 197, 94, 0.12);
   }
 
   .sm-foot {

@@ -29,6 +29,7 @@ import {
   type PublishResult,
 } from "../registry/client.js";
 import { isDue, hasActiveTrigger, parseHHMM } from "../policy/schedule.js";
+import { inQuietHours } from "../policy/quiethours.js";
 import { restoreTo, type RestoreResult } from "../git/diff.js";
 import { openPullRequest, defaultRunner, type Runner as PrRunner } from "../git/pr.js";
 import { retryOptsFrom, brainPollMsFrom } from "../policy/reliability.js";
@@ -60,6 +61,7 @@ import type {
   AutomationAction,
   AutomationTrigger,
   AutomationMatch,
+  QuietHours,
 } from "../types.js";
 
 /** Fields accepted when creating/updating a template (id optional = create). */
@@ -233,7 +235,8 @@ export class Supervisor {
     this.budget = new BudgetTracker(store, cfg.budget);
     this.usageGuard = new UsageGuard(cfg.usageGuard);
     this.maxConcurrent = cfg.maxConcurrent && cfg.maxConcurrent > 0 ? cfg.maxConcurrent : Infinity;
-    this.notifier = notifier ?? new Notifier(() => this.cfg.webhooks);
+    this.notifier =
+      notifier ?? new Notifier(() => this.cfg.webhooks, undefined, undefined, () => this.cfg.quietHours);
     if (store) this.learning = new LearningService(store, this.llm, cfg.learning, cfg.provider.model);
     if (store) this.recorder = new Recorder(store);
     for (const s of cfg.sessions) {
@@ -1226,6 +1229,40 @@ export class Supervisor {
   /** All configured webhooks, most-recently-updated first. */
   listWebhooks(): WebhookConfig[] {
     return [...(this.cfg.webhooks ?? [])].sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  /** Current quiet-hours config (for the settings echo), or undefined if unset. */
+  quietHoursConfig(): QuietHours | undefined {
+    return this.cfg.quietHours;
+  }
+
+  /** Whether notifications are silenced *right now* by quiet hours (snapshot flag). */
+  get quietActive(): boolean {
+    return inQuietHours(this.cfg.quietHours, Date.now());
+  }
+
+  /**
+   * Replace the quiet-hours window (or clear it with null/undefined). Validates
+   * the HH:MM times so a malformed window can't silently swallow notifications.
+   */
+  setQuietHours(q: QuietHours | null | undefined): void {
+    if (!q) {
+      this.cfg.quietHours = undefined;
+      return;
+    }
+    if (!parseHHMM(q.start) || !parseHHMM(q.end)) {
+      throw new Error("quiet hours start/end must be HH:MM (24h).");
+    }
+    const days = Array.isArray(q.days)
+      ? [...new Set(q.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))]
+      : undefined;
+    this.cfg.quietHours = {
+      enabled: q.enabled !== false,
+      start: q.start,
+      end: q.end,
+      ...(days && days.length ? { days } : {}),
+      ...(q.allowUrgent ? { allowUrgent: true } : {}),
+    };
   }
 
   /** Create (no id) or update (matching id) a webhook; persist. */

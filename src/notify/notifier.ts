@@ -10,7 +10,8 @@
  * This is just an outbound HTTP POST to a URL the operator configured — it makes
  * NO model calls, so it's orthogonal to the subscription-safety guard.
  */
-import type { WebhookConfig, WebhookEvent } from "../types.js";
+import type { QuietHours, WebhookConfig, WebhookEvent } from "../types.js";
+import { suppresses } from "../policy/quiethours.js";
 
 /** Everything a notification message can mention about the session that fired it. */
 export interface NotifyContext {
@@ -130,6 +131,10 @@ export class Notifier {
     private readonly getWebhooks: () => WebhookConfig[] | undefined,
     private readonly post: PostFn = fetchPost,
     private readonly log: (msg: string) => void = (m) => console.error(m),
+    /** Live quiet-hours config (read lazily so runtime edits apply at once). */
+    private readonly getQuietHours: () => QuietHours | undefined = () => undefined,
+    /** Injectable clock (tests pass a fixed time). */
+    private readonly now: () => number = () => Date.now(),
   ) {}
 
   /** True when at least one enabled webhook exists (skip work otherwise). */
@@ -143,6 +148,13 @@ export class Notifier {
    * for tests / a "fired N webhooks" log line).
    */
   async fire(event: WebhookEvent, ctx: NotifyContext): Promise<number> {
+    // Quiet hours silence outbound notifications (errors may still page if the
+    // operator opted in via allowUrgent). Operational automations are unaffected —
+    // this only gates the human-facing notification, not fleet actions.
+    if (suppresses(this.getQuietHours(), event, this.now())) {
+      this.log(`🔕 quiet hours — suppressed ${event} notification for "${ctx.label || ctx.id}"`);
+      return 0;
+    }
     const hooks = (this.getWebhooks() ?? []).filter((w) => subscribes(w, event));
     if (hooks.length === 0) return 0;
     const payload: NotifyPayload = {
