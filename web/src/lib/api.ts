@@ -3,6 +3,7 @@
  * (the live fleet state comes over the WebSocket, not these).
  */
 import type {
+  Analytics,
   AttachInput,
   RunningClaude,
   DiscoveredSession,
@@ -90,6 +91,9 @@ export const api = {
           suggestedDoneCriteria: `${input.doneCriteria.trim()}; the full test suite passes and a summary of changes is written.`,
         })
       : postJson<IntakeResult>("/api/intake", input),
+  /** Fleet + per-session performance analytics (GET /api/analytics). */
+  analytics: (): Promise<Analytics> =>
+    isMock() ? import("./mock").then((m) => m.MOCK_ANALYTICS) : getJson<Analytics>("/api/analytics"),
   /** Running `claude` processes on this machine, for one-click attach. */
   runningClaude: (): Promise<RunningClaude[]> =>
     isMock()

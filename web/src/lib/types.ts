@@ -383,6 +383,40 @@ export type ClientMsg =
   | { type: "decisionFeedback"; id: string; feedback: "up" | "down" | "clear" }
   | { type: "decisionFeedbackAt"; id: string; runId: number; n: number; feedback: "up" | "down" | "clear" };
 
+/** Per-session performance row (GET /api/analytics). */
+export interface SessionAnalytics {
+  id: string;
+  goal: string;
+  runs: number;
+  turns: number;
+  avgTurns: number;
+  completedRuns: number;
+  erroredRuns: number;
+  successRate: number;
+  interventionRate: number;
+  decisions: { continue: number; stop: number; escalate: number };
+  feedback: { up: number; down: number };
+  lastRunAt: number | null;
+}
+
+/** Fleet + per-session analytics report (GET /api/analytics). */
+export interface Analytics {
+  generatedAt: number;
+  fleet: {
+    sessions: number;
+    runs: number;
+    turns: number;
+    avgTurns: number;
+    successRate: number;
+    interventionRate: number;
+    decisions: { continue: number; stop: number; escalate: number };
+    feedback: { up: number; down: number };
+  };
+  sessions: SessionAnalytics[];
+  daily: Array<{ day: string; runs: number; turns: number }>;
+  learning: { globalVersions: number; projectProfiles: number; totalExamples: number };
+}
+
 /** Discovered on-disk Claude Code session (GET /api/discover). */
 export interface DiscoveredSession {
   sessionId: string;

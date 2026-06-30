@@ -17,6 +17,7 @@ export type Modal =
   | { kind: "templates" }
   | { kind: "webhooks" }
   | { kind: "workflow" }
+  | { kind: "analytics" }
   | { kind: "continue"; session: SessionView };
 
 interface Toast {

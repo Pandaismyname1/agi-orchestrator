@@ -19,6 +19,7 @@ import { openStore } from "../db/store.js";
 import { discoverAll } from "../discovery.js";
 import { AttachManager } from "../attach/attachManager.js";
 import { scanRunningClaude } from "../attach/processScan.js";
+import { buildAnalytics, analyticsToCsv } from "./analytics.js";
 import { decideNextStep } from "../brain/decide.js";
 import { LocalLLM } from "../brain/provider.js";
 import { readLastAssistantMessage } from "../transcript/reader.js";
@@ -372,6 +373,18 @@ async function main(): Promise<void> {
             200,
             procs.map((p) => ({ ...p, attached: p.sessionId ? attach.isRegistered(p.sessionId) : false })),
           );
+        }
+        if (u.pathname === "/api/analytics") {
+          return sendJson(res, 200, buildAnalytics(store, sup.learningSummary(), { nowMs: Date.now() }));
+        }
+        if (u.pathname === "/api/analytics.csv") {
+          const csv = analyticsToCsv(buildAnalytics(store, sup.learningSummary(), { nowMs: Date.now() }));
+          res.writeHead(200, {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": 'attachment; filename="agi-analytics.csv"',
+          });
+          res.end(csv);
+          return;
         }
         if (u.pathname === "/api/learning") return sendJson(res, 200, sup.learningSummary());
         if (u.pathname === "/api/learning/draft") {

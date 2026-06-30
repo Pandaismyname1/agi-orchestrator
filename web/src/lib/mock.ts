@@ -13,7 +13,40 @@ import type {
   OperatorProfile,
   DiscoveredSession,
   RunningClaude,
+  Analytics,
 } from "./types";
+
+/** Demo analytics report for the Analytics modal under `?mock`. */
+export const MOCK_ANALYTICS: Analytics = {
+  generatedAt: Date.now(),
+  fleet: {
+    sessions: 8,
+    runs: 47,
+    turns: 612,
+    avgTurns: 13,
+    successRate: 0.83,
+    interventionRate: 0.21,
+    decisions: { continue: 531, stop: 47, escalate: 34 },
+    feedback: { up: 38, down: 9 },
+  },
+  sessions: [
+    { id: "api-server", goal: "Build the REST API with auth, rate limiting, and OpenAPI docs.", runs: 14, turns: 233, avgTurns: 16.6, completedRuns: 12, erroredRuns: 1, successRate: 0.92, interventionRate: 0.29, decisions: { continue: 210, stop: 14, escalate: 9 }, feedback: { up: 18, down: 2 }, lastRunAt: Date.now() - 41 * 60_000 },
+    { id: "docs-site", goal: "Write and polish the documentation site with examples.", runs: 9, turns: 121, avgTurns: 13.4, completedRuns: 8, erroredRuns: 0, successRate: 1, interventionRate: 0.11, decisions: { continue: 108, stop: 9, escalate: 4 }, feedback: { up: 7, down: 3 }, lastRunAt: Date.now() - 18 * 60_000 },
+    { id: "refactor-db", goal: "Migrate the data layer from raw SQL to the query builder.", runs: 7, turns: 96, avgTurns: 13.7, completedRuns: 5, erroredRuns: 2, successRate: 0.71, interventionRate: 0.43, decisions: { continue: 80, stop: 7, escalate: 9 }, feedback: { up: 5, down: 4 }, lastRunAt: Date.now() - 6 * 60_000 },
+    { id: "landing-page", goal: "Ship the marketing landing page and hook up analytics.", runs: 6, turns: 84, avgTurns: 14, completedRuns: 6, erroredRuns: 0, successRate: 1, interventionRate: 0.17, decisions: { continue: 74, stop: 6, escalate: 4 }, feedback: { up: 6, down: 0 }, lastRunAt: Date.now() - 3 * 3600_000 },
+    { id: "data-pipeline", goal: "Build the nightly ETL job and add monitoring.", runs: 5, turns: 51, avgTurns: 10.2, completedRuns: 3, erroredRuns: 2, successRate: 0.6, interventionRate: 0.4, decisions: { continue: 42, stop: 5, escalate: 4 }, feedback: { up: 1, down: 0 }, lastRunAt: Date.now() - 5 * 3600_000 },
+  ],
+  daily: [
+    { day: "2026-06-24", runs: 5, turns: 64 },
+    { day: "2026-06-25", runs: 8, turns: 121 },
+    { day: "2026-06-26", runs: 6, turns: 73 },
+    { day: "2026-06-27", runs: 9, turns: 142 },
+    { day: "2026-06-28", runs: 4, turns: 38 },
+    { day: "2026-06-29", runs: 7, turns: 98 },
+    { day: "2026-06-30", runs: 8, turns: 76 },
+  ],
+  learning: { globalVersions: 3, projectProfiles: 2, totalExamples: 64 },
+};
 
 /** Demo running-claude processes for the Attach modal under `?mock`. */
 export const MOCK_RUNNING: RunningClaude[] = [

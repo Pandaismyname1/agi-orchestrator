@@ -11,6 +11,7 @@
   import TemplatesModal from "./modals/TemplatesModal.svelte";
   import WebhooksModal from "./modals/WebhooksModal.svelte";
   import WorkflowModal from "./modals/WorkflowModal.svelte";
+  import AnalyticsModal from "./modals/AnalyticsModal.svelte";
 </script>
 
 {#if ui.modal}
@@ -38,5 +39,7 @@
     <WebhooksModal />
   {:else if ui.modal.kind === "workflow"}
     <WorkflowModal />
+  {:else if ui.modal.kind === "analytics"}
+    <AnalyticsModal />
   {/if}
 {/if}

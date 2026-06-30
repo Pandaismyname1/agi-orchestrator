@@ -138,6 +138,14 @@
     <Icon name="graph" size={15} />
   </button>
   <button
+    class="btn btn-sm btn-square hide-sm"
+    title="Analytics — fleet & per-agent performance"
+    onclick={() => ui.openModal({ kind: "analytics" })}
+    aria-label="Analytics"
+  >
+    <Icon name="chart" size={15} />
+  </button>
+  <button
     class="btn btn-sm hide-sm"
     title="Templates — reusable session presets"
     onclick={() => ui.openModal({ kind: "templates" })}

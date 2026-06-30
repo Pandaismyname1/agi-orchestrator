@@ -231,6 +231,40 @@ export class Store {
     return Number(r.changes) > 0;
   }
 
+  /** Decision-action counts (continue/stop/escalate) for a session or the fleet. */
+  decisionBreakdown(sessionId?: string): { continue: number; stop: number; escalate: number } {
+    const where = sessionId ? `WHERE r.session_id = ?` : ``;
+    const args = sessionId ? [sessionId] : [];
+    const rows = this.db
+      .prepare(
+        `SELECT d.action AS action, COUNT(*) AS c
+         FROM decisions d JOIN turns t ON d.turn_id = t.id JOIN runs r ON t.run_id = r.id
+         ${where} GROUP BY d.action`,
+      )
+      .all(...args) as Array<{ action: string; c: number }>;
+    const out = { continue: 0, stop: 0, escalate: 0 };
+    for (const r of rows) {
+      if (r.action === "continue") out.continue = r.c;
+      else if (r.action === "stop") out.stop = r.c;
+      else if (r.action === "escalate") out.escalate = r.c;
+    }
+    return out;
+  }
+
+  /** Per-day run + turn counts since `sinceMs` (local dates), oldest first. */
+  dailyActivity(sinceMs: number, sessionId?: string): Array<{ day: string; runs: number; turns: number }> {
+    const extra = sessionId ? `AND session_id = ?` : ``;
+    const args = sessionId ? [sinceMs, sessionId] : [sinceMs];
+    return this.db
+      .prepare(
+        `SELECT strftime('%Y-%m-%d', started_at / 1000, 'unixepoch', 'localtime') AS day,
+                COUNT(*) AS runs, COALESCE(SUM(turns), 0) AS turns
+         FROM runs WHERE started_at >= ? ${extra}
+         GROUP BY day ORDER BY day ASC`,
+      )
+      .all(...args) as Array<{ day: string; runs: number; turns: number }>;
+  }
+
   /** Thumbs tally for a session (optionally all sessions when omitted). */
   feedbackStats(sessionId?: string): { up: number; down: number } {
     const where = sessionId ? `AND r.session_id = ?` : ``;
