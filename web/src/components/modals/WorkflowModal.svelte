@@ -19,6 +19,7 @@
     withDependency,
     withoutDependency,
   } from "../../lib/graph";
+  import { buildSessionDraft, type DraftMode } from "../../lib/nodeform";
   import type { AutomationInput } from "../../lib/types";
   import Modal from "../Modal.svelte";
   import StatusBadge from "../StatusBadge.svelte";
@@ -104,6 +105,16 @@
     { id: "stop", label: "Stop", icon: "stop" },
   ];
 
+  // Drop-to-create a session node: a "+ Session" chip drags a ghost; dropping on
+  // the canvas opens a tiny inline create card at that point.
+  let placing = $state<{ sx: number; sy: number } | null>(null);
+  let creating = $state<{ x: number; y: number } | null>(null);
+  let nGoal = $state("");
+  let nCwd = $state("");
+  let nDone = $state("");
+  let nMode = $state<DraftMode>("autopilot");
+  let nErr = $state("");
+
   function local(e: PointerEvent): { x: number; y: number } {
     const r = canvasEl?.getBoundingClientRect();
     return { x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) };
@@ -138,7 +149,17 @@
     conn = { from: id, x1: p.x + NODE_W, y1: p.y + NODE_H / 2, cx: l.x, cy: l.y };
   }
 
+  function startPlace(e: PointerEvent): void {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    placing = { sx: e.clientX, sy: e.clientY };
+  }
+
   function onMove(e: PointerEvent): void {
+    if (placing) {
+      placing = { sx: e.clientX, sy: e.clientY };
+      return;
+    }
     if (drag) {
       const l = local(e);
       const nx = Math.max(0, l.x - drag.ox);
@@ -155,6 +176,21 @@
   }
 
   function onUp(e: PointerEvent): void {
+    if (placing) {
+      const l = local(e);
+      const inside = l.x >= 0 && l.y >= 0 && l.x <= canvasSize.w && l.y <= canvasSize.h;
+      placing = null;
+      if (inside) {
+        // Centre the new node on the drop point, clamped into the canvas.
+        nGoal = "";
+        nCwd = "";
+        nDone = "";
+        nMode = "autopilot";
+        nErr = "";
+        creating = { x: Math.max(0, l.x - NODE_W / 2), y: Math.max(0, l.y - NODE_H / 2) };
+      }
+      return;
+    }
     if (drag) {
       if (drag.moved) persist();
       else open(drag.id); // a click (no real drag) opens the session
@@ -226,6 +262,39 @@
     saved = {};
     persist();
     ui.toast("auto-arranged");
+  }
+
+  function cancelCreate(): void {
+    creating = null;
+    nErr = "";
+  }
+
+  /** Create the dropped session node: client id lets us place it at the drop point now. */
+  function createNode(): void {
+    if (!creating) return;
+    const id =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `wf-${nGoal.trim().slice(0, 8) || "node"}-${nCwd.length}`;
+    const res = buildSessionDraft({ id, cwd: nCwd, goal: nGoal, doneCriteria: nDone, mode: nMode });
+    if (!res.ok) {
+      nErr = res.error;
+      return;
+    }
+    saved = { ...saved, [id]: { x: creating.x, y: creating.y } };
+    persist();
+    wsStore.send({
+      type: "add",
+      session: {
+        id,
+        cwd: res.draft.cwd,
+        goal: res.draft.goal,
+        doneCriteria: res.draft.doneCriteria,
+        startMode: res.draft.startMode,
+      },
+    });
+    ui.toast(`session node added — ${res.draft.goal.slice(0, 32)}`);
+    creating = null;
   }
 
   function open(id: string): void {
@@ -326,6 +395,14 @@
           </button>
         {/each}
       </span>
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="wf-newchip"
+        title="Drag onto the canvas to add a session node"
+        onpointerdown={startPlace}
+      >
+        <Icon name="plus" size={12} /> Session
+      </div>
       <button class="btn btn-xs" onclick={autoArrange} title="Reset node positions to the auto layout">
         <Icon name="layers" size={12} /> Auto-arrange
       </button>
@@ -423,10 +500,39 @@
             ></span>
           </div>
         {/each}
+
+        {#if creating}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="wf-create"
+            style="left:{creating.x}px; top:{creating.y}px;"
+            onpointerdown={(e) => e.stopPropagation()}
+          >
+            <div class="wf-create-h">New session node</div>
+            <input bind:value={nGoal} placeholder="Goal (what it should do)" aria-label="Goal" />
+            <input bind:value={nCwd} placeholder="Working directory (cwd)" aria-label="Working directory" />
+            <input bind:value={nDone} placeholder="Done when… (optional)" aria-label="Done criteria" />
+            <select bind:value={nMode} aria-label="Start mode">
+              <option value="autopilot">autopilot</option>
+              <option value="manual">manual</option>
+            </select>
+            {#if nErr}<div class="wf-create-err">{nErr}</div>{/if}
+            <div class="wf-create-foot">
+              <button class="btn btn-xs" onclick={cancelCreate}>Cancel</button>
+              <button class="btn btn-xs btn-primary" onclick={createNode}>Create</button>
+            </div>
+          </div>
+        {/if}
       </div>
     </div>
   {/if}
 </Modal>
+
+{#if placing}
+  <div class="wf-ghost" style="left:{placing.sx}px; top:{placing.sy}px;">
+    <Icon name="plus" size={12} /> Session
+  </div>
+{/if}
 
 <style>
   .wf-empty {
@@ -510,6 +616,89 @@
     font-size: 11px;
     color: var(--faint);
     margin-bottom: 10px;
+  }
+  /* draggable "+ Session" chip */
+  .wf-newchip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: none;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 5px 10px;
+    border-radius: 8px;
+    border: 1px dashed var(--color-primary);
+    background: rgba(34, 197, 94, 0.08);
+    color: var(--color-primary);
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+  }
+  .wf-newchip:active {
+    cursor: grabbing;
+  }
+  .wf-ghost {
+    position: fixed;
+    transform: translate(8px, 8px);
+    z-index: 70;
+    pointer-events: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 5px 10px;
+    border-radius: 8px;
+    border: 1px dashed var(--color-primary);
+    background: var(--color-base-100);
+    color: var(--color-primary);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  }
+  /* inline create card on the canvas */
+  .wf-create {
+    position: absolute;
+    z-index: 5;
+    width: 230px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    border-radius: 11px;
+    background: var(--color-base-100);
+    border: 1px solid var(--color-primary);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+  .wf-create-h {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-base-content);
+  }
+  .wf-create input,
+  .wf-create select {
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+    font-size: 12px;
+    color: var(--color-base-content);
+    background: var(--color-base-200);
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    padding: 6px 8px;
+  }
+  .wf-create input:focus,
+  .wf-create select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+  .wf-create-err {
+    font-size: 11px;
+    color: var(--color-error);
+  }
+  .wf-create-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 2px;
   }
   .wf-legend .lg {
     display: inline-flex;
