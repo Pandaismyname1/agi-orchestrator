@@ -33,6 +33,9 @@
   let relBackoffMs = $state<number | "">(untrack(() => settings?.reliability?.retryBackoffMs ?? 400));
   let relPollSeconds = $state<number | "">(untrack(() => settings?.reliability?.brainPollSeconds ?? 15));
 
+  // Workflow depth cap — sequential steps before the next auto-step needs manual review.
+  let depthCap = $state<number | "">(untrack(() => settings?.workflowDepthCap ?? 10));
+
   // Quiet hours (notification schedule).
   const qh = untrack(() => settings?.quietHours ?? null);
   let qhEnabled = $state(!!qh && qh.enabled !== false);
@@ -69,6 +72,8 @@
     if (relRetries !== "") settingsPatch.reliabilityRetries = Math.max(0, Number(relRetries) || 0);
     if (relBackoffMs !== "") settingsPatch.reliabilityBackoffMs = Math.max(50, Number(relBackoffMs) || 400);
     if (relPollSeconds !== "") settingsPatch.reliabilityPollSeconds = Math.max(5, Number(relPollSeconds) || 15);
+    // "" → null resets to the default cap; 0 disables the guard; else floor at >= 0.
+    settingsPatch.workflowDepthCap = depthCap === "" ? null : Math.max(0, Math.floor(Number(depthCap) || 0));
     settingsPatch.quietHours = qhEnabled
       ? {
           enabled: true,
@@ -190,6 +195,18 @@
       Transient brain-call failures retry with doubling backoff; if the local model goes unreachable the
       run auto-pauses and re-checks at this cadence. Retry changes apply on the next start; the poll
       interval applies to the next run.
+    </p>
+  </div>
+
+  <!-- Workflow -->
+  <div class="sm-section">
+    <div class="sm-head"><Icon name="layers" size={12} /> Workflow</div>
+    <label for="sm_depth">depth cap (steps before manual review)</label>
+    <input id="sm_depth" type="number" inputmode="numeric" min="0" max="100" bind:value={depthCap} placeholder="10" />
+    <p class="sm-explain">
+      A dependency chain auto-runs up to this many sequential steps; the next step then pauses as
+      “needs review” for you to start by hand. The builder also warns when a drawn edge would exceed
+      it. 0 disables the guard (auto-run chains of any depth); blank resets to the default (10).
     </p>
   </div>
 

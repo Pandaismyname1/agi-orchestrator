@@ -19,6 +19,11 @@ import {
   fitScale,
   ZOOM_MIN,
   ZOOM_MAX,
+  chainDepthOf,
+  maxChainDepth,
+  overDepthCap,
+  depthWithEdge,
+  DEFAULT_WORKFLOW_DEPTH_CAP,
   type GraphSession,
   type AutomationRuleLike,
 } from "../web/src/lib/graph.js";
@@ -129,6 +134,25 @@ check("fitScale shrinks big content to fit", fitScale(2000, 1000, 1000, 600, 24)
 check("fitScale never zooms in past 1", fitScale(100, 100, 1000, 600, 24) === 1);
 check("fitScale clamps tiny fit to ZOOM_MIN", fitScale(100000, 100000, 800, 600) === ZOOM_MIN);
 check("fitScale degenerate viewport → 1", fitScale(500, 500, 0, 0) === 1);
+
+// ── workflow depth helpers (mirror src/policy/wfdepth.ts for the builder) ──────────
+// `sessions` is A→B→C plus D after A&B, E standalone. Longest chain is A→B→C = 3.
+check("chainDepthOf: root is depth 1", chainDepthOf(sessions, "A") === 1);
+check("chainDepthOf: C is depth 3", chainDepthOf(sessions, "C") === 3);
+check("chainDepthOf: D takes longest of its deps (A1,B2)→3", chainDepthOf(sessions, "D") === 3);
+check("chainDepthOf: standalone E is depth 1", chainDepthOf(sessions, "E") === 1);
+check("chainDepthOf: unknown id → 0", chainDepthOf(sessions, "ZZ") === 0);
+check("maxChainDepth: deepest chain is 3", maxChainDepth(sessions) === 3);
+check("maxChainDepth: empty → 0", maxChainDepth([]) === 0);
+check("overDepthCap: at cap not over, past cap over", !overDepthCap(10, 10) && overDepthCap(11, 10));
+check("overDepthCap: cap 0 disables", !overDepthCap(99, 0));
+check("DEFAULT_WORKFLOW_DEPTH_CAP is 10", DEFAULT_WORKFLOW_DEPTH_CAP === 10);
+check("depthWithEdge: C→E (E after C) deepens to 4", depthWithEdge(sessions, "C", "E") === 4);
+check("depthWithEdge does not mutate input", (() => {
+  const before = JSON.stringify(sessions);
+  depthWithEdge(sessions, "C", "E");
+  return JSON.stringify(sessions) === before;
+})());
 
 console.log(`\n[graph] => ${pass ? "PASS ✅" : "FAIL ⚠️"}`);
 process.exit(pass ? 0 : 1);

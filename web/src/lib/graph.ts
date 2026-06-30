@@ -54,6 +54,41 @@ export function levelize(sessions: GraphSession[]): Map<string, number> {
   return level;
 }
 
+// ── workflow depth (manual-review guard) ─────────────────────────────────────────
+// The depth of a node is how many sequential steps lead up to and include it (a
+// root is step 1). When a chain grows past the cap the backend pauses auto-promotion
+// for manual review; the builder warns before drawing an edge that would exceed it.
+
+/** Default max sequential steps before the next auto-step needs manual review. */
+export const DEFAULT_WORKFLOW_DEPTH_CAP = 10;
+
+/** Depth (sequential step count) of the longest dependency chain ending at `id` (root = 1). */
+export function chainDepthOf(sessions: GraphSession[], id: string): number {
+  const level = levelize(sessions);
+  return level.has(id) ? (level.get(id) ?? 0) + 1 : 0;
+}
+
+/** The deepest chain anywhere in the workflow (0 when there are no sessions). */
+export function maxChainDepth(sessions: GraphSession[]): number {
+  if (sessions.length === 0) return 0;
+  let max = 0;
+  for (const v of levelize(sessions).values()) max = Math.max(max, v);
+  return max + 1; // levelize is 0-based; chain length = deepest level + 1
+}
+
+/** True when a depth exceeds the cap. A cap ≤ 0 disables the guard (unlimited). */
+export function overDepthCap(depth: number, cap: number): boolean {
+  return cap > 0 && depth > cap;
+}
+
+/** Deepest chain the workflow would have if the edge `from → to` were added (non-mutating). */
+export function depthWithEdge(sessions: GraphSession[], from: string, to: string): number {
+  const sim = sessions.map((s) =>
+    s.id === to ? { ...s, dependsOn: [...(s.dependsOn ?? []), from] } : { ...s },
+  );
+  return maxChainDepth(sim);
+}
+
 /** Position on the layered grid: column = dependency depth, row = order within column. */
 export interface GridPos {
   col: number;

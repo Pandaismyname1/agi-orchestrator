@@ -112,6 +112,7 @@ export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json")
     automations: Array.isArray(parsed.automations) ? parsed.automations : undefined,
     quietHours: parsed.quietHours,
     automationChainCap: typeof parsed.automationChainCap === "number" ? parsed.automationChainCap : undefined,
+    workflowDepthCap: typeof parsed.workflowDepthCap === "number" ? parsed.workflowDepthCap : undefined,
   };
 }
 
@@ -149,6 +150,7 @@ export async function saveConfig(
     automations: cfg.automations,
     quietHours: cfg.quietHours,
     automationChainCap: cfg.automationChainCap,
+    workflowDepthCap: cfg.workflowDepthCap,
   };
   const json = JSON.stringify(out, null, 2) + "\n";
   // Write atomically (temp file + rename) so a crash or an interleaved write can

@@ -73,6 +73,8 @@ export interface SessionView {
   dependsOn?: string[];
   /** subset of `dependsOn` not yet `done` (live-computed; non-empty only while waiting). */
   blockedBy?: string[];
+  /** deps met but the workflow chain is past the depth cap — paused for manual review. */
+  reviewRequired?: boolean;
   /** auto-start schedule (every N minutes / daily HH:MM), if configured. */
   schedule?: SessionSchedule;
   /** auto-open-a-PR-on-done setting, if configured. */
@@ -134,6 +136,8 @@ export interface Settings {
   reliability?: { retries: number; retryBackoffMs: number; brainPollSeconds: number };
   /** Notification quiet hours, or null when unset. */
   quietHours?: QuietHours | null;
+  /** Max sequential workflow steps before the next auto-step pauses for manual review. */
+  workflowDepthCap?: number;
 }
 
 /** A daily notification-silencing window (local wall-clock). Mirrors the backend. */
@@ -156,6 +160,7 @@ export type SettingsPatch = Partial<{
   reliabilityBackoffMs: number;
   reliabilityPollSeconds: number;
   quietHours: QuietHours | null;
+  workflowDepthCap: number | null;
 }>;
 
 /** Learning loop: synthesized operator profiles that tune the local brain's prompt. */

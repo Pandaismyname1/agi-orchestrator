@@ -34,6 +34,7 @@ import { restoreTo, type RestoreResult } from "../git/diff.js";
 import { openPullRequest, defaultRunner, type Runner as PrRunner } from "../git/pr.js";
 import { retryOptsFrom, brainPollMsFrom } from "../policy/reliability.js";
 import { planAutomations, countEnabled, chainGuard, DEFAULT_CHAIN_CAP } from "../policy/automation.js";
+import { chainDepthOf, overDepthCap, DEFAULT_WORKFLOW_DEPTH_CAP } from "../policy/wfdepth.js";
 import { LearningService, emptyLearningSummary } from "../learning/service.js";
 import { Notifier, type DeliveryResult, type NotifyContext } from "../notify/notifier.js";
 import { createLogger, type Logger } from "../util/logger.js";
@@ -144,6 +145,12 @@ export interface SessionView {
   dependsOn?: string[];
   /** Subset of `dependsOn` not yet `done` — non-empty only while waiting. */
   blockedBy?: string[];
+  /**
+   * True when this step's dependencies are all met but the workflow chain is
+   * deeper than the depth cap, so auto-promotion paused it for the operator to
+   * start manually. Cleared on launch / manual start / stop.
+   */
+  reviewRequired?: boolean;
   /** Auto-start schedule (every N minutes / daily HH:MM), if configured. */
   schedule?: SessionSchedule;
   /** Auto-open-a-PR-on-done setting, if configured. */
@@ -553,28 +560,44 @@ export class Supervisor {
     });
   }
 
+  /** The configured workflow depth cap (steps before manual review), with default. */
+  private get workflowDepthCap(): number {
+    return this.cfg.workflowDepthCap ?? DEFAULT_WORKFLOW_DEPTH_CAP;
+  }
+
+  /** Depth (sequential step count) of the longest dependency chain ending at `id`. */
+  private workflowDepthOf(id: string): number {
+    const nodes = [...this.sessions.values()].map((s) => ({ id: s.id, dependsOn: s.config.dependsOn }));
+    return chainDepthOf(nodes, id);
+  }
+
   /**
    * Start any `blocked` session whose dependencies have all finished. Called
    * whenever a session reaches `done`, so a workflow chains forward by itself.
+   * Sessions parked for manual review (a too-deep step) are skipped — only an
+   * operator's explicit start releases them.
    */
   private promoteReady(): void {
     for (const m of this.sessions.values()) {
-      if (m.status === "blocked" && this.unmetDeps(m).length === 0) {
+      if (m.status === "blocked" && !m.reviewRequired && this.unmetDeps(m).length === 0) {
         m.status = "idle"; // clear the gate so start() will actually launch/queue it
         m.blockedBy = undefined;
-        this.start(m.id);
+        this.start(m.id, { auto: true });
       }
     }
   }
 
   /** Request a session to run: launch now if a slot is free, else queue it. */
-  start(id: string, opts?: { gen?: number }): void {
+  start(id: string, opts?: { gen?: number; auto?: boolean }): void {
     const m = this.sessions.get(id);
     if (!m || ["running", "queued", "needs-input", "manual", "paused"].includes(m.status)) return;
     // Record the causal generation for the chain-depth guard. No `gen` = a root
     // start (user / schedule / dependency release) → generation 0. An automation
     // passes its hop generation so the resulting run is capped against runaways.
     m.autoGen = opts?.gen ?? 0;
+    // A manual start IS the review: clear any "needs review" flag so the operator's
+    // click lets a deep step proceed (the depth guard below only gates auto-starts).
+    if (!opts?.auto) m.reviewRequired = false;
     // Workflow gate: hold the session as `blocked` until every session it
     // depends on has finished. promoteReady() releases it when they're done.
     const unmet = this.unmetDeps(m);
@@ -586,6 +609,21 @@ export class Supervisor {
       return;
     }
     m.blockedBy = undefined;
+    // Workflow depth cap: deps are met, but if this step sits past the cap, an
+    // AUTO promotion pauses it for manual review instead of launching (the operator
+    // starts it themselves). A manual start skips this — it's the review.
+    if (opts?.auto) {
+      const depth = this.workflowDepthOf(m.id);
+      const cap = this.workflowDepthCap;
+      if (overDepthCap(depth, cap)) {
+        m.status = "blocked";
+        m.blockedBy = undefined;
+        m.reviewRequired = true;
+        m.lastDecision = `manual review — step ${depth} of a ${depth}-deep workflow (cap ${cap}); start it yourself to continue`;
+        this.log.info("workflow depth cap — parked for review", { session: m.id, depth, cap });
+        return;
+      }
+    }
     // Refuse to start when a REAL subscription limit is spent (the orchestrator
     // re-reads /usage at launch, so a stale spent reading just defers the start
     // until the next slot; it's cleared when an auto-resume fires after a reset).
@@ -629,6 +667,7 @@ export class Supervisor {
     m.lastReply = "";
     m.lastDecision = "";
     m.attention = null;
+    m.reviewRequired = false; // launching clears any "needs review" parking
     m.mode = m.config.startMode ?? "autopilot";
     m.startedAt = Date.now();
     // A fresh run supersedes any PR from the previous one.
@@ -814,6 +853,7 @@ export class Supervisor {
       if (m.status === "blocked") {
         m.status = "idle";
         m.blockedBy = undefined;
+        m.reviewRequired = false;
         m.lastDecision = "stopped by operator";
         continue;
       }
@@ -1806,6 +1846,7 @@ function toView(m: Managed): SessionView {
     canContinue: !active && !!(m.claudeSessionId ?? m.config.lastClaudeSessionId),
     dependsOn: m.config.dependsOn?.length ? m.config.dependsOn : undefined,
     blockedBy: m.blockedBy?.length ? m.blockedBy : undefined,
+    reviewRequired: m.reviewRequired || undefined,
     schedule: m.config.schedule,
     autoPr: m.config.autoPr,
     prUrl: m.prUrl,

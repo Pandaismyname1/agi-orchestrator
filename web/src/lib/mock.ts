@@ -298,6 +298,7 @@ export const MOCK: Snapshot = {
     defaults: { permissionMode: "acceptEdits", autonomy: "balanced" },
     reliability: { retries: 3, retryBackoffMs: 400, brainPollSeconds: 15 },
     quietHours: { enabled: true, start: "22:00", end: "07:00", days: [1, 2, 3, 4, 5], allowUrgent: true },
+    workflowDepthCap: 10,
   },
   quietActive: true,
   sessions: [
@@ -433,14 +434,15 @@ export const MOCK: Snapshot = {
       permissionMode: "acceptEdits",
       autonomy: "balanced",
       mode: "autopilot",
-      status: "queued",
+      status: "blocked",
       turns: 0,
       elapsedMin: 0,
       lastReply: "",
-      lastDecision: "",
+      lastDecision: "manual review — step 11 of an 11-deep workflow (cap 10); start it yourself to continue",
       attention: null,
-      // Depends only on a session that's already done → shows the "Runs after" chip, not waiting.
+      // Deps are met, but the workflow is past the depth cap → paused for manual review.
       dependsOn: ["landing-page"],
+      reviewRequired: true,
     },
   ],
   focus: {

@@ -92,7 +92,11 @@
     <span class="metric tnum">turn {s.turns} · {minutes(s.elapsedMin)}</span>
   </div>
 
-  {#if waiting && blockers.length}
+  {#if s.reviewRequired}
+    <div class="review" title="This step is deeper than the workflow depth cap — start it yourself to continue.">
+      <span aria-hidden="true">⏸</span> Needs review — start manually to continue the workflow
+    </div>
+  {:else if waiting && blockers.length}
     <div class="waiting">
       <span aria-hidden="true">⏳</span> Waiting on: {blockers.map(depLabel).join(", ")}
     </div>
@@ -367,6 +371,13 @@
   .waiting {
     font-size: 11px;
     color: var(--st-stopped);
+    margin-top: 9px;
+    line-height: 1.4;
+  }
+  .review {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--st-needs-input);
     margin-top: 9px;
     line-height: 1.4;
   }

@@ -31,6 +31,7 @@ import {
   type AuthConfig,
 } from "./auth.js";
 import { RateLimiter, resolveRateLimitConfig } from "./rateLimit.js";
+import { DEFAULT_WORKFLOW_DEPTH_CAP } from "../policy/wfdepth.js";
 import { createLogger } from "../util/logger.js";
 import type { SessionConfig, QuietHours } from "../types.js";
 
@@ -76,6 +77,8 @@ type SettingsPatch = Partial<{
   reliabilityPollSeconds: number;
   /** Quiet-hours window; null clears it. */
   quietHours: QuietHours | null;
+  /** Workflow depth cap (steps before manual review); null resets to the default. */
+  workflowDepthCap: number | null;
 }>;
 
 /** Continue a finished session in the same conversation (edited goal + next step). */
@@ -510,6 +513,7 @@ async function main(): Promise<void> {
             },
             reliability: sup.reliabilitySettings(),
             quietHours: sup.quietHoursConfig() ?? null,
+            workflowDepthCap: cfg.workflowDepthCap ?? DEFAULT_WORKFLOW_DEPTH_CAP,
           },
           quietActive: sup.quietActive,
           learning: sup.learningSummary(),
@@ -793,6 +797,16 @@ async function main(): Promise<void> {
             // Quiet hours: null clears the window; an object replaces it (validated).
             if (p.quietHours !== undefined) {
               sup.setQuietHours(p.quietHours);
+            }
+
+            // Workflow depth cap: null resets to the default; a finite number ≥ 0
+            // sets it (0 disables the guard). Read live by the supervisor.
+            if (p.workflowDepthCap !== undefined) {
+              if (p.workflowDepthCap === null) {
+                cfg.workflowDepthCap = undefined;
+              } else if (Number.isFinite(p.workflowDepthCap) && p.workflowDepthCap >= 0) {
+                cfg.workflowDepthCap = Math.floor(p.workflowDepthCap);
+              }
             }
 
             // Apply at runtime what's safe.

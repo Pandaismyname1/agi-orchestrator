@@ -23,6 +23,10 @@
     fitScale,
     ZOOM_MIN,
     ZOOM_MAX,
+    maxChainDepth,
+    depthWithEdge,
+    overDepthCap,
+    DEFAULT_WORKFLOW_DEPTH_CAP,
   } from "../../lib/graph";
   import { buildSessionDraft, type DraftMode } from "../../lib/nodeform";
   import { DRAW_EVENTS, defaultEventFor, buildDrawnAutomation, eventPhrase } from "../../lib/drawauto";
@@ -81,6 +85,12 @@
 
   let edges = $derived(deriveEdges(sessions));
   let hasDeps = $derived(edges.length > 0);
+
+  // Workflow depth (longest sequential dependency chain) vs the manual-review cap.
+  // Steps past the cap stop auto-promoting and pause for the operator to start.
+  let depthCap = $derived(wsStore.snapshot?.settings?.workflowDepthCap ?? DEFAULT_WORKFLOW_DEPTH_CAP);
+  let wfDepth = $derived(maxChainDepth(sessions));
+  let depthOver = $derived(overDepthCap(wfDepth, depthCap));
 
   // Automation rules that link two concrete sessions, drawn as a distinct edge type.
   let automations = $derived(wsStore.snapshot?.automations ?? []);
@@ -279,8 +289,15 @@
       ui.toast("can't link — that would create a dependency cycle");
       return;
     }
+    // Depth validation: deep chains are allowed, but warn that steps past the cap
+    // pause for manual review (the backend stops auto-promoting them).
+    const newDepth = depthWithEdge(sessions, from, to);
     wsStore.send({ type: "update", id: to, patch: { dependsOn: withDependency(sessions, from, to) } });
-    ui.toast(`${shortId(to)} now runs after ${shortId(from)}`);
+    if (overDepthCap(newDepth, depthCap)) {
+      ui.toast(`${shortId(to)} runs after ${shortId(from)} — chain is now ${newDepth} steps; steps past ${depthCap} pause for manual review`);
+    } else {
+      ui.toast(`${shortId(to)} now runs after ${shortId(from)}`);
+    }
   }
 
   /**
@@ -529,6 +546,17 @@
       <div class="wf-legend">
         <span class="lg"><span class="lg-line dep"></span> depends on</span>
         {#if hasAuto}<span class="lg"><span class="lg-line auto"></span> automation</span>{/if}
+        {#if hasDeps}
+          <span
+            class="wf-depth"
+            class:over={depthOver}
+            title={depthOver
+              ? `Deepest chain is ${wfDepth} steps — past the cap of ${depthCap}. Steps beyond ${depthCap} pause for manual review (start them yourself).`
+              : `Deepest dependency chain is ${wfDepth} step${wfDepth === 1 ? "" : "s"} (manual-review cap ${depthCap}).`}
+          >
+            <Icon name="layers" size={11} /> depth {wfDepth}/{depthCap}{#if depthOver} · review{/if}
+          </span>
+        {/if}
       </div>
     {/if}
     {#if !hasDeps}
@@ -607,7 +635,9 @@
             </div>
             <div class="wf-bot">
               <StatusBadge status={s.status} />
-              {#if s.blockedBy?.length}
+              {#if s.reviewRequired}
+                <span class="wf-review" title="Workflow is past the depth cap — start this step yourself to continue">needs review</span>
+              {:else if s.blockedBy?.length}
                 <span class="wf-wait">waiting on {s.blockedBy.length}</span>
               {/if}
             </div>
@@ -871,6 +901,25 @@
     border-top-style: dashed;
     border-top-color: var(--st-running);
   }
+  .wf-depth {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--color-neutral-content);
+    background: var(--color-base-200);
+    border: 1px solid var(--border-soft);
+    border-radius: 7px;
+    padding: 2px 7px;
+    cursor: default;
+  }
+  .wf-depth.over {
+    color: var(--st-needs-input);
+    border-color: var(--st-needs-input);
+    background: rgba(168, 130, 250, 0.12);
+  }
   .wf-note {
     color: var(--faint);
     font-size: 13px;
@@ -1101,6 +1150,14 @@
     font-size: 10px;
     color: var(--st-stopped);
     font-weight: 600;
+  }
+  .wf-review {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--st-needs-input);
+    background: rgba(168, 130, 250, 0.16);
+    border-radius: 6px;
+    padding: 1px 6px;
   }
   .wf-handle {
     position: absolute;

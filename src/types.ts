@@ -181,6 +181,12 @@ export interface AppConfig {
    * dropped (loop guard for cascading rules). Defaults to 8; ≤ 0 disables the cap.
    */
   automationChainCap?: number;
+  /**
+   * Max sequential dependency steps a workflow auto-runs before pausing the next
+   * step for manual review. Defaults to 10; ≤ 0 disables the guard. The builder
+   * also warns when a drawn edge would push a chain past this.
+   */
+  workflowDepthCap?: number;
 }
 
 /**
