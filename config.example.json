@@ -74,6 +74,15 @@
       "permissionMode": "acceptEdits",
       "gatePolicy": "guard",
       "autonomy": "balanced"
+    },
+    {
+      "id": "demo-deploy",
+      "cwd": "C:\\Users\\panda\\Desktop\\friend-website",
+      "goal": "Deploy the finished coffee-shop site to GitHub Pages and verify the live URL loads.",
+      "doneCriteria": "The site is published and the public URL returns the homepage.",
+      "permissionMode": "acceptEdits",
+      "autonomy": "balanced",
+      "dependsOn": ["demo-website"]
     }
   ],
   "_notes": {
@@ -90,6 +99,7 @@
     "dispatch": "remote access for when you expose the dashboard port to reach it from your phone. Set token (or env AGI_DISPATCH_TOKEN) to a strong secret — with NO token, remote requests are refused (local always works). Remote clients send it as Authorization: Bearer, X-AGI-Token, or ?token=. trustLocal:true (default) skips the token for loopback; set it false if you front the dashboard with a LOCAL tunnel (cloudflared/ngrok) so the token is still required. The token travels in the request — prefer a TLS tunnel (Tailscale / Cloudflare Tunnel) over bare HTTP. rateLimit caps remote requests/IP and (stricter) auth failures/IP to thwart brute force.",
     "usageGuard": "hooks into Claude's REAL subscription limits instead of an artificial daily cap. The orchestrator reads Claude's own /usage (a local command, no model usage) and pauses a session when a governing limit is spent, auto-resuming at the reported reset. pauseAtPercent (default 100) pauses earlier if set lower. onOpusExhausted: when the weekly all-models (Opus) cap is spent but the Sonnet pool has room, 'continue' keeps working on Sonnet (default) and 'pause' stops until the weekly reset. refreshEveryTurns re-reads /usage every N turns. When enabled, the legacy budget.maxTurnsPerDay/maxMinutesPerDay no longer gate runs.",
     "gatePolicy.note": "see permissionMode — gatePolicy only sees gates when claude actually prompts",
-    "autonomy": "operator persona: 'cautious' escalates more decisions to you, 'autonomous' fewer, 'balanced' (default) in between"
+    "autonomy": "operator persona: 'cautious' escalates more decisions to you, 'autonomous' fewer, 'balanced' (default) in between",
+    "dependsOn": "workflows: ids of sessions that must reach 'done' before this one auto-starts. 'Start all' launches the roots and parks dependents as 'blocked'; each finishes → its dependents auto-start (a DAG, cycles are rejected). Omit for no dependencies. Edit it live from the session form's 'Runs after' picker. 'Stop all' halts the whole fleet (running, queued, and blocked)."
   }
 }

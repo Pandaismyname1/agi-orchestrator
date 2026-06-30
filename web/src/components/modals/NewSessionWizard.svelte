@@ -61,6 +61,7 @@
       permissionMode,
       autonomy,
       startMode: mode,
+      dependsOn,
     };
     if (id.trim()) payload.id = id.trim();
     if (adopt) payload.resumeId = adopt.resumeId;
@@ -163,6 +164,24 @@
               <option value="autonomous">autonomous</option>
             </select>
             <p class="explain">{AUTO_HELP[autonomy]}</p>
+
+            {#if others.length}
+              <span class="grouplabel" id="w_deps_label">Runs after <span class="opt">(optional)</span></span>
+              <div class="depbox" role="group" aria-labelledby="w_deps_label">
+                {#each others as o (o.id)}
+                  <label class="depitem">
+                    <input
+                      type="checkbox"
+                      checked={dependsOn.includes(o.id)}
+                      onchange={() => toggleDep(o.id)}
+                    />
+                    <span class="depname">{o.id}</span>
+                    <span class="depgoal">{depShort(o.goal)}</span>
+                  </label>
+                {/each}
+              </div>
+              <p class="explain">This session waits until the selected sessions are done, then auto-starts.</p>
+            {/if}
           {/if}
         </div>
       {/key}
@@ -327,6 +346,68 @@
     color: var(--color-neutral-content);
     margin: 6px 2px 0;
     line-height: 1.4;
+  }
+  .grouplabel {
+    display: block;
+    font-size: 11px;
+    color: var(--color-neutral-content);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 13px 0 5px;
+    font-weight: 600;
+  }
+  .grouplabel .opt {
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--faint);
+    font-weight: 400;
+  }
+  .depbox {
+    max-height: 140px;
+    overflow-y: auto;
+    border: 1px solid var(--border-strong);
+    border-radius: 9px;
+    background: var(--color-base-200);
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .depitem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--color-base-content);
+  }
+  .depitem:hover {
+    background: var(--color-base-300);
+  }
+  .depitem input[type="checkbox"] {
+    width: auto;
+    flex: none;
+    margin: 0;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+  }
+  .depname {
+    font-size: 12px;
+    font-weight: 600;
+    flex: none;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .depgoal {
+    font-size: 11px;
+    color: var(--faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .hint {
     font-size: 12px;

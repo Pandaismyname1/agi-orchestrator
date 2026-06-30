@@ -33,6 +33,12 @@
     wsStore.send({ type: "focus", id: target.id });
   }
 
+  function stopAll() {
+    if (confirm("Stop every session? This halts all running and queued agents.")) {
+      wsStore.send({ type: "stopAll" });
+    }
+  }
+
   let soundTitle = $derived(
     alarm.enabled
       ? alarm.active
@@ -84,6 +90,14 @@
 
   <button class="btn btn-primary btn-sm" onclick={() => wsStore.send({ type: "startAll" })}>
     <Icon name="play" size={13} /> Start all
+  </button>
+  <button
+    class="btn btn-sm stop-all"
+    aria-label="Stop all sessions"
+    title="Stop every running and queued session"
+    onclick={stopAll}
+  >
+    <Icon name="stop" size={13} /> Stop all
   </button>
   <button class="btn btn-sm" onclick={() => ui.openModal({ kind: "adopt" })}>
     <Icon name="download" size={13} /> Adopt
@@ -250,6 +264,14 @@
     50% {
       box-shadow: 0 0 0 6px rgba(248, 113, 113, 0);
     }
+  }
+  .stop-all {
+    color: var(--color-error);
+    border-color: rgba(248, 113, 113, 0.5);
+  }
+  .stop-all:hover {
+    background: rgba(248, 113, 113, 0.1);
+    border-color: var(--color-error);
   }
   .sound.on {
     color: var(--color-primary);
