@@ -32,7 +32,12 @@ const BOOT_TIMEOUT_MS = 45_000;
 // (replay/work), and only fail fast if it's been frozen (stuck) and never ready.
 const RESUME_BOOT_CAP_MS = 10 * 60_000;
 const RESUME_STUCK_MS = 45_000;
-const TURN_TIMEOUT_MS = 15 * 60_000; // safety cap per single turn
+// A turn isn't done until the main prompt is idle AND any background agents it
+// spawned have finished — which can legitimately take a long time. So the per-turn
+// wait is progress-aware: patient up to a generous hard cap while the screen keeps
+// changing (spinner / agent token counters), failing fast only if it's frozen.
+const TURN_TIMEOUT_MS = 90 * 60_000; // hard cap per single turn
+const TURN_STUCK_MS = 8 * 60_000; // …unless the screen is frozen this long
 const GATE_COOLDOWN_MS = 900;
 const MIN_THINK_MS = 1500; // ignore "ready" for this long after injecting (avoid premature turn-end)
 
@@ -137,7 +142,7 @@ export class ClaudeSession {
     await sleep(300);
     this.type("\r"); // submit
 
-    const gatesHandled = await this.waitForReady(TURN_TIMEOUT_MS, /*requireThink*/ true);
+    const gatesHandled = await this.waitForReady(TURN_TIMEOUT_MS, /*requireThink*/ true, TURN_STUCK_MS);
 
     const assistantText = await readLastAssistantMessage(this.cfg.cwd, this.sessionId);
     return {

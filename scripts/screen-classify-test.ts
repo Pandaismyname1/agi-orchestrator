@@ -1,10 +1,11 @@
 /**
- * Deterministic test for classifyScreen — the MAIN-session-vs-subagent fix.
+ * Deterministic test for classifyScreen — main-session readiness, agent-aware.
  *
- * The key regression: when the main session is idle but background agents are
- * still running, the TUI shows the idle input box AND background "esc to
- * interrupt" / "↓ N tokens" status. That must classify as READY (the main
- * session is what we drive), not WORKING — otherwise the orchestrator stalls.
+ * The session is "ready" only when the main prompt is idle AND nothing is in
+ * flight. While background agents run, the main sits at its idle box but is NOT
+ * ready — prompting it just spins ("can't, agents still running"). So an idle box
+ * WITH background-agent chrome must classify as WORKING (wait), and only a truly
+ * idle box (no in-flight chrome) is READY.
  */
 import { classifyScreen } from "../src/terminal/state.js";
 
@@ -14,7 +15,7 @@ const check = (name: string, cond: boolean) => {
   if (!cond) pass = false;
 };
 
-// The reported bug: main idle box + background-agent activity on screen.
+// The reported spin-loop: main idle box but background agents still running.
 const idleWithBgAgents = `
 ● Agent 1 building HUB shell… (22s · ↓ 765 tokens)
   └ Next: Merge Agent 1 (HUB shell) into master
@@ -24,10 +25,14 @@ const idleWithBgAgents = `
 ────────────────────────────────────────────────
   ▶▶ auto mode on (shift+tab to cycle) · esc to interrupt · ctrl+t to show tasks · ← for agents
 `;
-check("idle box + background agents => ready (not working)", classifyScreen(idleWithBgAgents) === "ready");
+check("idle box + background agents => working (wait, don't spin)", classifyScreen(idleWithBgAgents) === "working");
 
-// Classic idle box (no agents).
+// Truly idle: main prompt, nothing running.
 check("plain idle box => ready", classifyScreen("user@x\n> \n  ? for shortcuts") === "ready");
+check(
+  "idle box (auto-accept hint, no in-flight chrome) => ready",
+  classifyScreen("> \n  auto-accept edits on (shift+tab to cycle) · ? for shortcuts") === "ready",
+);
 
 // Main session actually generating: spinner + interrupt, NO idle hint line.
 const mainWorking = `
