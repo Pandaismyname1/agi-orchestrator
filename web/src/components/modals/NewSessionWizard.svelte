@@ -92,6 +92,18 @@
   function applySuggestedDone(): void {
     if (intake?.suggestedDoneCriteria) doneCriteria = intake.suggestedDoneCriteria;
   }
+  // Apply a suggested template (same path as the manual picker).
+  function applySuggestedTemplate(id: string): void {
+    const t = templates.find((x) => x.id === id);
+    if (t) {
+      pickedTemplateId = id;
+      applyTemplate(t);
+    }
+  }
+  // Add a suggested dependency (the "Runs after" picker on the Tune step reflects it).
+  function addDep(id: string): void {
+    if (!dependsOn.includes(id)) dependsOn = [...dependsOn, id];
+  }
 
   let canNext = $derived(step !== 0 || (cwd.trim() && goal.trim() && doneCriteria.trim()));
 
@@ -223,6 +235,47 @@
                   <div class="intake-sug">
                     <div class="intake-sug-text"><span class="sug-tag">done</span>{intake.suggestedDoneCriteria}</div>
                     <button class="btn btn-xs" onclick={applySuggestedDone}>Use</button>
+                  </div>
+                {/if}
+                {#if intake.suggestedTemplates?.length}
+                  <div class="intake-reco">
+                    <span class="reco-head"><Icon name="layers" size={11} /> Templates that fit</span>
+                    {#each intake.suggestedTemplates as t (t.id)}
+                      <div class="intake-sug">
+                        <div class="intake-sug-text">
+                          <b>{t.name}</b>
+                          <span class="reco-reason">{t.reason}</span>
+                        </div>
+                        <button
+                          class="btn btn-xs"
+                          class:applied={pickedTemplateId === t.id}
+                          onclick={() => applySuggestedTemplate(t.id)}
+                        >
+                          {pickedTemplateId === t.id ? "Applied" : "Apply"}
+                        </button>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+                {#if intake.suggestedDependsOn?.length}
+                  <div class="intake-reco">
+                    <span class="reco-head"><Icon name="play" size={11} /> Likely runs after</span>
+                    {#each intake.suggestedDependsOn as d (d.id)}
+                      <div class="intake-sug">
+                        <div class="intake-sug-text">
+                          <b>{d.id}</b>
+                          <span class="reco-reason">{d.reason}</span>
+                        </div>
+                        <button
+                          class="btn btn-xs"
+                          class:applied={dependsOn.includes(d.id)}
+                          onclick={() => addDep(d.id)}
+                          disabled={dependsOn.includes(d.id)}
+                        >
+                          {dependsOn.includes(d.id) ? "Added" : "Add dep"}
+                        </button>
+                      </div>
+                    {/each}
                   </div>
                 {/if}
               </div>
@@ -590,6 +643,42 @@
     border-radius: 5px;
     padding: 1px 5px;
     margin-right: 6px;
+  }
+  .intake-reco {
+    margin-top: 9px;
+    padding-top: 9px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .reco-head {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 700;
+    color: var(--faint);
+    margin-bottom: 4px;
+  }
+  .intake-reco .intake-sug {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 6px;
+  }
+  .intake-reco .intake-sug-text b {
+    font-size: 12px;
+    color: var(--color-base-content);
+  }
+  .reco-reason {
+    display: block;
+    font-size: 11px;
+    color: var(--faint);
+    line-height: 1.35;
+    margin-top: 1px;
+  }
+  .btn.applied {
+    color: var(--color-primary);
+    border-color: rgba(34, 197, 94, 0.4);
   }
 
   .cards {

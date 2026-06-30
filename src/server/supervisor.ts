@@ -16,6 +16,7 @@ import { ContextGuard } from "../policy/context.js";
 import { UsageGuard, type UsageStatus } from "../policy/usage.js";
 import { decideNextStep, refineEscalation } from "../brain/decide.js";
 import { assessGoal, type IntakeInput, type IntakeResult } from "../brain/intake.js";
+import { suggestTemplates, suggestDependsOn } from "../policy/suggest.js";
 import { isDue, hasActiveTrigger, parseHHMM } from "../policy/schedule.js";
 import { restoreTo, type RestoreResult } from "../git/diff.js";
 import { openPullRequest, defaultRunner, type Runner as PrRunner } from "../git/pr.js";
@@ -236,8 +237,28 @@ export class Supervisor {
    * specific enough to run unattended and, if not, return sharpening questions +
    * tighter suggestions. One LLM call; subscription-safe (local provider).
    */
-  assessGoal(input: IntakeInput): Promise<IntakeResult> {
-    return assessGoal(this.llm, input);
+  async assessGoal(input: IntakeInput): Promise<IntakeResult> {
+    // Clarity (one LLM call) and the deterministic history-based suggestions are
+    // independent — compute both and merge. The suggestions never throw, so a
+    // flaky assess still returns them (and vice-versa).
+    const result = await assessGoal(this.llm, input);
+    return { ...result, ...this.goalSuggestions(input) };
+  }
+
+  /**
+   * Deterministic intake suggestions from the project's own history: which
+   * templates fit the goal, and which existing same-project sessions this one
+   * should run after (`dependsOn`). Pure over the live session/template lists.
+   */
+  private goalSuggestions(input: IntakeInput): Pick<IntakeResult, "suggestedTemplates" | "suggestedDependsOn"> {
+    const cwd = input.cwd?.trim() ? path.resolve(input.cwd.trim()) : undefined;
+    const sessions = [...this.sessions.values()].map((m) => ({ id: m.id, goal: m.goal, cwd: m.cwd }));
+    const templates = suggestTemplates(input.goal, this.cfg.templates ?? [], 3);
+    const dependsOn = suggestDependsOn({ cwd, goal: input.goal }, sessions, 3);
+    return {
+      suggestedTemplates: templates.length ? templates : undefined,
+      suggestedDependsOn: dependsOn.length ? dependsOn : undefined,
+    };
   }
 
   /**

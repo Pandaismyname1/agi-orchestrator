@@ -89,6 +89,13 @@ export const api = {
           ],
           suggestedGoal: `${input.goal.trim()} — limited to the affected module, leaving public APIs unchanged.`,
           suggestedDoneCriteria: `${input.doneCriteria.trim()}; the full test suite passes and a summary of changes is written.`,
+          suggestedTemplates: [
+            { id: "tpl-bugfix", name: "Bug-fix sprint", reason: "matches: fix, tests, bugs", score: 5 },
+            { id: "tpl-audit", name: "Security audit", reason: "matches: audit", score: 1 },
+          ],
+          suggestedDependsOn: [
+            { id: "demo-website", label: "Build the one-page coffee shop website", reason: "deploy usually runs after build — same project", score: 6 },
+          ],
         })
       : postJson<IntakeResult>("/api/intake", input),
   /** Fleet + per-session performance analytics (GET /api/analytics). */

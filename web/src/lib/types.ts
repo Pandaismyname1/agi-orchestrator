@@ -300,6 +300,22 @@ export interface Snapshot {
   attached?: AttachedView[];
 }
 
+/** A template the intake assistant thinks fits the drafted goal. */
+export interface TemplateSuggestion {
+  id: string;
+  name: string;
+  reason: string;
+  score: number;
+}
+
+/** An existing same-project session the new one likely runs after. */
+export interface DependsOnSuggestion {
+  id: string;
+  label: string;
+  reason: string;
+  score: number;
+}
+
 /** Goal intake assessment (POST /api/intake) — does the local brain think the goal is runnable? */
 export interface IntakeResult {
   clarity: "clear" | "vague";
@@ -307,6 +323,8 @@ export interface IntakeResult {
   questions: string[];
   suggestedGoal?: string;
   suggestedDoneCriteria?: string;
+  suggestedTemplates?: TemplateSuggestion[];
+  suggestedDependsOn?: DependsOnSuggestion[];
 }
 
 /** Payload to register a hand-started session for hook-attach driving (POST /attach). */

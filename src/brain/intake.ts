@@ -9,6 +9,7 @@
  * API, subscription-safe.
  */
 import { LocalLLM, type ChatMessage } from "./provider.js";
+import type { TemplateSuggestion, DependsOnSuggestion } from "../policy/suggest.js";
 
 export interface IntakeInput {
   /** Project directory (gives the model a hint of context; optional). */
@@ -28,6 +29,10 @@ export interface IntakeResult {
   suggestedGoal?: string;
   /** A tighter done-criteria the operator can accept. */
   suggestedDoneCriteria?: string;
+  /** Templates from the project's history that fit this goal (deterministic). */
+  suggestedTemplates?: TemplateSuggestion[];
+  /** Existing same-project sessions this one likely runs after (deterministic). */
+  suggestedDependsOn?: DependsOnSuggestion[];
 }
 
 const SYSTEM = `You set up autonomous coding agents (Claude Code) that run UNATTENDED toward a goal with no human watching.
