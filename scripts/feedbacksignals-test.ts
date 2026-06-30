@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStore } from "../src/db/store.js";
-import { deriveFeedback, deriveRecentFeedback } from "../src/learning/feedbackSignals.js";
+import { deriveFeedback, deriveRecentFeedback, deriveRecentFeedbackByCwd } from "../src/learning/feedbackSignals.js";
 import { synthesizeProfile } from "../src/learning/synthesize.js";
 import type { LocalLLM, ChatMessage } from "../src/brain/provider.js";
 import type { ExampleBankItem } from "../src/learning/types.js";
@@ -61,6 +61,26 @@ check("stop instruction is synthetic", (stopItems[0]?.instruction ?? "").startsW
 // --- deriveRecentFeedback spans runs -----------------------------------------
 const recent = deriveRecentFeedback(store, 50);
 check("recent feedback spans both runs (3 items)", recent.length === 3);
+
+// --- per-cwd grouping: a thumb tunes its OWN project's bank, not just global --
+store.upsertSession({ id: "s2", cwd: "C:\\other", goal: "g2", doneCriteria: "d2" });
+const r2b = store.startRun("s2");
+const t2b = store.addTurn(r2b, { n: 1, prompt: "p", assistantText: "other-agent said", durationMs: 1, gatesHandled: 0 });
+store.addDecision(t2b, { action: "continue", prompt: "do the other thing", reason: "r" });
+store.setDecisionFeedback("s2", r2b, 1, "up");
+
+const byCwd = deriveRecentFeedbackByCwd(store, (id) => store.sessionCwd(id), 50);
+check("byCwd groups both projects", byCwd.size === 2);
+check("s1's project gets its 3 feedback items", (byCwd.get("C:\\proj") ?? []).length === 3);
+check("s2's project gets its 1 feedback item", (byCwd.get("C:\\other") ?? []).length === 1);
+check(
+  "the s2 item is the right decision",
+  (byCwd.get("C:\\other") ?? [])[0]?.instruction === "do the other thing",
+);
+
+// A run whose cwd can't be resolved is skipped (still counts globally elsewhere).
+const byCwdPartial = deriveRecentFeedbackByCwd(store, (id) => (id === "s2" ? undefined : store.sessionCwd(id)), 50);
+check("unresolvable cwd is skipped", !byCwdPartial.has("C:\\other") && byCwdPartial.has("C:\\proj"));
 
 // --- unrated decisions produce nothing ---------------------------------------
 const r3 = store.startRun("s1");

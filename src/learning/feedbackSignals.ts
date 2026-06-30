@@ -87,6 +87,19 @@ export function deriveFeedback(store: Store, runId: number): ExampleBankItem[] {
   return [...byHash.values()];
 }
 
+/** Merge a batch of items into a hash-keyed accumulator (count bumped, max lastSeen). */
+function mergeInto(byHash: Map<string, ExampleBankItem>, items: ExampleBankItem[]): void {
+  for (const item of items) {
+    const existing = byHash.get(item.hash);
+    if (existing) {
+      existing.count += item.count;
+      existing.lastSeen = Math.max(existing.lastSeen, item.lastSeen);
+    } else {
+      byHash.set(item.hash, { ...item });
+    }
+  }
+}
+
 /**
  * Feedback examples across the most recent `runLimit` runs, deduped by hash
  * (count bumped, max lastSeen kept). One bad run can never sink the batch.
@@ -101,21 +114,59 @@ export function deriveRecentFeedback(store: Store, runLimit = 50): ExampleBankIt
 
   const byHash = new Map<string, ExampleBankItem>();
   for (const run of runs) {
+    try {
+      mergeInto(byHash, deriveFeedback(store, run.id));
+    } catch {
+      continue;
+    }
+  }
+  return [...byHash.values()];
+}
+
+/**
+ * The same recent feedback, grouped by the run's project cwd, so a 👍/👎 on a
+ * decision in project X also strengthens X's per-project profile (not just the
+ * global one). `cwdOf` maps a run's session id to its absolute cwd; runs whose
+ * cwd can't be resolved are skipped (they still count globally via
+ * deriveRecentFeedback). Each cwd's list is independently deduped by hash.
+ */
+export function deriveRecentFeedbackByCwd(
+  store: Store,
+  cwdOf: (sessionId: string) => string | undefined,
+  runLimit = 50,
+): Map<string, ExampleBankItem[]> {
+  let runs: ReturnType<Store["getRuns"]>;
+  try {
+    runs = store.getRuns(undefined, runLimit);
+  } catch {
+    return new Map();
+  }
+
+  const byCwd = new Map<string, Map<string, ExampleBankItem>>();
+  for (const run of runs) {
+    let cwd: string | undefined;
+    try {
+      cwd = cwdOf(run.session_id);
+    } catch {
+      cwd = undefined;
+    }
+    if (!cwd) continue;
     let items: ExampleBankItem[];
     try {
       items = deriveFeedback(store, run.id);
     } catch {
       continue;
     }
-    for (const item of items) {
-      const existing = byHash.get(item.hash);
-      if (existing) {
-        existing.count += item.count;
-        existing.lastSeen = Math.max(existing.lastSeen, item.lastSeen);
-      } else {
-        byHash.set(item.hash, { ...item });
-      }
+    if (items.length === 0) continue;
+    let acc = byCwd.get(cwd);
+    if (!acc) {
+      acc = new Map();
+      byCwd.set(cwd, acc);
     }
+    mergeInto(acc, items);
   }
-  return [...byHash.values()];
+
+  const out = new Map<string, ExampleBankItem[]>();
+  for (const [cwd, acc] of byCwd) out.set(cwd, [...acc.values()]);
+  return out;
 }

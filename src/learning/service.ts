@@ -14,7 +14,7 @@ import type { LearningOptions } from "../types.js";
 import { ProfileStore } from "./profileStore.js";
 import { mineExamples } from "./miner.js";
 import { deriveRecentCorrections, deriveEscalationChoices } from "./liveSignals.js";
-import { deriveRecentFeedback } from "./feedbackSignals.js";
+import { deriveRecentFeedback, deriveRecentFeedbackByCwd } from "./feedbackSignals.js";
 import { synthesizeProfile } from "./synthesize.js";
 import { replayEval } from "./eval.js";
 import { truncate } from "./util.js";
@@ -149,11 +149,19 @@ export class LearningService implements ILearningService {
     const escalations = deriveEscalationChoices(this.store, 50);
     // Explicit thumbs up/down on brain decisions — the strongest signal we have.
     const feedback = deriveRecentFeedback(this.store, 50);
+    // The same thumbs grouped by project, so a 👍/👎 also tunes that project's
+    // own profile — not just the global one (per-cwd thumbs scope).
+    const feedbackByCwd = deriveRecentFeedbackByCwd(this.store, (id) => this.store.sessionCwd(id), 50);
     this.profiles.appendExamples(
       GLOBAL_SCOPE,
       dedupe([...mined.global, ...live, ...escalations, ...feedback]),
     );
     for (const [cwd, items] of mined.byCwd) {
+      this.profiles.appendExamples(cwdScope(cwd), items);
+    }
+    // Merge per-project feedback into each project's bank (appendExamples dedupes
+    // by hash, so this safely combines with mined examples for the same cwd).
+    for (const [cwd, items] of feedbackByCwd) {
       this.profiles.appendExamples(cwdScope(cwd), items);
     }
 

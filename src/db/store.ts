@@ -339,6 +339,14 @@ export class Store {
     >;
   }
 
+  /** The absolute cwd recorded for a session, or undefined if unknown. */
+  sessionCwd(sessionId: string): string | undefined {
+    const row = this.db.prepare(`SELECT cwd FROM sessions WHERE id = ?`).get(sessionId) as
+      | { cwd: string | null }
+      | undefined;
+    return row?.cwd ?? undefined;
+  }
+
   getRuns(sessionId?: string, limit = 50): RunRow[] {
     const sql = sessionId
       ? `SELECT * FROM runs WHERE session_id=? ORDER BY id DESC LIMIT ?`
