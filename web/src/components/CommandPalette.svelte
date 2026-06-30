@@ -64,7 +64,8 @@
       { id: "analytics", label: "Analytics", group: "Open", icon: "graph", keywords: "metrics stats performance export csv report", run: () => ui.openModal({ kind: "analytics" }) },
       { id: "health", label: "System health", group: "Open", icon: "pulse", keywords: "health status diagnostics uptime version brain reachable db", run: () => ui.openModal({ kind: "health" }) },
       { id: "learn", label: "Learn — operator-prompt drafts", group: "Open", icon: "brain", run: () => ui.openModal({ kind: "learn" }) },
-      { id: "settings", label: "Settings", group: "Open", icon: "settings", keywords: "provider budget concurrency", run: () => ui.openModal({ kind: "settings" }) },
+      { id: "settings", label: "Settings", group: "Open", icon: "settings", keywords: "provider budget concurrency quiet hours notifications", run: () => ui.openModal({ kind: "settings" }) },
+      { id: "shortcuts", label: "Keyboard shortcuts", group: "Open", icon: "keyboard", keywords: "keys hotkeys cheatsheet help bindings", run: () => ui.openModal({ kind: "shortcuts" }) },
     );
 
     // ---- Fleet ----

@@ -14,6 +14,7 @@
   import WorkflowModal from "./modals/WorkflowModal.svelte";
   import AnalyticsModal from "./modals/AnalyticsModal.svelte";
   import HealthModal from "./modals/HealthModal.svelte";
+  import ShortcutsModal from "./modals/ShortcutsModal.svelte";
 </script>
 
 {#if ui.modal}
@@ -47,5 +48,7 @@
     <AnalyticsModal />
   {:else if ui.modal.kind === "health"}
     <HealthModal />
+  {:else if ui.modal.kind === "shortcuts"}
+    <ShortcutsModal />
   {/if}
 {/if}

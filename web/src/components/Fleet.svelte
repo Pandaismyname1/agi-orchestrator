@@ -121,6 +121,9 @@
         searchInput?.focus();
         searchInput?.select();
         break;
+      case "help":
+        ui.openModal({ kind: "shortcuts" });
+        break;
     }
   }
 </script>

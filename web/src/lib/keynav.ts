@@ -16,6 +16,7 @@
  *   Enter / o       open the focused session's history
  *   n               new session
  *   /               jump to the fleet search box
+ *   ?               show the keyboard-shortcuts cheatsheet
  */
 
 export interface NavSession {
@@ -37,13 +38,15 @@ export type NavIntent =
   | { type: "stop"; id: string }
   | { type: "history"; id: string }
   | { type: "new" }
-  | { type: "search" };
+  | { type: "search" }
+  | { type: "help" };
 
 export interface KeyEventLike {
   key: string;
   ctrlKey?: boolean;
   metaKey?: boolean;
   altKey?: boolean;
+  shiftKey?: boolean;
 }
 
 // Mirrors the start/stop affordances the command palette and bulk actions use,
@@ -125,7 +128,10 @@ export function planKey(e: KeyEventLike, state: NavState): NavIntent {
     case "n":
       return { type: "new" };
     case "/":
-      return { type: "search" };
+      // Shift+/ is "?" on most layouts; some sources report key "/" + shift.
+      return e.shiftKey ? { type: "help" } : { type: "search" };
+    case "?":
+      return { type: "help" };
     default:
       return { type: "none" };
   }

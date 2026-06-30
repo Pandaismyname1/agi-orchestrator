@@ -20,6 +20,7 @@ export type Modal =
   | { kind: "workflow" }
   | { kind: "analytics" }
   | { kind: "health" }
+  | { kind: "shortcuts" }
   | { kind: "continue"; session: SessionView };
 
 interface ToastAction {

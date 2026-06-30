@@ -62,6 +62,9 @@ check("o == Enter", planKey(key("o"), st("c")).type === "history");
 check("Enter with no focus is a no-op", planKey(key("Enter"), st(null)).type === "none");
 check("n requests a new session", planKey(key("n"), st("a")).type === "new");
 check("/ jumps to search", planKey(key("/"), st("a")).type === "search");
+check("? opens help", planKey(key("?"), st("a")).type === "help");
+check("shift+/ opens help (alt encoding of ?)", planKey(key("/", { shiftKey: true }), st("a")).type === "help");
+check("plain / still searches (no shift)", planKey(key("/"), st("a")).type === "search");
 
 // ── modifier passthrough (don't steal ⌘K etc.) ──────────────────────────────────
 check("ctrl+j is ignored", planKey(key("j", { ctrlKey: true }), st("a")).type === "none");
