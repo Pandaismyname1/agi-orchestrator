@@ -301,6 +301,7 @@ export const MOCK: Snapshot = {
     reliability: { retries: 3, retryBackoffMs: 400, brainPollSeconds: 15 },
     quietHours: { enabled: true, start: "22:00", end: "07:00", days: [1, 2, 3, 4, 5], allowUrgent: true },
     workflowDepthCap: 10,
+    automationChainCap: 8,
   },
   quietActive: true,
   sessions: [

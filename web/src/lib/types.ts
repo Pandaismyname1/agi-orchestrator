@@ -151,6 +151,8 @@ export interface Settings {
   quietHours?: QuietHours | null;
   /** Max sequential workflow steps before the next auto-step pauses for manual review. */
   workflowDepthCap?: number;
+  /** Max reactive automation hops in one chain before further actions are dropped (loop guard). */
+  automationChainCap?: number;
 }
 
 /** A daily notification-silencing window (local wall-clock). Mirrors the backend. */
@@ -174,6 +176,7 @@ export type SettingsPatch = Partial<{
   reliabilityPollSeconds: number;
   quietHours: QuietHours | null;
   workflowDepthCap: number | null;
+  automationChainCap: number | null;
 }>;
 
 /** Learning loop: synthesized operator profiles that tune the local brain's prompt. */

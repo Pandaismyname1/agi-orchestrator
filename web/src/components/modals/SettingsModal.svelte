@@ -35,6 +35,8 @@
 
   // Workflow depth cap — sequential steps before the next auto-step needs manual review.
   let depthCap = $state<number | "">(untrack(() => settings?.workflowDepthCap ?? 10));
+  // Automation chain-depth cap — reactive hops in one chain before further actions drop.
+  let chainCap = $state<number | "">(untrack(() => settings?.automationChainCap ?? 8));
 
   // Quiet hours (notification schedule).
   const qh = untrack(() => settings?.quietHours ?? null);
@@ -74,6 +76,7 @@
     if (relPollSeconds !== "") settingsPatch.reliabilityPollSeconds = Math.max(5, Number(relPollSeconds) || 15);
     // "" → null resets to the default cap; 0 disables the guard; else floor at >= 0.
     settingsPatch.workflowDepthCap = depthCap === "" ? null : Math.max(0, Math.floor(Number(depthCap) || 0));
+    settingsPatch.automationChainCap = chainCap === "" ? null : Math.max(0, Math.floor(Number(chainCap) || 0));
     settingsPatch.quietHours = qhEnabled
       ? {
           enabled: true,
@@ -207,6 +210,19 @@
       A dependency chain auto-runs up to this many sequential steps; the next step then pauses as
       “needs review” for you to start by hand. The builder also warns when a drawn edge would exceed
       it. 0 disables the guard (auto-run chains of any depth); blank resets to the default (10).
+    </p>
+  </div>
+
+  <!-- Automation -->
+  <div class="sm-section">
+    <div class="sm-head"><Icon name="bolt" size={12} /> Automation</div>
+    <label for="sm_chain">chain-depth cap (reactive hops before actions drop)</label>
+    <input id="sm_chain" type="number" inputmode="numeric" min="0" max="100" bind:value={chainCap} placeholder="8" />
+    <p class="sm-explain">
+      When a rule’s action triggers an event that fires more rules, that causal chain can only go
+      this many hops deep; beyond it, further reactive actions are dropped (and logged in the
+      automation history) so cascading rules can’t loop forever. 0 disables the guard; blank resets
+      to the default (8).
     </p>
   </div>
 

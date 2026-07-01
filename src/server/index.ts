@@ -32,6 +32,7 @@ import {
 } from "./auth.js";
 import { RateLimiter, resolveRateLimitConfig } from "./rateLimit.js";
 import { DEFAULT_WORKFLOW_DEPTH_CAP } from "../policy/wfdepth.js";
+import { DEFAULT_CHAIN_CAP } from "../policy/automation.js";
 import { createLogger } from "../util/logger.js";
 import type { SessionConfig, QuietHours } from "../types.js";
 
@@ -81,6 +82,8 @@ type SettingsPatch = Partial<{
   quietHours: QuietHours | null;
   /** Workflow depth cap (steps before manual review); null resets to the default. */
   workflowDepthCap: number | null;
+  /** Automation chain-depth cap (reactive hops before further actions drop); null resets to default. */
+  automationChainCap: number | null;
 }>;
 
 /** Continue a finished session in the same conversation (edited goal + next step). */
@@ -518,6 +521,7 @@ async function main(): Promise<void> {
             reliability: sup.reliabilitySettings(),
             quietHours: sup.quietHoursConfig() ?? null,
             workflowDepthCap: cfg.workflowDepthCap ?? DEFAULT_WORKFLOW_DEPTH_CAP,
+            automationChainCap: cfg.automationChainCap ?? DEFAULT_CHAIN_CAP,
           },
           quietActive: sup.quietActive,
           learning: sup.learningSummary(),
@@ -810,6 +814,17 @@ async function main(): Promise<void> {
                 cfg.workflowDepthCap = undefined;
               } else if (Number.isFinite(p.workflowDepthCap) && p.workflowDepthCap >= 0) {
                 cfg.workflowDepthCap = Math.floor(p.workflowDepthCap);
+              }
+            }
+
+            // Automation chain-depth cap: null resets to the default; a finite
+            // number ≥ 0 sets it (0 disables the loop guard). Read live by the
+            // supervisor on the next reactive firing.
+            if (p.automationChainCap !== undefined) {
+              if (p.automationChainCap === null) {
+                cfg.automationChainCap = undefined;
+              } else if (Number.isFinite(p.automationChainCap) && p.automationChainCap >= 0) {
+                cfg.automationChainCap = Math.floor(p.automationChainCap);
               }
             }
 
