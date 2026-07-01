@@ -101,7 +101,7 @@ export const MOCK_RUNNING: RunningClaude[] = [
   },
 ];
 
-/** Demo discovery list (CLI + Desktop) for the Adopt browser under `?mock`. */
+/** Demo discovery list (CLI + Desktop + OpenCode) for the Adopt browser under `?mock`. */
 export const MOCK_DISCOVER: DiscoveredSession[] = [
   {
     sessionId: "0ec58aba-ce87-4ecb-8517-76c9acb246d7",
@@ -155,6 +155,18 @@ export const MOCK_DISCOVER: DiscoveredSession[] = [
     lastActivity: Date.now() - 1000 * 60 * 60 * 3,
     source: "cli",
     resumable: true,
+  },
+  {
+    sessionId: "ses_3a5f61ee8ffeEh4371zlCbCgg5",
+    cwd: "C:\\Users\\panda\\PhpstormProjects\\fit",
+    projectCwd: "C:\\Users\\panda\\PhpstormProjects\\fit",
+    summary: "Add offline sync to the workout tracker",
+    title: "Add offline sync to the workout tracker",
+    turns: 17,
+    lastActivity: Date.now() - 1000 * 60 * 45,
+    source: "opencode",
+    resumable: true,
+    drivable: false,
   },
 ];
 

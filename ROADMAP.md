@@ -71,6 +71,15 @@ Be able to see and drive sessions that ALREADY exist, not just ones we created.
   greyed, resumable ones drivable) and feed the learning miner (attributed to the real project via
   `originCwd`). **Deferred:** regular Desktop *chats* (non-agent) live in Chromium leveldb — not
   hooked and not drivable; archived/worktree-removed sessions with no transcript are unrecoverable.
+- **OpenCode sessions — DONE.** The OpenCode CLI (opencode.ai) stores sessions under its data dir
+  (`~/.local/share/opencode/storage/{session,project,message,part}/…`); a message file carries the
+  role and its visible text lives in `type:"text"` part files. `OpenCodeDiscovery` +
+  `readOpenCodeMessages()` (in `src/opencode.ts`) surface these via `discoverAll()` (source
+  `"opencode"`, deduped) and feed the learning miner (attributed to the project `worktree`), so the
+  operator-learning loop mines how you steered OpenCode too. They show in Adopt with an OPENCODE
+  badge. **Not drivable:** this orchestrator drives Claude Code through a PTY (`claude --resume`),
+  which can't resume an OpenCode `ses_…` id — so they're marked `drivable:false` (reference/mining
+  only). Sub-agent sessions (with a `parentID`) are skipped.
 - **Backend:** a `SessionDiscovery` module (scan + parse transcript heads for metadata); a
   dashboard "Existing sessions" browser to import/resume/attach.
 

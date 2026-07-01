@@ -13,6 +13,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { OpenCodeDiscovery } from "./opencode.js";
 
 export interface DiscoveredSession {
   sessionId: string;
@@ -24,14 +25,23 @@ export interface DiscoveredSession {
   turns: number;
   /** Last-activity timestamp (transcript mtime, ms). */
   lastActivity: number;
-  /** Where it came from: the CLI store, or the Claude Desktop app (its embedded Claude Code). */
-  source?: "cli" | "desktop";
-  /** Desktop sessions carry a human title; CLI sessions don't. */
+  /**
+   * Where it came from: the Claude Code CLI store, the Claude Desktop app (its
+   * embedded Claude Code), or the OpenCode CLI.
+   */
+  source?: "cli" | "desktop" | "opencode";
+  /** Desktop/OpenCode sessions carry a human title; CLI sessions don't. */
   title?: string;
   /** The real project root (Desktop runs in a git worktree under originCwd). For grouping/mining. */
   projectCwd?: string;
   /** False when the transcript is gone (archived / worktree removed) so it can't be resumed. */
   resumable?: boolean;
+  /**
+   * Whether this orchestrator can DRIVE the session (spawn/resume it in a PTY it
+   * owns). Claude Code CLI + Desktop sessions are drivable (`claude --resume`);
+   * OpenCode sessions are surfaced + minable but not drivable. Undefined = true.
+   */
+  drivable?: boolean;
 }
 
 const MAX_PARSE_BYTES = 4_000_000; // skip pathologically huge transcripts
@@ -243,18 +253,24 @@ export class DesktopDiscovery {
 }
 
 /**
- * Merge CLI + Desktop discovery into one list, deduped by session id. When a
- * session is in both, keep the CLI entry's parsed cwd/turns but adopt the
- * Desktop title + project + the "desktop" source (it's the friendlier label).
+ * Merge Claude Code CLI + Claude Desktop + OpenCode discovery into one list,
+ * deduped by session id. When a Claude session is in both CLI and Desktop, keep
+ * the CLI entry's parsed cwd/turns but adopt the Desktop title + project + the
+ * "desktop" source (it's the friendlier label). OpenCode session ids (`ses_…`)
+ * never collide with Claude's UUIDs, so they merge in cleanly.
  */
 export async function discoverAll(
   limit = 80,
   cliRoot?: string,
   desktopRoot?: string,
+  opencodeRoot?: string,
 ): Promise<DiscoveredSession[]> {
   const cliDisc = new SessionDiscovery(cliRoot);
   const [cli, ids] = await Promise.all([cliDisc.list(500), cliDisc.transcriptIds()]);
-  const desktop = await new DesktopDiscovery(desktopRoot, cliRoot).list(500, ids);
+  const [desktop, opencode] = await Promise.all([
+    new DesktopDiscovery(desktopRoot, cliRoot).list(500, ids),
+    new OpenCodeDiscovery(opencodeRoot).list(500),
+  ]);
 
   const byId = new Map<string, DiscoveredSession>();
   for (const s of cli) byId.set(s.sessionId, s);
@@ -272,5 +288,6 @@ export async function discoverAll(
       byId.set(d.sessionId, d);
     }
   }
+  for (const o of opencode) if (!byId.has(o.sessionId)) byId.set(o.sessionId, o);
   return [...byId.values()].sort((a, b) => b.lastActivity - a.lastActivity).slice(0, limit);
 }

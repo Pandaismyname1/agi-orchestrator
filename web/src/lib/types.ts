@@ -604,21 +604,23 @@ export interface Analytics {
   learning: { globalVersions: number; projectProfiles: number; totalExamples: number };
 }
 
-/** Discovered on-disk Claude Code session (GET /api/discover). */
+/** Discovered on-disk coding-agent session (GET /api/discover). */
 export interface DiscoveredSession {
   sessionId: string;
   cwd: string;
   summary: string;
   turns: number;
   lastActivity: number;
-  /** "cli" (terminal) or "desktop" (Claude Desktop's agent mode). */
-  source?: "cli" | "desktop";
-  /** Desktop sessions carry a human title. */
+  /** "cli" (terminal), "desktop" (Claude Desktop agent mode), or "opencode" (OpenCode CLI). */
+  source?: "cli" | "desktop" | "opencode";
+  /** Desktop/OpenCode sessions carry a human title. */
   title?: string;
   /** Real project root (Desktop runs in a worktree under it). */
   projectCwd?: string;
   /** False when the transcript is gone (archived/worktree removed) — can't resume. */
   resumable?: boolean;
+  /** False for OpenCode sessions — surfaced + minable, but not drivable in the cockpit. */
+  drivable?: boolean;
 }
 
 /** History/metrics rows (GET /api/runs, /api/run, /api/metrics). */

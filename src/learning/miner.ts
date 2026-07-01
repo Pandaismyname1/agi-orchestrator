@@ -11,6 +11,7 @@
  */
 import { discoverAll } from "../discovery.js";
 import { readRecentMessages } from "../transcript/reader.js";
+import { readOpenCodeMessages, defaultOpenCodeRoot } from "../opencode.js";
 import type { ExampleBankItem } from "./types.js";
 import { hashExample, truncate } from "./util.js";
 
@@ -66,17 +67,20 @@ function upsert(
 export async function mineExamples(opts?: {
   root?: string;
   desktopRoot?: string;
+  opencodeRoot?: string;
   scanLimit?: number;
   maxPerSession?: number;
 }): Promise<MineResult> {
   const scanLimit = opts?.scanLimit ?? DEFAULT_SCAN_LIMIT;
   const maxPerSession = opts?.maxPerSession ?? DEFAULT_MAX_PER_SESSION;
+  const opencodeRoot = opts?.opencodeRoot ?? defaultOpenCodeRoot();
 
-  // CLI ∪ Desktop sessions (deduped). Desktop sessions carry projectCwd so a
-  // worktree session is attributed to its real project, not the worktree dir.
+  // Claude Code CLI ∪ Claude Desktop ∪ OpenCode sessions (deduped). Desktop/
+  // OpenCode sessions carry projectCwd so a worktree session is attributed to its
+  // real project, not the worktree dir.
   let sessions: Awaited<ReturnType<typeof discoverAll>>;
   try {
-    sessions = await discoverAll(scanLimit, opts?.root, opts?.desktopRoot);
+    sessions = await discoverAll(scanLimit, opts?.root, opts?.desktopRoot, opts?.opencodeRoot);
   } catch {
     return { global: [], byCwd: new Map(), sessionsScanned: 0 };
   }
@@ -88,9 +92,15 @@ export async function mineExamples(opts?: {
   let sessionsScanned = 0;
 
   for (const s of sessions) {
+    // OpenCode keeps its transcript in its own storage tree (message + part
+    // files), so read it through the OpenCode reader; Claude Code sessions
+    // reconstruct their transcript path from cwd + id.
     let msgs: Awaited<ReturnType<typeof readRecentMessages>>;
     try {
-      msgs = await readRecentMessages(s.cwd, s.sessionId, -1);
+      msgs =
+        s.source === "opencode"
+          ? await readOpenCodeMessages(s.sessionId, opencodeRoot, -1)
+          : await readRecentMessages(s.cwd, s.sessionId, -1);
     } catch {
       continue; // never throw on a bad session — skip it
     }

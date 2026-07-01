@@ -14,6 +14,10 @@
     .catch(() => (sessions = []));
 
   function adopt(s: DiscoveredSession) {
+    if (s.drivable === false) {
+      ui.toast("OpenCode sessions are shown for reference and feed learning, but can't be driven in the cockpit");
+      return;
+    }
     if (s.resumable === false) {
       ui.toast("this session's transcript is gone (archived) — can't resume it");
       return;
@@ -24,8 +28,9 @@
 
 <Modal title="Adopt an existing session" width={600} onclose={() => ui.closeModal()}>
   <div class="hint">
-    Claude Code sessions found on this machine — from the CLI and the Claude Desktop app. Pick one to
-    resume it in the cockpit.
+    Coding-agent sessions found on this machine — Claude Code (CLI and the Claude Desktop app) plus
+    OpenCode. Pick a Claude session to resume it in the cockpit. OpenCode sessions are shown for
+    reference and feed the learning loop, but can't be driven here.
   </div>
 
   {#if sessions === null}
@@ -36,14 +41,14 @@
     <div class="list">
       {#each sessions as s (s.sessionId)}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <div class="row" class:gone={s.resumable === false} onclick={() => adopt(s)}>
-          <span class="src {s.source ?? 'cli'}">{s.source === "desktop" ? "desktop" : "cli"}</span>
+        <div class="row" class:gone={s.resumable === false || s.drivable === false} onclick={() => adopt(s)}>
+          <span class="src {s.source ?? 'cli'}">{s.source ?? "cli"}</span>
           <div class="body">
             <div class="summary">{s.title || s.summary}</div>
             <div class="path">{s.projectCwd || s.cwd}</div>
           </div>
           <span class="meta">
-            {#if s.resumable === false}archived{:else}{ago(s.lastActivity)}{/if}
+            {#if s.resumable === false}archived{:else if s.drivable === false}reference{:else}{ago(s.lastActivity)}{/if}
           </span>
         </div>
       {/each}
@@ -104,6 +109,11 @@
     color: var(--color-secondary);
     border-color: rgba(96, 165, 250, 0.4);
     background: rgba(96, 165, 250, 0.08);
+  }
+  .src.opencode {
+    color: var(--color-accent, #d97757);
+    border-color: rgba(217, 119, 87, 0.4);
+    background: rgba(217, 119, 87, 0.08);
   }
   .body {
     flex: 1;
