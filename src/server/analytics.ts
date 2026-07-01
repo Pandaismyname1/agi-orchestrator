@@ -7,6 +7,15 @@
 import type { Store } from "../db/store.js";
 import type { LearningSummary } from "../learning/types.js";
 
+/** Per-turn latency summary (ms). count is the number of measured turns. */
+export interface LatencyStats {
+  count: number;
+  avgMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  maxMs: number;
+}
+
 export interface SessionAnalytics {
   id: string;
   goal: string;
@@ -18,8 +27,12 @@ export interface SessionAnalytics {
   erroredRuns: number;
   /** completed / (completed + errored), 0 when none finished. */
   successRate: number;
+  /** errored / (completed + errored), 0 when none finished (complement of successRate). */
+  errorRate: number;
   /** Fraction of runs that needed a human (attention/gate). */
   interventionRate: number;
+  /** Per-turn wall-clock latency percentiles (from stored turn durations). */
+  latency: LatencyStats;
   decisions: { continue: number; stop: number; escalate: number };
   feedback: { up: number; down: number };
   lastRunAt: number | null;
@@ -31,7 +44,9 @@ export interface FleetAnalytics {
   turns: number;
   avgTurns: number;
   successRate: number;
+  errorRate: number;
   interventionRate: number;
+  latency: LatencyStats;
   decisions: { continue: number; stop: number; escalate: number };
   feedback: { up: number; down: number };
 }
@@ -45,6 +60,33 @@ export interface Analytics {
 }
 
 const rate = (num: number, den: number): number => (den > 0 ? Number((num / den).toFixed(2)) : 0);
+
+/**
+ * Nearest-rank percentile of an ASCENDING-sorted array (p in 0..100). Empty → 0.
+ * p95 of 20 samples is the 19th; p50 of an even count is the lower-middle.
+ */
+export function percentile(sortedAsc: number[], p: number): number {
+  const n = sortedAsc.length;
+  if (n === 0) return 0;
+  const rank = Math.ceil((p / 100) * n);
+  const idx = Math.min(n - 1, Math.max(0, rank - 1));
+  return sortedAsc[idx]!;
+}
+
+/** Summarize a list of per-turn durations (ms) into count/avg/p50/p95/max. */
+export function latencyStats(durations: number[]): LatencyStats {
+  const n = durations.length;
+  if (n === 0) return { count: 0, avgMs: 0, p50Ms: 0, p95Ms: 0, maxMs: 0 };
+  const sorted = [...durations].sort((a, b) => a - b);
+  const sum = sorted.reduce((s, d) => s + d, 0);
+  return {
+    count: n,
+    avgMs: Math.round(sum / n),
+    p50Ms: percentile(sorted, 50),
+    p95Ms: percentile(sorted, 95),
+    maxMs: sorted[n - 1]!,
+  };
+}
 
 /** Build the analytics report from the store (+ the learning summary). */
 export function buildAnalytics(
@@ -71,7 +113,9 @@ export function buildAnalytics(
       completedRuns,
       erroredRuns,
       successRate: rate(completedRuns, completedRuns + erroredRuns),
+      errorRate: rate(erroredRuns, completedRuns + erroredRuns),
       interventionRate: m.interventionRate,
+      latency: latencyStats(store.turnDurations(id)),
       decisions: store.decisionBreakdown(id),
       feedback: store.feedbackStats(id),
       lastRunAt: stats.lastRunAt,
@@ -89,7 +133,9 @@ export function buildAnalytics(
     turns: fm.turns,
     avgTurns: fm.avgTurns,
     successRate: rate(fleetCompleted, fleetCompleted + fleetErrored),
+    errorRate: rate(fleetErrored, fleetCompleted + fleetErrored),
     interventionRate: fm.interventionRate,
+    latency: latencyStats(store.turnDurations()),
     decisions: store.decisionBreakdown(),
     feedback: store.feedbackStats(),
   };
@@ -127,7 +173,13 @@ export function analyticsToCsv(a: Analytics): string {
     "completed_runs",
     "errored_runs",
     "success_rate",
+    "error_rate",
     "intervention_rate",
+    "measured_turns",
+    "avg_latency_ms",
+    "p50_latency_ms",
+    "p95_latency_ms",
+    "max_latency_ms",
     "decisions_continue",
     "decisions_stop",
     "decisions_escalate",
@@ -145,7 +197,13 @@ export function analyticsToCsv(a: Analytics): string {
       "",
       "",
       String(a.fleet.successRate),
+      String(a.fleet.errorRate),
       String(a.fleet.interventionRate),
+      String(a.fleet.latency.count),
+      String(a.fleet.latency.avgMs),
+      String(a.fleet.latency.p50Ms),
+      String(a.fleet.latency.p95Ms),
+      String(a.fleet.latency.maxMs),
       String(a.fleet.decisions.continue),
       String(a.fleet.decisions.stop),
       String(a.fleet.decisions.escalate),
@@ -162,7 +220,13 @@ export function analyticsToCsv(a: Analytics): string {
       String(s.completedRuns),
       String(s.erroredRuns),
       String(s.successRate),
+      String(s.errorRate),
       String(s.interventionRate),
+      String(s.latency.count),
+      String(s.latency.avgMs),
+      String(s.latency.p50Ms),
+      String(s.latency.p95Ms),
+      String(s.latency.maxMs),
       String(s.decisions.continue),
       String(s.decisions.stop),
       String(s.decisions.escalate),

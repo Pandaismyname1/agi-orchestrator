@@ -13,6 +13,8 @@
     .catch((e) => (err = e instanceof Error ? e.message : "failed to load analytics"));
 
   const pct = (r: number) => `${Math.round(r * 100)}%`;
+  /** Compact ms → "820ms" / "6.4s" for the latency cells + tile. */
+  const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`);
   function shortGoal(g: string): string {
     const t = g.trim();
     return t.length > 46 ? t.slice(0, 46) + "…" : t;
@@ -42,11 +44,12 @@
     if (!data) return;
     const header = [
       "session", "goal", "runs", "turns", "avg_turns", "completed_runs", "errored_runs",
-      "success_rate", "intervention_rate", "decisions_continue", "decisions_stop",
+      "success_rate", "error_rate", "intervention_rate", "measured_turns", "avg_latency_ms",
+      "p50_latency_ms", "p95_latency_ms", "max_latency_ms", "decisions_continue", "decisions_stop",
       "decisions_escalate", "thumbs_up", "thumbs_down", "last_run_at",
     ];
-    const fleet = ["FLEET", "", data.fleet.runs, data.fleet.turns, data.fleet.avgTurns, "", "", data.fleet.successRate, data.fleet.interventionRate, data.fleet.decisions.continue, data.fleet.decisions.stop, data.fleet.decisions.escalate, data.fleet.feedback.up, data.fleet.feedback.down, ""];
-    const rows = data.sessions.map((s) => [s.id, s.goal, s.runs, s.turns, s.avgTurns, s.completedRuns, s.erroredRuns, s.successRate, s.interventionRate, s.decisions.continue, s.decisions.stop, s.decisions.escalate, s.feedback.up, s.feedback.down, s.lastRunAt ? new Date(s.lastRunAt).toISOString() : ""]);
+    const fleet = ["FLEET", "", data.fleet.runs, data.fleet.turns, data.fleet.avgTurns, "", "", data.fleet.successRate, data.fleet.errorRate, data.fleet.interventionRate, data.fleet.latency.count, data.fleet.latency.avgMs, data.fleet.latency.p50Ms, data.fleet.latency.p95Ms, data.fleet.latency.maxMs, data.fleet.decisions.continue, data.fleet.decisions.stop, data.fleet.decisions.escalate, data.fleet.feedback.up, data.fleet.feedback.down, ""];
+    const rows = data.sessions.map((s) => [s.id, s.goal, s.runs, s.turns, s.avgTurns, s.completedRuns, s.erroredRuns, s.successRate, s.errorRate, s.interventionRate, s.latency.count, s.latency.avgMs, s.latency.p50Ms, s.latency.p95Ms, s.latency.maxMs, s.decisions.continue, s.decisions.stop, s.decisions.escalate, s.feedback.up, s.feedback.down, s.lastRunAt ? new Date(s.lastRunAt).toISOString() : ""]);
     const csv = [header, fleet, ...rows].map((r) => r.map(csvField).join(",")).join("\n") + "\n";
     download("agi-analytics.csv", csv, "text/csv");
   }
@@ -63,6 +66,9 @@
       <div class="tile"><div class="v tnum">{data.fleet.runs}</div><div class="k">runs</div></div>
       <div class="tile"><div class="v tnum">{data.fleet.turns}</div><div class="k">turns</div></div>
       <div class="tile"><div class="v tnum">{pct(data.fleet.successRate)}</div><div class="k">success</div></div>
+      <div class="tile" title="{data.fleet.latency.count} turns measured — median {fmtMs(data.fleet.latency.p50Ms)}, max {fmtMs(data.fleet.latency.maxMs)}">
+        <div class="v tnum">{fmtMs(data.fleet.latency.p95Ms)}</div><div class="k">p95 latency</div>
+      </div>
       <div class="tile"><div class="v tnum">{pct(data.fleet.interventionRate)}</div><div class="k">needed you</div></div>
       <div class="tile">
         <div class="v tnum"><span class="up">↑{data.fleet.feedback.up}</span> <span class="down">↓{data.fleet.feedback.down}</span></div>
@@ -89,7 +95,7 @@
     <div class="tablewrap">
       <table>
         <thead>
-          <tr><th class="l">agent</th><th>runs</th><th>turns</th><th>success</th><th>needed you</th><th>decisions (c/s/e)</th><th>thumbs</th></tr>
+          <tr><th class="l">agent</th><th>runs</th><th>turns</th><th>success</th><th>error</th><th title="median · p95 per-turn latency">p50 / p95</th><th>needed you</th><th>decisions (c/s/e)</th><th>thumbs</th></tr>
         </thead>
         <tbody>
           {#each data.sessions as s (s.id)}
@@ -98,13 +104,17 @@
               <td class="tnum">{s.runs}</td>
               <td class="tnum">{s.turns}</td>
               <td class="tnum">{pct(s.successRate)}</td>
+              <td class="tnum" class:err={s.errorRate > 0}>{pct(s.errorRate)}</td>
+              <td class="tnum lat" title="{s.latency.count} turns · avg {fmtMs(s.latency.avgMs)} · max {fmtMs(s.latency.maxMs)}">
+                {s.latency.count ? `${fmtMs(s.latency.p50Ms)} / ${fmtMs(s.latency.p95Ms)}` : "—"}
+              </td>
               <td class="tnum">{pct(s.interventionRate)}</td>
               <td class="tnum dec">{s.decisions.continue}/{s.decisions.stop}/{s.decisions.escalate}</td>
               <td class="tnum"><span class="up">↑{s.feedback.up}</span> <span class="down">↓{s.feedback.down}</span></td>
             </tr>
           {/each}
           {#if data.sessions.length === 0}
-            <tr><td colspan="7" class="empty-row">no runs recorded yet</td></tr>
+            <tr><td colspan="9" class="empty-row">no runs recorded yet</td></tr>
           {/if}
         </tbody>
       </table>
@@ -233,6 +243,13 @@
   }
   .dec {
     color: var(--color-neutral-content);
+  }
+  .lat {
+    color: var(--color-neutral-content);
+    font-variant-numeric: tabular-nums;
+  }
+  td.err {
+    color: var(--st-error);
   }
   .empty, .empty-row {
     color: var(--faint);

@@ -251,6 +251,24 @@ export class Store {
     return out;
   }
 
+  /**
+   * Per-turn latencies (ms) for a session (or the whole fleet), oldest first.
+   * Only non-null, positive durations — feeds the latency percentiles in analytics.
+   */
+  turnDurations(sessionId?: string): number[] {
+    const where = sessionId ? `WHERE r.session_id = ?` : ``;
+    const args = sessionId ? [sessionId] : [];
+    const rows = this.db
+      .prepare(
+        `SELECT t.duration_ms AS d
+         FROM turns t JOIN runs r ON t.run_id = r.id
+         ${where ? where + " AND" : "WHERE"} t.duration_ms IS NOT NULL AND t.duration_ms > 0
+         ORDER BY t.id ASC`,
+      )
+      .all(...args) as Array<{ d: number }>;
+    return rows.map((r) => r.d);
+  }
+
   /** Per-day run + turn counts since `sinceMs` (local dates), oldest first. */
   dailyActivity(sinceMs: number, sessionId?: string): Array<{ day: string; runs: number; turns: number }> {
     const extra = sessionId ? `AND session_id = ?` : ``;

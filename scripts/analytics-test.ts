@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStore } from "../src/db/store.js";
-import { buildAnalytics, analyticsToCsv } from "../src/server/analytics.js";
+import { buildAnalytics, analyticsToCsv, percentile, latencyStats } from "../src/server/analytics.js";
 import { emptyLearningSummary } from "../src/learning/service.js";
 
 const dir = mkdtempSync(join(tmpdir(), "agi-analytics-"));
@@ -67,6 +67,30 @@ check("A goal carried through", A.goal === "Build the API");
 check("B success rate = 1 (clean)", B.successRate === 1);
 check("B has no feedback", B.feedback.up === 0 && B.feedback.down === 0);
 
+// --- error rate (complement of success among finished runs) ------------------
+check("fleet error rate ≈ 0.33 (1 of 3 finished errored)", a.fleet.errorRate === 0.33);
+check("A error rate = 0.5", A.errorRate === 0.5);
+check("B error rate = 0", B.errorRate === 0);
+
+// --- latency percentiles (from seeded turn durations) ------------------------
+// A turns: [10,10,10] (run1) + [5] (run2) → sorted [5,10,10,10]
+check("A latency count = 4 turns measured", A.latency.count === 4);
+check("A latency avg = 9ms (round 8.75)", A.latency.avgMs === 9);
+check("A latency p50 = 10, p95 = 10, max = 10", A.latency.p50Ms === 10 && A.latency.p95Ms === 10 && A.latency.maxMs === 10);
+// fleet: A[5,10,10,10] + B[5] → [5,5,10,10,10]
+check("fleet latency count = 5", a.fleet.latency.count === 5);
+check("fleet latency avg = 8ms", a.fleet.latency.avgMs === 8);
+check("fleet latency max = 10ms", a.fleet.latency.maxMs === 10);
+
+// --- pure helpers (percentile / latencyStats) -------------------------------
+check("percentile: empty → 0", percentile([], 95) === 0);
+check("percentile: p95 of 1..20 = 19 (nearest-rank)", percentile(Array.from({ length: 20 }, (_, i) => i + 1), 95) === 19);
+check("percentile: p50 of 1..10 = 5", percentile([1,2,3,4,5,6,7,8,9,10], 50) === 5);
+check("percentile: p100 = max", percentile([3,7,9], 100) === 9);
+const ls = latencyStats([30, 10, 20]);
+check("latencyStats sorts + avgs", ls.count === 3 && ls.avgMs === 20 && ls.maxMs === 30 && ls.p50Ms === 20);
+check("latencyStats empty → zeros", latencyStats([]).count === 0 && latencyStats([]).p95Ms === 0);
+
 // --- learning summary folds in ----------------------------------------------
 check("learning fields present", typeof a.learning.totalExamples === "number" && a.learning.projectProfiles === 0);
 
@@ -75,6 +99,7 @@ const csv = analyticsToCsv(a);
 const lines = csv.trim().split("\n");
 check("csv has header + fleet + 2 sessions = 4 lines", lines.length === 4);
 check("csv header starts with session,goal", !!lines[0]?.startsWith("session,goal,runs"));
+check("csv header includes error_rate + latency columns", !!lines[0]?.includes("error_rate") && !!lines[0]?.includes("p95_latency_ms") && !!lines[0]?.includes("avg_latency_ms"));
 check("csv second row is the FLEET total", !!lines[1]?.startsWith("FLEET,"));
 check("csv quotes a goal with no comma plainly", csv.includes("Build the API"));
 check("csv contains both session ids", csv.includes("\nA,") && csv.includes("\nB,"));

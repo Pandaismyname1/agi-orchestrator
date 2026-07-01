@@ -539,6 +539,15 @@ export type ClientMsg =
   | { type: "decisionFeedbackAt"; id: string; runId: number; n: number; feedback: "up" | "down" | "clear" };
 
 /** Per-session performance row (GET /api/analytics). */
+/** Per-turn latency summary (ms) — mirrors the backend. */
+export interface LatencyStats {
+  count: number;
+  avgMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  maxMs: number;
+}
+
 export interface SessionAnalytics {
   id: string;
   goal: string;
@@ -548,7 +557,9 @@ export interface SessionAnalytics {
   completedRuns: number;
   erroredRuns: number;
   successRate: number;
+  errorRate: number;
   interventionRate: number;
+  latency: LatencyStats;
   decisions: { continue: number; stop: number; escalate: number };
   feedback: { up: number; down: number };
   lastRunAt: number | null;
@@ -563,7 +574,9 @@ export interface Analytics {
     turns: number;
     avgTurns: number;
     successRate: number;
+    errorRate: number;
     interventionRate: number;
+    latency: LatencyStats;
     decisions: { continue: number; stop: number; escalate: number };
     feedback: { up: number; down: number };
   };
