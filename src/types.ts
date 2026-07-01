@@ -362,6 +362,8 @@ export interface SessionTemplate {
   name: string;
   /** Optional one-line description shown in the picker. */
   description?: string;
+  /** Optional grouping label for the templates list (e.g. "Audits", "Bug fixes"). */
+  category?: string;
   /** Pre-filled goal (the first prompt handed to claude). */
   goal?: string;
   /** Pre-filled done criteria. */

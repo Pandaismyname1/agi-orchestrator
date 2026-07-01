@@ -71,6 +71,7 @@ export interface TemplateInput {
   id?: string;
   name: string;
   description?: string;
+  category?: string;
   goal?: string;
   doneCriteria?: string;
   permissionMode?: SessionConfig["permissionMode"];
@@ -932,6 +933,7 @@ export class Supervisor {
     const fields = {
       name,
       description: clean(input.description),
+      category: clean(input.category),
       goal: clean(input.goal),
       doneCriteria: clean(input.doneCriteria),
       permissionMode: input.permissionMode,

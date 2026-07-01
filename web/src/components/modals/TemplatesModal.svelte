@@ -13,10 +13,24 @@
   import { ui } from "../../lib/ui.svelte";
   import { api } from "../../lib/api";
   import { ago } from "../../lib/format";
+  import {
+    distinctCategories,
+    hasUncategorized,
+    filterByCategory,
+    groupByCategory,
+    UNCATEGORIZED,
+  } from "../../lib/templatecat";
   import Modal from "../Modal.svelte";
   import Icon from "../Icon.svelte";
 
   let templates = $derived(wsStore.snapshot?.templates ?? []);
+
+  // Category grouping/filtering for the saved-templates list.
+  let catFilter = $state<string>(""); // "" = all categories
+  let categories = $derived(distinctCategories(templates));
+  let showUncatOption = $derived(hasUncategorized(templates));
+  let visibleTemplates = $derived(filterByCategory(templates, catFilter || null));
+  let templateGroups = $derived(groupByCategory(visibleTemplates));
 
   // Built-in starter catalog (the "marketplace" foundation). Fetched once; the
   // installed state is derived LIVE from the snapshot so an install flips instantly.
@@ -67,6 +81,7 @@
     const recipe = {
       name: t.name,
       description: t.description,
+      category: t.category,
       goal: t.goal,
       doneCriteria: t.doneCriteria,
       permissionMode: t.permissionMode,
@@ -106,6 +121,7 @@
     const payload: TemplateInput = {
       name,
       description: str(obj.description),
+      category: str(obj.category),
       goal: str(obj.goal),
       doneCriteria: str(obj.doneCriteria),
       permissionMode: str(obj.permissionMode) as PermissionMode | undefined,
@@ -127,6 +143,7 @@
   // Form fields.
   let name = $state("");
   let description = $state("");
+  let category = $state("");
   let goal = $state("");
   let doneCriteria = $state("");
   let permissionMode = $state<PermissionMode>("acceptEdits");
@@ -136,6 +153,7 @@
   function resetForm(): void {
     name = "";
     description = "";
+    category = "";
     goal = "";
     doneCriteria = "";
     permissionMode = "acceptEdits";
@@ -154,6 +172,7 @@
     editingId = t.id;
     name = t.name ?? "";
     description = t.description ?? "";
+    category = t.category ?? "";
     goal = t.goal ?? "";
     doneCriteria = t.doneCriteria ?? "";
     permissionMode = t.permissionMode ?? "acceptEdits";
@@ -177,6 +196,7 @@
     const payload: TemplateInput = {
       name: n,
       description: description.trim() || undefined,
+      category: category.trim() || undefined,
       goal: goal.trim() || undefined,
       doneCriteria: doneCriteria.trim() || undefined,
       permissionMode,
@@ -207,8 +227,27 @@
         No templates yet — create one to pre-fill the New Session wizard.
       </div>
     {:else}
-      <div class="tm-list">
-        {#each templates as t (t.id)}
+      {#if categories.length}
+        <div class="tm-filterbar">
+          <label class="tm-filterlabel" for="tm_catfilter">Category</label>
+          <select id="tm_catfilter" class="tm-filtersel" bind:value={catFilter}>
+            <option value="">All categories ({templates.length})</option>
+            {#each categories as c (c)}
+              <option value={c}>{c}</option>
+            {/each}
+            {#if showUncatOption}<option value={UNCATEGORIZED}>{UNCATEGORIZED}</option>{/if}
+          </select>
+        </div>
+      {/if}
+      {#each templateGroups as g (g.category)}
+        {#if categories.length}
+          <div class="tm-group-head">
+            <span>{g.category}</span>
+            <span class="tm-group-n">{g.items.length}</span>
+          </div>
+        {/if}
+        <div class="tm-list">
+        {#each g.items as t (t.id)}
           <div class="tm-row">
             <div class="tm-main">
               <div class="tm-name">{t.name}</div>
@@ -263,7 +302,8 @@
             </div>
           </div>
         {/each}
-      </div>
+        </div>
+      {/each}
     {/if}
 
     <!-- Starter library: built-in recipes you can install with one click. -->
@@ -375,6 +415,12 @@
     <label for="tm_desc">Description <span class="opt">(optional)</span></label>
     <input id="tm_desc" bind:value={description} placeholder="short note about when to use this" />
 
+    <label for="tm_cat">Category <span class="opt">(optional — groups the list)</span></label>
+    <input id="tm_cat" bind:value={category} list="tm_cat_options" placeholder="e.g. Audits, Bug fixes" />
+    <datalist id="tm_cat_options">
+      {#each categories as c (c)}<option value={c}></option>{/each}
+    </datalist>
+
     <label for="tm_goal">Goal <span class="opt">(optional)</span></label>
     <textarea id="tm_goal" bind:value={goal} placeholder="what claude should accomplish"></textarea>
 
@@ -417,6 +463,46 @@
     color: var(--faint);
     padding: 24px;
     text-align: center;
+  }
+  .tm-filterbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .tm-filterlabel {
+    margin: 0;
+    flex: none;
+  }
+  .tm-filtersel {
+    width: auto;
+    flex: 1;
+    max-width: 260px;
+    font-size: 12.5px;
+    padding: 6px 8px;
+  }
+  .tm-group-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--color-neutral-content);
+    margin: 14px 0 8px;
+  }
+  .tm-group-head:first-of-type {
+    margin-top: 0;
+  }
+  .tm-group-n {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--faint);
+    background: var(--color-base-200);
+    border: 1px solid var(--border-soft);
+    border-radius: 20px;
+    padding: 1px 7px;
   }
   .tm-list {
     display: flex;

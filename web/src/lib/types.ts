@@ -227,6 +227,8 @@ export interface SessionTemplate {
   id: string;
   name: string;
   description?: string;
+  /** Optional grouping label for the templates list. */
+  category?: string;
   goal?: string;
   doneCriteria?: string;
   permissionMode?: PermissionMode;
@@ -243,6 +245,7 @@ export type TemplateInput = {
   id?: string;
   name: string;
   description?: string;
+  category?: string;
   goal?: string;
   doneCriteria?: string;
   permissionMode?: PermissionMode;
