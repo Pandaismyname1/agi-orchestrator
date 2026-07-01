@@ -126,8 +126,8 @@ export interface LearningService {
   summary(): LearningSummary;
   /** Mine + derive + synthesize a DRAFT for a scope (default global). */
   synthesize(scope?: ProfileScope): Promise<DraftProposal>;
-  /** Promote the draft to a new active version. */
-  approve(scope?: ProfileScope): OperatorProfile;
+  /** Promote the draft to a new active version (gated on the eval unless forced). */
+  approve(scope?: ProfileScope, opts?: { force?: boolean }): OperatorProfile;
   /** Discard the draft. */
   reject(scope?: ProfileScope): void;
   /** Repoint the active ref to an earlier version. */

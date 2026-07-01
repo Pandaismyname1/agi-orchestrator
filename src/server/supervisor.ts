@@ -897,9 +897,9 @@ export class Supervisor {
     if (!this.learning) throw new Error("learning is unavailable (no persistent store).");
     return this.learning.synthesize(scope);
   }
-  learnApprove(scope?: ProfileScope): OperatorProfile {
+  learnApprove(scope?: ProfileScope, opts?: { force?: boolean }): OperatorProfile {
     if (!this.learning) throw new Error("learning is unavailable.");
-    return this.learning.approve(scope);
+    return this.learning.approve(scope, opts);
   }
   learnReject(scope?: ProfileScope): void {
     this.learning?.reject(scope);

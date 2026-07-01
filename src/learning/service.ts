@@ -16,7 +16,7 @@ import { mineExamples } from "./miner.js";
 import { deriveRecentCorrections, deriveEscalationChoices } from "./liveSignals.js";
 import { deriveRecentFeedback, deriveRecentFeedbackByCwd } from "./feedbackSignals.js";
 import { synthesizeProfile } from "./synthesize.js";
-import { replayEval } from "./eval.js";
+import { replayEval, evalGateBlocks, EvalGateError } from "./eval.js";
 import { truncate } from "./util.js";
 import {
   GLOBAL_SCOPE,
@@ -36,6 +36,7 @@ const DEFAULTS = {
   maxFewShot: 6,
   guidanceCharBudget: 700,
   evalHeldOut: 40,
+  evalGate: true,
 };
 
 function dedupe(items: ExampleBankItem[]): ExampleBankItem[] {
@@ -71,6 +72,7 @@ export class LearningService implements ILearningService {
       maxFewShot: options?.maxFewShot ?? DEFAULTS.maxFewShot,
       guidanceCharBudget: options?.guidanceCharBudget ?? DEFAULTS.guidanceCharBudget,
       evalHeldOut: options?.evalHeldOut ?? DEFAULTS.evalHeldOut,
+      evalGate: options?.evalGate ?? DEFAULTS.evalGate,
     };
   }
 
@@ -202,10 +204,21 @@ export class LearningService implements ILearningService {
     return draft;
   }
 
-  approve(scope?: ProfileScope): OperatorProfile {
+  approve(scope?: ProfileScope, opts?: { force?: boolean }): OperatorProfile {
     const target = this.scopeOf(scope);
     const draft = this.profiles.getDraft(target);
     if (!draft) throw new Error(`no pending draft for ${scopeLabel(target)}`);
+    // Eval gate (A3): refuse a draft the replay-eval scored as a regression unless
+    // the operator force-approves. The eval signal already rode along on the draft.
+    if (!opts?.force && evalGateBlocks(draft.eval, this.opts.evalGate)) {
+      const e = draft.eval!;
+      throw new EvalGateError(
+        `eval gate: this draft matched your past choices ${e.profileMatch}/${e.total} vs ` +
+          `${e.baselineMatch}/${e.total} for baseline (Δ ${e.delta}) — a regression. ` +
+          `Re-synthesize, or force-approve to override.`,
+        e.delta,
+      );
+    }
     const profile = this.profiles.saveVersionAndActivate(draft.draft);
     this.profiles.clearDraft(target);
     return profile;

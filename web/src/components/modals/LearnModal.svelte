@@ -65,6 +65,7 @@
     selectedScope = scope;
     draft = null;
     versions = [];
+    confirming = false;
     void loadDetail(scope);
   }
 
@@ -84,13 +85,30 @@
     }, 2500);
   }
 
+  // Eval gate: a draft whose advisory replay-eval shows a regression (matched the
+  // owner's past choices fewer times than baseline) is blocked by the backend
+  // unless force-approved. The UI mirrors that — Approve asks for confirmation
+  // first, then sends force:true.
+  let regressive = $derived(!!draft?.eval && draft.eval.total > 0 && draft.eval.delta < 0);
+  let confirming = $state(false);
+
   function approve() {
-    wsStore.send({ type: "learnApprove", scope: selectedScope });
-    ui.toast("draft approved — it's now the active profile");
+    if (regressive && !confirming) {
+      confirming = true; // first click on a regressive draft → ask to override
+      return;
+    }
+    wsStore.send({ type: "learnApprove", scope: selectedScope, force: regressive });
+    confirming = false;
+    ui.toast(
+      regressive
+        ? "draft force-approved — overrode the eval gate"
+        : "draft approved — it's now the active profile",
+    );
     setTimeout(() => void refresh(), 400);
   }
 
   function reject() {
+    confirming = false;
     wsStore.send({ type: "learnReject", scope: selectedScope });
     ui.toast("draft rejected");
     setTimeout(() => void refresh(), 400);
@@ -198,10 +216,19 @@
             {/if}
 
             {#if draft.eval}
-              <div class="lm-eval" title="Advisory only — not a gate">
-                advisory eval: +{draft.eval.delta} matches (Δ {draft.eval.delta} of {draft.eval
-                  .total}) — not a gate yet
-              </div>
+              {#if regressive}
+                <div class="lm-eval bad" title="The eval gate blocks approval of a regression">
+                  ⚠ eval regression: this draft matched {draft.eval.profileMatch}/{draft.eval.total} vs
+                  {draft.eval.baselineMatch}/{draft.eval.total} for baseline (Δ {draft.eval.delta}).
+                  Approval is gated — re-synthesize, or override.
+                </div>
+              {:else}
+                <div class="lm-eval" title="Advisory replay-eval against held-out corrections">
+                  eval: matched {draft.eval.profileMatch}/{draft.eval.total} vs {draft.eval
+                    .baselineMatch}/{draft.eval.total} baseline (Δ {draft.eval.delta >= 0 ? "+" : ""}{draft
+                    .eval.delta})
+                </div>
+              {/if}
             {/if}
 
             {#if draft.draft.meta.note}
@@ -209,8 +236,16 @@
             {/if}
 
             <div class="lm-actions">
-              <button class="btn btn-sm" onclick={reject}>Reject</button>
-              <button class="btn btn-sm btn-primary" onclick={approve}>Approve</button>
+              {#if confirming}
+                <span class="lm-confirm">Eval shows a regression — override the gate?</span>
+                <button class="btn btn-sm" onclick={() => (confirming = false)}>Cancel</button>
+                <button class="btn btn-sm lm-anyway" onclick={approve}>Approve anyway</button>
+              {:else}
+                <button class="btn btn-sm" onclick={reject}>Reject</button>
+                <button class="btn btn-sm btn-primary" onclick={approve}>
+                  {regressive ? "Approve (gated)" : "Approve"}
+                </button>
+              {/if}
             </div>
           </div>
         {:else if versions.length === 0}
@@ -446,6 +481,30 @@
     color: var(--color-neutral-content);
     margin-top: 12px;
     font-style: italic;
+  }
+  .lm-eval.bad {
+    font-style: normal;
+    font-weight: 600;
+    color: var(--st-error);
+    background: rgba(248, 113, 113, 0.1);
+    border: 1px solid var(--st-error);
+    border-radius: 8px;
+    padding: 7px 10px;
+    line-height: 1.45;
+  }
+  .lm-confirm {
+    font-size: 12px;
+    color: var(--st-error);
+    font-weight: 600;
+    margin-right: auto;
+    align-self: center;
+  }
+  .lm-anyway {
+    color: var(--st-error);
+    border-color: var(--st-error);
+  }
+  .lm-anyway:hover {
+    background: rgba(248, 113, 113, 0.14);
   }
   .lm-metanote {
     font-size: 12px;

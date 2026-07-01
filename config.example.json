@@ -62,7 +62,8 @@
     "maxExamples": 30,
     "maxFewShot": 6,
     "guidanceCharBudget": 700,
-    "evalHeldOut": 40
+    "evalHeldOut": 40,
+    "evalGate": true
   },
   "dispatch": {
     "token": "",
@@ -153,7 +154,7 @@
     "budget": "daily caps across ALL sessions (resets at local midnight). Sessions refuse to start / stop when exceeded. Omit to disable. The dashboard shows today's usage; claude's own usage-limit notice also auto-pauses the session.",
     "maxConcurrent": "max sessions running at once; extra 'Start all' sessions queue and auto-start as slots free (protects the rate limit). Omit for no cap.",
     "contextGuard": "memory-preserving compaction for long runs. When estimated context use (transcript bytes/4 ÷ window) crosses compactAtPercent, the agent writes a handoff to handoffFile, runs /compact, then resumes from the handoff — so it doesn't overflow or lose the thread. Set enabled:true and window to your model's context (e.g. 200000, or 1000000). minTurnsBetween throttles repeat compactions.",
-    "learning": "self-improvement: Qwen learns YOUR operating style from past Claude Code sessions + your live corrections, behind a propose→approve→revert gate (use the dashboard 'Learn' button). OFF by default and a strict no-op until you approve a profile. enabled:true turns on guidance injection for APPROVED profiles only; the other knobs bound mining/few-shot/guidance size + the advisory eval's held-out set.",
+    "learning": "self-improvement: Qwen learns YOUR operating style from past Claude Code sessions + your live corrections, behind a propose→approve→revert gate (use the dashboard 'Learn' button). OFF by default and a strict no-op until you approve a profile. enabled:true turns on guidance injection for APPROVED profiles only; the other knobs bound mining/few-shot/guidance size + the advisory eval's held-out set. evalGate (default true) refuses to approve a draft whose replay-eval regressed vs baseline (Δ<0) unless you force-approve; set false to keep the eval purely advisory.",
     "dispatch": "remote access for when you expose the dashboard port to reach it from your phone. Set token (or env AGI_DISPATCH_TOKEN) to a strong secret — with NO token, remote requests are refused (local always works). Remote clients send it as Authorization: Bearer, X-AGI-Token, or ?token=. trustLocal:true (default) skips the token for loopback; set it false if you front the dashboard with a LOCAL tunnel (cloudflared/ngrok) so the token is still required. The token travels in the request — prefer a TLS tunnel (Tailscale / Cloudflare Tunnel) over bare HTTP. rateLimit caps remote requests/IP and (stricter) auth failures/IP to thwart brute force.",
     "usageGuard": "hooks into Claude's REAL subscription limits instead of an artificial daily cap. The orchestrator reads Claude's own /usage (a local command, no model usage) and pauses a session when a governing limit is spent, auto-resuming at the reported reset. pauseAtPercent (default 100) pauses earlier if set lower. onOpusExhausted: when the weekly all-models (Opus) cap is spent but the Sonnet pool has room, 'continue' keeps working on Sonnet (default) and 'pause' stops until the weekly reset. refreshEveryTurns re-reads /usage every N turns. When enabled, the legacy budget.maxTurnsPerDay/maxMinutesPerDay no longer gate runs.",
     "gatePolicy.note": "see permissionMode — gatePolicy only sees gates when claude actually prompts",

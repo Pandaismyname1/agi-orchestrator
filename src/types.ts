@@ -437,6 +437,12 @@ export interface LearningOptions {
   guidanceCharBudget?: number;
   /** Corrections held out from synthesis for the advisory replay-eval. */
   evalHeldOut?: number;
+  /**
+   * Gate approval on the replay-eval: when on (default), `approve()` refuses a
+   * draft whose eval shows a regression (delta < 0) unless force-approved. Set
+   * false to keep the eval purely advisory.
+   */
+  evalGate?: boolean;
 }
 
 /** Tunables for the context-window manager (see policy/context.ts). */

@@ -128,6 +128,8 @@ interface ClientMsg {
   /** For "learn*": the profile scope ("global" or "cwd:<path>") and version. */
   scope?: string;
   version?: number;
+  /** For "learnApprove": override the eval gate and approve a regressive draft. */
+  force?: boolean;
   /** For "resolve": how the user answered an open human-decision. */
   choice?: { optionIndex?: number; customPrompt?: string; stop?: boolean };
   /** For "setMode": the target mode. For "sendMessage": the message text. */
@@ -720,7 +722,7 @@ async function main(): Promise<void> {
           break;
         case "learnApprove":
           try {
-            sup.learnApprove(msg.scope);
+            sup.learnApprove(msg.scope, { force: msg.force === true });
           } catch (e) {
             sendError(e instanceof Error ? e.message : String(e));
           }

@@ -10,8 +10,9 @@ import { openStore } from "../src/db/store.js";
 import { ProfileStore } from "../src/learning/profileStore.js";
 import { deriveCorrections, deriveEscalationChoices } from "../src/learning/liveSignals.js";
 import { synthesizeProfile } from "../src/learning/synthesize.js";
-import { replayEval } from "../src/learning/eval.js";
+import { replayEval, evalGateBlocks, EvalGateError } from "../src/learning/eval.js";
 import { LearningService } from "../src/learning/service.js";
+import type { DraftProposal, EvalReport } from "../src/learning/types.js";
 import { buildSystemPrompt } from "../src/brain/decide.js";
 import type { LocalLLM } from "../src/brain/provider.js";
 import type { ChatMessage } from "../src/brain/provider.js";
@@ -157,6 +158,50 @@ check("escalation: one choice mined (stop skipped)", esc.length === 1);
 check("escalation: instruction = chosen option's prompt", esc[0]?.instruction === "use library Y and continue");
 check("escalation: situation = the agent state", esc[0]?.situation === "two libs found: X and Y");
 check("escalation: weighted above ordinary overrides", (esc[0]?.count ?? 0) === 3);
+
+// ── 8. eval gate: pure predicate ───────────────────────────────────────────
+const mkEval = (delta: number, total = 4): EvalReport => ({
+  schema: 1, total, baselineMatch: 2, profileMatch: 2 + delta, matchRate: 0, delta, ranAt: 1,
+});
+check("gate blocks a regression when enabled", evalGateBlocks(mkEval(-1), true) === true);
+check("gate allows an improvement", evalGateBlocks(mkEval(2), true) === false);
+check("gate allows a neutral (delta 0)", evalGateBlocks(mkEval(0), true) === false);
+check("gate off never blocks", evalGateBlocks(mkEval(-3), false) === false);
+check("empty eval (total 0) never blocks", evalGateBlocks(mkEval(-3, 0), true) === false);
+check("null/absent eval never blocks", evalGateBlocks(null, true) === false && evalGateBlocks(undefined, true) === false);
+
+// ── 8b. eval gate: approve() enforcement (integration) ─────────────────────
+const gateStore = openStore(`${ROOT}/gate.db`);
+const gps = new ProfileStore(gateStore);
+const mkDraft = (scope: string, delta: number): DraftProposal => ({
+  schema: 1,
+  scope,
+  draft: { schema: 1, scope, guidance: "- do the thing", examples: [], meta: { fromPastSessions: 0, fromLiveCorrections: 0, model: "stub" } },
+  baseVersion: null,
+  createdAt: 1,
+  eval: mkEval(delta),
+});
+
+// Gate ON (default): a regressive draft is refused, but force-approve overrides.
+const gated = new LearningService(gateStore, synthLLM, { enabled: true }, "stub");
+gps.saveDraft(mkDraft("global", -2));
+let threw = false;
+try { gated.approve("global"); } catch (e) { threw = e instanceof EvalGateError; }
+check("approve() refuses a regressive draft (EvalGateError)", threw);
+check("draft survives a blocked approval", gps.getDraft("global") !== null);
+const forced = gated.approve("global", { force: true });
+check("force-approve overrides the gate", forced.guidance === "- do the thing");
+check("forced approval consumes the draft", gps.getDraft("global") === null);
+
+// A non-regressive draft approves normally (no force needed).
+gps.saveDraft(mkDraft("global", 3));
+check("approve() allows an improving draft", gated.approve("global").version >= 1);
+
+// Gate OFF: even a regression approves without force.
+const ungated = new LearningService(gateStore, synthLLM, { enabled: true, evalGate: false }, "stub");
+gps.saveDraft(mkDraft("global", -5));
+check("gate disabled → regressive draft approves without force", ungated.approve("global").guidance === "- do the thing");
+gateStore.close();
 
 store.close();
 rmSync(ROOT, { recursive: true, force: true });

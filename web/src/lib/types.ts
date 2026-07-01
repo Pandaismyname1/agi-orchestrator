@@ -516,7 +516,7 @@ export type ClientMsg =
   | { type: "updateSettings"; settings: SettingsPatch }
   | { type: "continue"; id: string; continue: ContinuePatch }
   | { type: "learnSynthesize"; scope?: string }
-  | { type: "learnApprove"; scope?: string }
+  | { type: "learnApprove"; scope?: string; force?: boolean }
   | { type: "learnReject"; scope?: string }
   | { type: "learnRevert"; scope: string; version: number }
   | { type: "templateSave"; template: TemplateInput }

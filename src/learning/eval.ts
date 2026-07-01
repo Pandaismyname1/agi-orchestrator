@@ -117,3 +117,33 @@ export async function replayEval(
     ranAt: Date.now(),
   };
 }
+
+/**
+ * The eval gate (A3): should approving this draft be blocked? Returns true only
+ * when gating is enabled AND the advisory eval shows a regression — the draft
+ * matched the owner's past choices fewer times than baseline (delta < threshold,
+ * default 0). A missing/empty eval (e.g. no held-out corpus) never blocks, so the
+ * gate only fires on real evidence of harm. Pure so the policy is unit-testable;
+ * the operator can still override (force-approve) deliberately.
+ */
+export function evalGateBlocks(
+  report: EvalReport | null | undefined,
+  enabled: boolean,
+  threshold = 0,
+): boolean {
+  if (!enabled || !report) return false;
+  if (report.total <= 0) return false; // nothing was evaluated → no evidence to gate on
+  return report.delta < threshold;
+}
+
+/** Thrown by approve() when the eval gate blocks a regressive draft (carries the delta). */
+export class EvalGateError extends Error {
+  readonly code = "eval-gate";
+  constructor(
+    message: string,
+    readonly delta: number,
+  ) {
+    super(message);
+    this.name = "EvalGateError";
+  }
+}
