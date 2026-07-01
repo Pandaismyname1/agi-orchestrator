@@ -3,10 +3,36 @@
 /** How claude renders its current screen, classified from clean emulator text. */
 export type ScreenState = "working" | "ready" | "gate" | "unknown";
 
+/**
+ * Which coding agent drives a session.
+ * "claude"  (default) — the Claude Code CLI, driven through an owned PTY.
+ * "opencode" — the OpenCode CLI, driven over its `opencode serve` HTTP API.
+ */
+export type SessionEngine = "claude" | "opencode";
+
+/** Connection + model settings for an OpenCode-engine session (see SessionConfig.opencode). */
+export interface OpenCodeEngineConfig {
+  /** Base URL of a running `opencode serve`. Default http://127.0.0.1:4919. */
+  baseUrl?: string;
+  /** Provider id as OpenCode exposes it (e.g. "lmstudio", "groq"). */
+  providerID: string;
+  /** Model id within that provider (e.g. "qwen/qwen3-coder-30b"). */
+  modelID: string;
+  /** Agent to drive (default "build"). */
+  agent?: string;
+}
+
 /** A session the daemon drives. */
 export interface SessionConfig {
   /** Stable id used for the forced claude --session-id and the dashboard. */
   id: string;
+  /**
+   * Which agent drives this session. Defaults to "claude". "opencode" routes the
+   * run through the HTTP driver and requires `opencode` (below) to be set.
+   */
+  engine?: SessionEngine;
+  /** Connection/model for an OpenCode-engine session. Required when engine === "opencode". */
+  opencode?: OpenCodeEngineConfig;
   /** Working directory the claude session runs in (the project). */
   cwd: string;
   /** The high-level goal — handed to claude as the first prompt and to the brain as context. */

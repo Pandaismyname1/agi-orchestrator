@@ -76,6 +76,11 @@ export async function loadConfig(file = process.env.AGI_CONFIG ?? "config.json")
     if (!s.cwd || !s.goal || !s.doneCriteria) {
       throw new Error(`each session needs cwd, goal, and doneCriteria. Offender: ${JSON.stringify(s)}`);
     }
+    if (s.engine === "opencode" && (!s.opencode?.providerID || !s.opencode?.modelID)) {
+      throw new Error(
+        `session "${s.id ?? s.goal}" uses engine "opencode" but is missing opencode.providerID / opencode.modelID.`,
+      );
+    }
     return {
       ...s, // preserve optional fields (autonomy, gatePolicy, startMode, …)
       id: s.id || randomUUID(),

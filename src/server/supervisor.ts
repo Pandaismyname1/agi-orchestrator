@@ -6,7 +6,8 @@
  */
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { runSession, type OrchestratorEvent, type RunOptions, type UserInput } from "../orchestrator.js";
+import { type OrchestratorEvent, type RunOptions, type UserInput } from "../orchestrator.js";
+import { runAgentSession } from "../runner.js";
 import { ClaudeSession } from "../session/claudeSession.js";
 import { LocalLLM } from "../brain/provider.js";
 import { saveConfig } from "../config.js";
@@ -106,7 +107,7 @@ export interface AutomationInput {
   actions?: AutomationAction[];
 }
 
-/** The session-runner the supervisor drives (real one is runSession; tests inject a stub). */
+/** The session-runner the supervisor drives (real one is runAgentSession; tests inject a stub). */
 export type RunFn = (session: SessionConfig, opts: RunOptions) => Promise<void>;
 
 export type SessionStatus =
@@ -252,8 +253,8 @@ export class Supervisor {
     private readonly store?: Store,
     /** Optional brain override (e.g. a faster model, or a test stub). */
     private readonly decide?: RunOptions["decide"],
-    /** Optional session-runner override (defaults to the real orchestrator). */
-    private readonly runner: RunFn = runSession,
+    /** Optional session-runner override (defaults to the engine-dispatching runner). */
+    private readonly runner: RunFn = runAgentSession,
     /** Optional notifier override (tests inject one with a recording transport). */
     notifier?: Notifier,
     /** Optional git/gh runner for auto-PR (tests inject a recording stub). */
