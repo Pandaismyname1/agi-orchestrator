@@ -56,6 +56,18 @@ export type BaseUrlResolver = (oc: { baseUrl?: string; port?: number }) => Promi
 const defaultFactory: OpenCodeDriverFactory = (opts) => new OpenCodeSession(opts);
 
 /**
+ * Provider ids known to run LOCALLY (loopback model server) — subscription-safe,
+ * like the Claude PTY path. Anything else is treated as potentially billed and
+ * requires an explicit `allowPaidProvider` opt-in before an unattended run.
+ */
+const LOCAL_PROVIDERS = new Set(["lmstudio", "lm-studio", "ollama", "llamacpp", "llama.cpp", "local"]);
+
+/** Is this OpenCode provider id a known-local (cost-free) one? Case-insensitive. */
+export function isLocalOpenCodeProvider(providerID: string): boolean {
+  return LOCAL_PROVIDERS.has(providerID.trim().toLowerCase());
+}
+
+/**
  * Default base-URL resolution: attach to an explicit baseUrl, else spawn/attach a
  * managed `opencode serve` on the configured port (shared across sessions).
  */
@@ -85,6 +97,19 @@ export async function runOpenCodeSession(
   const oc = session.opencode;
   if (!oc?.providerID || !oc?.modelID) {
     emit({ type: "error", sessionId: session.id, error: "opencode engine requires session.opencode.providerID and modelID" });
+    return;
+  }
+
+  // Subscription-safety: refuse to drive unattended on a potentially-billed
+  // provider unless the operator explicitly opted in. Local providers run freely.
+  if (!isLocalOpenCodeProvider(oc.providerID) && !oc.allowPaidProvider) {
+    emit({
+      type: "error",
+      sessionId: session.id,
+      error:
+        `refusing to drive OpenCode unattended on non-local provider "${oc.providerID}" — it may incur cost. ` +
+        `Use a local provider (lmstudio/ollama) or set session.opencode.allowPaidProvider: true to acknowledge.`,
+    });
     return;
   }
 

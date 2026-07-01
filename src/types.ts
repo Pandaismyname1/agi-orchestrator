@@ -25,6 +25,13 @@ export interface OpenCodeEngineConfig {
   modelID: string;
   /** Agent to drive (default "build"). */
   agent?: string;
+  /**
+   * Opt-in acknowledgment that this session may drive a NON-local (potentially
+   * billed) provider. Without it, unattended runs on anything but a known-local
+   * provider (lmstudio/ollama/…) are refused — mirroring the brain's
+   * subscription-safety guard. Local providers ignore this flag.
+   */
+  allowPaidProvider?: boolean;
 }
 
 /** A session the daemon drives. */
