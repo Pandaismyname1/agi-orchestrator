@@ -12,8 +12,13 @@ export type SessionEngine = "claude" | "opencode";
 
 /** Connection + model settings for an OpenCode-engine session (see SessionConfig.opencode). */
 export interface OpenCodeEngineConfig {
-  /** Base URL of a running `opencode serve`. Default http://127.0.0.1:4919. */
+  /**
+   * Base URL of an already-running `opencode serve` to ATTACH to. When omitted,
+   * the orchestrator spawns/attaches a managed server on `port` automatically.
+   */
   baseUrl?: string;
+  /** Port for the auto-managed `opencode serve` (ignored when baseUrl is set). Default 4919. */
+  port?: number;
   /** Provider id as OpenCode exposes it (e.g. "lmstudio", "groq"). */
   providerID: string;
   /** Model id within that provider (e.g. "qwen/qwen3-coder-30b"). */

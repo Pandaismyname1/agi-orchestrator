@@ -286,16 +286,18 @@ export class OpenCodeSession {
 }
 
 /*
- * Supervisor wiring — NOT done in this prototype (intentional next step):
- *  - lifecycle: manage `opencode serve` (spawn one headless server, or `attach` to
- *    a user-run one) and pool sessions against it.
- *  - status mapping: session.status busy/idle → SessionStatus running/idle; a
- *    blocked permission → "needs-input"; session.error → "error".
- *  - permission policy: replace the default-reject `onPermission` with the existing
- *    gate guard (classifyGate/brain autonomy) so risky actions escalate to the human.
+ * Integration status:
+ *  - lifecycle: DONE — OpenCodeServerManager (opencodeServer.ts) spawns/attaches a
+ *    shared `opencode serve` per port; runOpenCodeSession resolves the base URL
+ *    through it, so an engine:"opencode" session works without a hand-started server.
+ *  - Supervisor dispatch: DONE — runAgentSession routes by SessionConfig.engine and
+ *    runOpenCodeSession maps a blocked permission onto the existing gate path
+ *    (resolveGate → "needs-input"), reusing the brain/guards/escalation loop.
+ *
+ * Still open (documented, not blocking):
  *  - budget/usage: OpenCode has no Claude /usage panel; cost comes from its own
  *    provider. With a LOCAL provider (lmstudio) it's subscription-safe like the
- *    Claude PTY path; with a paid provider it is NOT — the Supervisor must gate that.
- *  - transcript: reuse readOpenCodeMessages()/discovery so a driven OpenCode session
- *    is minable and resumable exactly like a Claude one.
+ *    Claude PTY path; with a paid provider it is NOT — needs a cost guard.
+ *  - continue/resume: create a fresh session per run; resuming a prior ses_ id and
+ *    live PTY-style screen streaming for the dashboard aren't wired yet.
  */

@@ -21,6 +21,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { OpenCodeSession, type OpenCodeSessionOptions } from "./session/opencodeSession.js";
+import { getSharedServer, hookProcessCleanup } from "./session/opencodeServer.js";
 import { decideNextStep } from "./brain/decide.js";
 import { gitSummary } from "./brain/repoState.js";
 import { isTransientError } from "./brain/provider.js";
@@ -49,9 +50,20 @@ export interface OpenCodeDriver {
 /** Factory so tests can inject a driver without a live `opencode serve`. */
 export type OpenCodeDriverFactory = (opts: OpenCodeSessionOptions) => OpenCodeDriver;
 
+/** Resolve the base URL to drive against (tests inject to avoid spawning a server). */
+export type BaseUrlResolver = (oc: { baseUrl?: string; port?: number }) => Promise<string>;
+
 const defaultFactory: OpenCodeDriverFactory = (opts) => new OpenCodeSession(opts);
 
-const DEFAULT_BASE_URL = "http://127.0.0.1:4919";
+/**
+ * Default base-URL resolution: attach to an explicit baseUrl, else spawn/attach a
+ * managed `opencode serve` on the configured port (shared across sessions).
+ */
+const defaultResolveBaseUrl: BaseUrlResolver = async (oc) => {
+  if (oc.baseUrl) return oc.baseUrl;
+  hookProcessCleanup();
+  return getSharedServer({ port: oc.port }).ensure();
+};
 
 /**
  * Drive one OpenCode session to its done-criteria (or a guard/limit). Matches the
@@ -60,7 +72,7 @@ const DEFAULT_BASE_URL = "http://127.0.0.1:4919";
 export async function runOpenCodeSession(
   session: SessionConfig,
   opts: RunOptions,
-  deps: { createDriver?: OpenCodeDriverFactory } = {},
+  deps: { createDriver?: OpenCodeDriverFactory; resolveBaseUrl?: BaseUrlResolver } = {},
 ): Promise<void> {
   const { llm, onEvent } = opts;
   const emit: EventSink = onEvent ?? (() => {});
@@ -68,6 +80,7 @@ export async function runOpenCodeSession(
   const guards = new Guards(limits);
   const stuck = new StuckDetector();
   const createDriver = deps.createDriver ?? defaultFactory;
+  const resolveBaseUrl = deps.resolveBaseUrl ?? defaultResolveBaseUrl;
 
   const oc = session.opencode;
   if (!oc?.providerID || !oc?.modelID) {
@@ -75,11 +88,22 @@ export async function runOpenCodeSession(
     return;
   }
 
+  // Resolve where to drive: an explicit baseUrl, or a managed `opencode serve`
+  // (spawned/attached automatically). A failure here (server won't come up) ends
+  // the run with a clear error instead of throwing past the caller.
+  let baseUrl: string;
+  try {
+    baseUrl = await resolveBaseUrl(oc);
+  } catch (e) {
+    emit({ type: "error", sessionId: session.id, error: `opencode serve unavailable: ${(e as Error).message}` });
+    return;
+  }
+
   // Map an OpenCode permission request onto the existing dangerous-gate path so
   // the dashboard surfaces it and the operator/policy decides. Runs concurrently
   // with the blocked turn POST — answering it is what lets the turn finish.
   const sess = createDriver({
-    baseUrl: oc.baseUrl ?? DEFAULT_BASE_URL,
+    baseUrl,
     providerID: oc.providerID,
     modelID: oc.modelID,
     agent: oc.agent,
