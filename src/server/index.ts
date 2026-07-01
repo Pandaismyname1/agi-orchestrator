@@ -552,7 +552,12 @@ async function main(): Promise<void> {
 
       switch (msg.type) {
         case "start":
-          if (msg.id) sup.start(msg.id);
+          if (msg.id) {
+            // Surface a refused start (spent limit, budget, unmet deps, stale id)
+            // so the operator sees WHY nothing launched, instead of a silent no-op.
+            const outcome = sup.start(msg.id);
+            if (!outcome.started && outcome.reason) sendError(outcome.reason);
+          }
           break;
         case "stop":
           if (msg.id) sup.stop(msg.id);

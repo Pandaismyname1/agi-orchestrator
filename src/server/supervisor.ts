@@ -124,6 +124,20 @@ export type SessionStatus =
 
 export type SessionMode = "manual" | "autopilot";
 
+/**
+ * Result of a start() request. `started` is true when the session launched now
+ * or was queued to launch shortly; false when a guard refused it (already active,
+ * unknown id, blocked on deps, a spent usage/budget limit). `reason` explains a
+ * refusal so the UI can tell the operator why their click did nothing.
+ */
+export interface StartOutcome {
+  started: boolean;
+  /** True when started but deferred to the queue (concurrency cap). */
+  queued?: boolean;
+  /** Human-readable reason a start was refused (present only when !started). */
+  reason?: string;
+}
+
 export interface SessionView {
   id: string;
   cwd: string;
@@ -595,10 +609,20 @@ export class Supervisor {
     }
   }
 
-  /** Request a session to run: launch now if a slot is free, else queue it. */
-  start(id: string, opts?: { gen?: number; auto?: boolean }): void {
+  /**
+   * Request a session to run: launch now if a slot is free, else queue it.
+   * Returns a StartOutcome so callers (the WS handler) can tell the operator WHY
+   * a click did nothing — a start refused by a guard used to return silently,
+   * leaving the card idle with no feedback ("nothing happens").
+   */
+  start(id: string, opts?: { gen?: number; auto?: boolean }): StartOutcome {
     const m = this.sessions.get(id);
-    if (!m || ["running", "queued", "needs-input", "manual", "paused"].includes(m.status)) return;
+    // No such session in the live map — usually a stale UI card after a
+    // restart/reset. Say so instead of silently doing nothing.
+    if (!m) return { started: false, reason: "no such session — it may have been removed. Reload the dashboard." };
+    if (["running", "queued", "needs-input", "manual", "paused"].includes(m.status)) {
+      return { started: false, reason: `session is already ${m.status}.` };
+    }
     // Record the causal generation for the chain-depth guard. No `gen` = a root
     // start (user / schedule / dependency release) → generation 0. An automation
     // passes its hop generation so the resulting run is capped against runaways.
@@ -614,7 +638,7 @@ export class Supervisor {
       m.blockedBy = unmet;
       const names = unmet.map((d) => shortLabel(this.sessions.get(d))).join(", ");
       m.lastDecision = `blocked — waiting on ${names}`;
-      return;
+      return { started: false, reason: m.lastDecision };
     }
     m.blockedBy = undefined;
     // Workflow depth cap: deps are met, but if this step sits past the cap, an
@@ -629,7 +653,7 @@ export class Supervisor {
         m.reviewRequired = true;
         m.lastDecision = `manual review — step ${depth} of a ${depth}-deep workflow (cap ${cap}); start it yourself to continue`;
         this.log.info("workflow depth cap — parked for review", { session: m.id, depth, cap });
-        return;
+        return { started: false, reason: m.lastDecision };
       }
     }
     // Refuse to start when a REAL subscription limit is spent (the orchestrator
@@ -639,22 +663,23 @@ export class Supervisor {
       const v = this.usageGuard.verdict(this.lastUsage);
       if (v.blocked) {
         m.lastDecision = `blocked — ${v.reason}`;
-        return;
+        return { started: false, reason: m.lastDecision };
       }
     } else if (!this.usageGuard.enabled) {
       const b = this.budgetStatus();
       if (b.exceeded) {
         m.lastDecision = `blocked — ${b.reason}`;
-        return; // legacy daily budget (only when the usage gate is off)
+        return { started: false, reason: m.lastDecision }; // legacy daily budget (only when the usage gate is off)
       }
     }
     if (this.running.size >= this.maxConcurrent) {
       m.status = "queued";
       m.lastDecision = "queued — waiting for a free slot";
       if (!this.queue.includes(id)) this.queue.push(id);
-      return;
+      return { started: true, queued: true };
     }
     this.launch(m);
+    return { started: true };
   }
 
   /** Start enough queued sessions to fill the concurrency cap. */
@@ -1511,7 +1536,9 @@ export class Supervisor {
 
     this.store?.upsertSession(m.config);
     this.persist();
-    this.start(id);
+    // Surface a refused start (spent limit, budget, deps) instead of swallowing it.
+    const outcome = this.start(id);
+    if (!outcome.started && outcome.reason) throw new Error(outcome.reason);
   }
 
   /** Create a new session, add it to the live map as "idle", and persist. */
