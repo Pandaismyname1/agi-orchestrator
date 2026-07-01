@@ -8,6 +8,8 @@
     SessionInput,
     SessionSchedule,
     AutoPrConfig,
+    SessionNotifyOverride,
+    NotifyEvent,
   } from "../../lib/types";
   import { wsStore } from "../../lib/ws.svelte";
   import { ui } from "../../lib/ui.svelte";
@@ -58,6 +60,31 @@
     return { mode: prMode, ...(base ? { base } : {}) };
   }
 
+  // Per-session notification override: mute, or narrow to specific events.
+  const NOTIFY_EVENTS: { id: NotifyEvent; label: string }[] = [
+    { id: "done", label: "done" },
+    { id: "error", label: "error" },
+    { id: "stopped", label: "stopped" },
+    { id: "needs-input", label: "needs input" },
+    { id: "rate-limited", label: "rate limited" },
+  ];
+  let notifyMute = $state(untrack(() => session?.notify?.mute === true));
+  // Undefined/empty = "all events"; a subset = allow-list.
+  let notifyEvents = $state<NotifyEvent[]>(untrack(() => session?.notify?.events ?? []));
+  function toggleNotifyEvent(e: NotifyEvent): void {
+    notifyEvents = notifyEvents.includes(e)
+      ? notifyEvents.filter((x) => x !== e)
+      : [...notifyEvents, e];
+  }
+  function buildNotify(): SessionNotifyOverride | null {
+    if (notifyMute) return { mute: true };
+    if (notifyEvents.length > 0 && notifyEvents.length < NOTIFY_EVENTS.length) {
+      // Preserve canonical order.
+      return { events: NOTIFY_EVENTS.map((e) => e.id).filter((id) => notifyEvents.includes(id)) };
+    }
+    return null; // not muted + all (or no) events selected = default behavior
+  }
+
   let err = $state("");
 
   const title = $derived(editing ? "Edit session" : adopting ? "Adopt existing session" : "New session");
@@ -82,11 +109,12 @@
     }
     const schedule = buildSchedule();
     const autoPr = buildAutoPr();
+    const notify = buildNotify();
     if (editing && session) {
       wsStore.send({
         type: "update",
         id: session.id,
-        patch: { cwd: c, goal: g, doneCriteria: d, permissionMode, autonomy, startMode, dependsOn, schedule, autoPr },
+        patch: { cwd: c, goal: g, doneCriteria: d, permissionMode, autonomy, startMode, dependsOn, schedule, autoPr, notify },
       });
     } else {
       const payload: SessionInput = {
@@ -100,6 +128,7 @@
       };
       if (schedule) payload.schedule = schedule;
       if (autoPr) payload.autoPr = autoPr;
+      if (notify) payload.notify = notify;
       if (id.trim()) payload.id = id.trim();
       if (adopt) payload.resumeId = adopt.resumeId;
       wsStore.send({ type: "add", session: payload });
@@ -220,6 +249,33 @@
         GitHub CLI (<span class="mono">gh</span>) authenticated.
       </p>
     {/if}
+  </div>
+
+  <span class="grouplabel" id="f_notify_label">notifications <span class="opt">(optional — override this session's alerts)</span></span>
+  <div class="schedbox" role="group" aria-labelledby="f_notify_label">
+    <label class="schedtoggle">
+      <input type="checkbox" bind:checked={notifyMute} />
+      <span>mute — no notifications for this session</span>
+    </label>
+    {#if !notifyMute}
+      <span class="subtle" id="f_notify_events_label">notify only on <span class="opt">(none checked = all events)</span></span>
+      <div class="evbox" role="group" aria-labelledby="f_notify_events_label">
+        {#each NOTIFY_EVENTS as ev (ev.id)}
+          <label class="evitem">
+            <input
+              type="checkbox"
+              checked={notifyEvents.includes(ev.id)}
+              onchange={() => toggleNotifyEvent(ev.id)}
+            />
+            <span>{ev.label}</span>
+          </label>
+        {/each}
+      </div>
+    {/if}
+    <p class="schedhint">
+      Gates only THIS session's lifecycle alerts (webhooks/desktop). Global webhooks and explicit
+      automation rules still run. Mute silences everything; an event allow-list keeps just those.
+    </p>
   </div>
 
   <div class="ferr">{err}</div>
@@ -366,6 +422,43 @@
     color: var(--faint);
     line-height: 1.45;
     margin: 8px 2px 0;
+  }
+  .subtle {
+    display: block;
+    font-size: 11px;
+    color: var(--color-neutral-content);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    margin: 6px 0 6px;
+  }
+  .subtle .opt {
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--faint);
+    font-weight: 400;
+  }
+  .evbox {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+  }
+  .evitem {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+    font-size: 12px;
+    color: var(--color-base-content);
+    cursor: pointer;
+  }
+  .evitem input[type="checkbox"] {
+    width: auto;
+    accent-color: var(--color-primary);
+    cursor: pointer;
   }
   .prbaserow {
     margin-top: 10px;

@@ -50,6 +50,7 @@ interface SessionInput {
   dependsOn?: string[];
   schedule?: SessionConfig["schedule"];
   autoPr?: SessionConfig["autoPr"];
+  notify?: SessionConfig["notify"];
 }
 
 type SessionPatch = Partial<{
@@ -62,6 +63,7 @@ type SessionPatch = Partial<{
   dependsOn: string[];
   schedule: SessionConfig["schedule"] | null;
   autoPr: SessionConfig["autoPr"] | null;
+  notify: SessionConfig["notify"] | null;
 }>;
 
 /** Runtime-editable global settings patch (see the "updateSettings" handler). */

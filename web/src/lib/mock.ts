@@ -389,6 +389,7 @@ export const MOCK: Snapshot = {
       lastDecision: "error: the local model became unreachable mid-run",
       error: "local model became unreachable (connection refused @ :11434)",
       attention: null,
+      notify: { events: ["error"] },
     },
     {
       id: "landing-page",
@@ -407,6 +408,7 @@ export const MOCK: Snapshot = {
       canContinue: true,
       schedule: { enabled: true, dailyAt: "02:00" },
       autoPr: { mode: "ready" },
+      notify: { mute: true },
       prState: "open",
       prUrl: "https://github.com/me/www/pull/128",
     },

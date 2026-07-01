@@ -35,6 +35,11 @@ import { openPullRequest, defaultRunner, type Runner as PrRunner } from "../git/
 import { retryOptsFrom, brainPollMsFrom } from "../policy/reliability.js";
 import { planAutomations, countEnabled, chainGuard, DEFAULT_CHAIN_CAP } from "../policy/automation.js";
 import { chainDepthOf, overDepthCap, DEFAULT_WORKFLOW_DEPTH_CAP } from "../policy/wfdepth.js";
+import {
+  sessionNotifies,
+  normalizeNotifyOverride,
+  type SessionNotifyOverride,
+} from "../policy/notifyroute.js";
 import { LearningService, emptyLearningSummary } from "../learning/service.js";
 import { Notifier, type DeliveryResult, type NotifyContext } from "../notify/notifier.js";
 import { createLogger, type Logger } from "../util/logger.js";
@@ -156,6 +161,8 @@ export interface SessionView {
   schedule?: SessionSchedule;
   /** Auto-open-a-PR-on-done setting, if configured. */
   autoPr?: AutoPrConfig;
+  /** Per-session notification override (mute / event allow-list), if configured. */
+  notify?: SessionNotifyOverride;
   /** URL of the PR opened for this session's last completed run, if any. */
   prUrl?: string;
   /** Lifecycle of the auto-PR for the current/last run. */
@@ -1107,6 +1114,13 @@ export class Supervisor {
     // whether any webhook is configured.
     this.runAutomations(m, event, detail);
     if (!this.notifier.active) return;
+    // Per-session override: a muted (or event-narrowed) session skips its own
+    // lifecycle notifications. Automation rules above still ran — this only gates
+    // the human-facing alert for THIS session's event.
+    if (!sessionNotifies(m.config.notify, event)) {
+      this.log.debug("per-session notify suppressed", { id: m.id, event });
+      return;
+    }
     const ctx: NotifyContext = {
       id: m.id,
       label: shortLabel(m),
@@ -1513,6 +1527,7 @@ export class Supervisor {
     dependsOn?: string[];
     schedule?: SessionSchedule;
     autoPr?: AutoPrConfig;
+    notify?: SessionNotifyOverride;
   }): SessionView {
     const cwd = (input.cwd ?? "").trim();
     const goal = (input.goal ?? "").trim();
@@ -1528,6 +1543,7 @@ export class Supervisor {
     const dependsOn = this.normalizeDeps(id, input.dependsOn);
     const schedule = normalizeSchedule(input.schedule);
     const autoPr = normalizeAutoPr(input.autoPr);
+    const notify = normalizeNotifyOverride(input.notify);
     const config: SessionConfig = {
       id,
       cwd: path.resolve(cwd),
@@ -1540,6 +1556,7 @@ export class Supervisor {
       ...(dependsOn.length ? { dependsOn } : {}),
       ...(schedule ? { schedule } : {}),
       ...(autoPr ? { autoPr } : {}),
+      ...(notify ? { notify } : {}),
     };
     const m: Managed = {
       config,
@@ -1577,6 +1594,7 @@ export class Supervisor {
       dependsOn: string[];
       schedule: SessionSchedule | null;
       autoPr: AutoPrConfig | null;
+      notify: SessionNotifyOverride | null;
     }>,
   ): SessionView {
     const m = this.sessions.get(id);
@@ -1649,6 +1667,11 @@ export class Supervisor {
       const autoPr = patch.autoPr === null ? undefined : normalizeAutoPr(patch.autoPr);
       if (autoPr) m.config.autoPr = autoPr;
       else delete m.config.autoPr;
+    }
+    if (patch.notify !== undefined) {
+      const notify = patch.notify === null ? undefined : normalizeNotifyOverride(patch.notify);
+      if (notify) m.config.notify = notify;
+      else delete m.config.notify;
     }
     this.store?.upsertSession(m.config);
     this.persist();
@@ -1851,6 +1874,7 @@ function toView(m: Managed): SessionView {
     reviewRequired: m.reviewRequired || undefined,
     schedule: m.config.schedule,
     autoPr: m.config.autoPr,
+    notify: m.config.notify,
     prUrl: m.prUrl,
     prState: m.prState,
   };

@@ -68,6 +68,13 @@ export interface SessionConfig {
    * opens the PR against `base` (default: origin's default branch).
    */
   autoPr?: AutoPrConfig;
+  /**
+   * Per-session notification override: mute this session's lifecycle alerts, or
+   * narrow them to an event allow-list. Omit for normal fleet-wide behavior.
+   * Only gates this session's OWN notifications — global webhooks/quiet-hours and
+   * explicit automation `notify` actions are unaffected.
+   */
+  notify?: import("./policy/notifyroute.js").SessionNotifyOverride;
 }
 
 /** Auto-PR-on-done settings (see SessionConfig.autoPr). */

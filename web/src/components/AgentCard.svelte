@@ -42,6 +42,15 @@
     return sc.enabled === false ? `${t} (paused)` : t;
   });
 
+  // Per-session notification override chip: "muted", or "alerts: error" allow-list.
+  let notifyChip = $derived.by(() => {
+    const n = s.notify;
+    if (!n) return "";
+    if (n.mute) return "muted";
+    if (n.events && n.events.length) return `alerts: ${n.events.join(", ")}`;
+    return "";
+  });
+
   function focus() {
     if (selectMode) {
       onToggleSelect?.();
@@ -87,6 +96,11 @@
     {#if schedLabel}
       <span class="sched-chip" class:paused={s.schedule?.enabled === false} title="Auto-start schedule">
         <Icon name="clock" size={11} /> {schedLabel}
+      </span>
+    {/if}
+    {#if notifyChip}
+      <span class="notify-chip" class:muted={s.notify?.mute} title="Per-session notification override">
+        <Icon name={s.notify?.mute ? "bellOff" : "bell"} size={11} /> {notifyChip}
       </span>
     {/if}
     <span class="metric tnum">turn {s.turns} · {minutes(s.elapsedMin)}</span>
@@ -362,6 +376,25 @@
   }
   .sched-chip.paused {
     opacity: 0.55;
+  }
+  .notify-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    color: var(--color-neutral-content);
+    padding: 1px 7px;
+    border: 1px solid var(--border-soft);
+    border-radius: 20px;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .notify-chip.muted {
+    color: var(--st-stopped);
+    border-color: var(--st-stopped);
+    opacity: 0.85;
   }
   .metric {
     margin-left: auto;

@@ -36,6 +36,17 @@ export interface AutoPrConfig {
   base?: string;
 }
 
+/** Lifecycle events a session's notifications can cover (mirror of backend). */
+export type NotifyEvent = "done" | "error" | "stopped" | "needs-input" | "rate-limited";
+
+/** Per-session notification override: mute, or narrow to an event allow-list. */
+export interface SessionNotifyOverride {
+  /** When true, this session fires no lifecycle notifications at all. */
+  mute?: boolean;
+  /** Allow-list of events that DO notify; empty/undefined = all events. */
+  events?: NotifyEvent[];
+}
+
 export interface AttentionOption {
   label: string;
   rationale?: string;
@@ -79,6 +90,8 @@ export interface SessionView {
   schedule?: SessionSchedule;
   /** auto-open-a-PR-on-done setting, if configured. */
   autoPr?: AutoPrConfig;
+  /** per-session notification override (mute / event allow-list), if configured. */
+  notify?: SessionNotifyOverride;
   /** URL of the PR opened for the last completed run, if any. */
   prUrl?: string;
   /** lifecycle of the auto-PR for the current/last run. */
@@ -482,6 +495,8 @@ export interface SessionInput {
   schedule?: SessionSchedule;
   /** auto-open-a-PR-on-done setting. */
   autoPr?: AutoPrConfig;
+  /** per-session notification override (mute / event allow-list). */
+  notify?: SessionNotifyOverride;
 }
 
 export type SessionPatch = Partial<{
@@ -494,6 +509,7 @@ export type SessionPatch = Partial<{
   schedule: SessionSchedule | null;
   dependsOn: string[];
   autoPr: AutoPrConfig | null;
+  notify: SessionNotifyOverride | null;
 }>;
 
 /** How the user answered an open human-decision. */
