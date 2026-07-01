@@ -51,6 +51,16 @@
     return "";
   });
 
+  // Thumbs tally across this session's brain decisions (shown when it has any).
+  let fb = $derived(s.feedback);
+  let hasFeedback = $derived(!!fb && fb.up + fb.down > 0);
+
+  // Auto-PR chip: link to the opened PR (with #number when parseable), else its lifecycle state.
+  let prNumber = $derived.by(() => {
+    const m = s.prUrl?.match(/\/pull\/(\d+)/);
+    return m ? `#${m[1]}` : "";
+  });
+
   function focus() {
     if (selectMode) {
       onToggleSelect?.();
@@ -82,143 +92,179 @@
         aria-label="Select {s.id} for bulk action"
       />
     {/if}
-    <span class="name">{s.id}</span>
-    <span class="mode-chip {s.mode}">
-      <Icon name={s.mode === "manual" ? "hand" : "bot"} size={12} />
+    <span class="name" title={s.id}>{s.id}</span>
+    <span class="mode-chip {s.mode}" title="{s.mode} mode">
+      <Icon name={s.mode === "manual" ? "hand" : "bot"} size={11} />
       {s.mode}
     </span>
   </div>
 
-  <p class="goal">{s.goal}</p>
+  <p class="goal" title={s.goal}>{s.goal}</p>
 
-  <div class="foot">
+  <div class="statusrow">
     <StatusBadge status={s.status} />
-    {#if schedLabel}
-      <span class="sched-chip" class:paused={s.schedule?.enabled === false} title="Auto-start schedule">
-        <Icon name="clock" size={11} /> {schedLabel}
-      </span>
-    {/if}
-    {#if notifyChip}
-      <span class="notify-chip" class:muted={s.notify?.mute} title="Per-session notification override">
-        <Icon name={s.notify?.mute ? "bellOff" : "bell"} size={11} /> {notifyChip}
-      </span>
-    {/if}
-    <span class="metric tnum">turn {s.turns} · {minutes(s.elapsedMin)}</span>
+    <span class="metric tnum" title="turns · elapsed">turn {s.turns} · {minutes(s.elapsedMin)}</span>
   </div>
 
+  {#if schedLabel || notifyChip || hasFeedback || s.prUrl}
+    <div class="chips">
+      {#if schedLabel}
+        <span class="chip" class:paused={s.schedule?.enabled === false} title="Auto-start schedule">
+          <Icon name="clock" size={11} /> {schedLabel}
+        </span>
+      {/if}
+      {#if notifyChip}
+        <span class="chip" class:muted={s.notify?.mute} title="Per-session notification override">
+          <Icon name={s.notify?.mute ? "bellOff" : "bell"} size={11} /> {notifyChip}
+        </span>
+      {/if}
+      {#if s.prUrl}
+        <a
+          class="chip pr {s.prState ?? 'open'}"
+          href={s.prUrl}
+          target="_blank"
+          rel="noreferrer"
+          title="Open the auto-created pull request"
+          onclick={(e) => e.stopPropagation()}
+        >
+          <Icon name="external" size={11} /> PR{prNumber ? ` ${prNumber}` : ""}
+        </a>
+      {/if}
+      {#if hasFeedback && fb}
+        <span class="chip fb" title="Operator thumbs on this session's decisions">
+          <Icon name="thumbsUp" size={10} /> {fb.up}
+          <Icon name="thumbsDown" size={10} /> {fb.down}
+        </span>
+      {/if}
+    </div>
+  {/if}
+
   {#if s.reviewRequired}
-    <div class="review" title="This step is deeper than the workflow depth cap — start it yourself to continue.">
-      <span aria-hidden="true">⏸</span> Needs review — start manually to continue the workflow
+    <div class="banner review" title="This step is deeper than the workflow depth cap — start it yourself to continue.">
+      <Icon name="pip" size={12} /> Needs review — start manually to continue
     </div>
   {:else if waiting && blockers.length}
-    <div class="waiting">
-      <span aria-hidden="true">⏳</span> Waiting on: {blockers.map(depLabel).join(", ")}
+    <div class="banner waiting">
+      <Icon name="clock" size={12} /> Waiting on {blockers.map(depLabel).join(", ")}
     </div>
   {/if}
 
   {#if deps.length}
     <div class="deps">
-      <span class="runs-after">Runs after:</span>
+      <span class="runs-after">Runs after</span>
       {#each deps as d (d)}
-        <span class="dep-chip">{depLabel(d)}</span>
+        <span class="dep-chip" title={depLabel(d)}>{depLabel(d)}</span>
       {/each}
     </div>
   {/if}
 
   {#if s.lastDecision}
-    <div class="dec"><span class="k">brain</span> {s.lastDecision}</div>
+    <div class="dec" title={s.lastDecision}>
+      <Icon name="brain" size={12} class="dec-ic" />
+      <span class="dec-txt">{s.lastDecision}</span>
+    </div>
   {/if}
 
   {#if !selectMode}
-  <div class="acts">
-    {#if isActive}
-      <button
-        class="btn btn-xs"
-        onclick={(e) => {
-          e.stopPropagation();
-          wsStore.send({ type: "stop", id: s.id });
-        }}
-      >
-        <Icon name="stop" size={12} /> Stop
-      </button>
-    {:else if s.canContinue}
-      <button
-        class="btn btn-xs btn-primary"
-        title="Resume this conversation with a new instruction"
-        onclick={(e) => {
-          e.stopPropagation();
-          ui.openModal({ kind: "continue", session: s });
-        }}
-      >
-        <Icon name="play" size={12} /> Continue
-      </button>
-      <button
-        class="btn btn-xs"
-        title="Start fresh (new conversation)"
-        onclick={(e) => {
-          e.stopPropagation();
-          wsStore.send({ type: "start", id: s.id });
-        }}
-      >
-        Start
-      </button>
-      <button
-        class="btn btn-xs btn-square"
-        title="Edit"
-        onclick={(e) => {
-          e.stopPropagation();
-          ui.openModal({ kind: "edit", session: s });
-        }}
-      >
-        <Icon name="edit" size={12} />
-      </button>
-      <button
-        class="btn btn-xs btn-square del"
-        title="Delete"
-        onclick={(e) => {
-          e.stopPropagation();
-          del(e);
-        }}
-      >
-        <Icon name="trash" size={12} />
-      </button>
-    {:else}
-      <button
-        class="btn btn-xs"
-        onclick={(e) => {
-          e.stopPropagation();
-          wsStore.send({ type: "start", id: s.id });
-        }}
-      >
-        <Icon name="play" size={12} /> Start
-      </button>
-      <button
-        class="btn btn-xs btn-square"
-        title="Edit"
-        onclick={(e) => {
-          e.stopPropagation();
-          ui.openModal({ kind: "edit", session: s });
-        }}
-      >
-        <Icon name="edit" size={12} />
-      </button>
-      <button class="btn btn-xs btn-square del" title="Delete" onclick={del}>
-        <Icon name="trash" size={12} />
-      </button>
-    {/if}
-  </div>
+    <div class="acts">
+      {#if isActive}
+        <button
+          class="btn btn-xs"
+          onclick={(e) => {
+            e.stopPropagation();
+            wsStore.send({ type: "stop", id: s.id });
+          }}
+        >
+          <Icon name="stop" size={12} /> Stop
+        </button>
+      {:else if s.canContinue}
+        <button
+          class="btn btn-xs btn-primary"
+          title="Resume this conversation with a new instruction"
+          onclick={(e) => {
+            e.stopPropagation();
+            ui.openModal({ kind: "continue", session: s });
+          }}
+        >
+          <Icon name="play" size={12} /> Continue
+        </button>
+        <button
+          class="btn btn-xs"
+          title="Start fresh (new conversation)"
+          onclick={(e) => {
+            e.stopPropagation();
+            wsStore.send({ type: "start", id: s.id });
+          }}
+        >
+          Start
+        </button>
+        <span class="acts-sp"></span>
+        <button
+          class="btn btn-xs btn-square"
+          title="Edit"
+          onclick={(e) => {
+            e.stopPropagation();
+            ui.openModal({ kind: "edit", session: s });
+          }}
+        >
+          <Icon name="edit" size={12} />
+        </button>
+        <button
+          class="btn btn-xs btn-square del"
+          title="Delete"
+          onclick={(e) => {
+            e.stopPropagation();
+            del(e);
+          }}
+        >
+          <Icon name="trash" size={12} />
+        </button>
+      {:else}
+        <button
+          class="btn btn-xs btn-primary"
+          onclick={(e) => {
+            e.stopPropagation();
+            wsStore.send({ type: "start", id: s.id });
+          }}
+        >
+          <Icon name="play" size={12} /> Start
+        </button>
+        <span class="acts-sp"></span>
+        <button
+          class="btn btn-xs btn-square"
+          title="Edit"
+          onclick={(e) => {
+            e.stopPropagation();
+            ui.openModal({ kind: "edit", session: s });
+          }}
+        >
+          <Icon name="edit" size={12} />
+        </button>
+        <button class="btn btn-xs btn-square del" title="Delete" onclick={del}>
+          <Icon name="trash" size={12} />
+        </button>
+      {/if}
+    </div>
   {/if}
 </div>
 
 <style>
   .agent {
     position: relative;
-    padding: 13px 14px 12px;
+    /* In the fleet's scrolling flex-column, a plain flex item resolves its
+       flex-basis against the container and gets stretched to fill; pin the
+       height to its content so each card sizes to what it actually shows. */
+    flex: none;
+    height: max-content;
+    padding: 12px 13px 12px 15px;
     background: linear-gradient(180deg, var(--color-base-200), var(--color-base-100));
     border: 1px solid var(--border-soft);
     border-radius: var(--radius-box);
     cursor: pointer;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
     transition:
       border-color 0.15s,
       transform 0.1s,
@@ -232,7 +278,7 @@
     bottom: 0;
     width: 3px;
     background: var(--st-idle);
-    opacity: 0.8;
+    opacity: 0.85;
   }
   .agent:hover {
     transform: translateY(-2px);
@@ -316,28 +362,34 @@
     }
   }
 
+  /* --- header: name + mode --- */
   .top {
     display: flex;
     align-items: center;
     gap: 8px;
   }
   .name {
-    font-weight: 600;
+    font-weight: 650;
     font-size: 13.5px;
+    letter-spacing: -0.1px;
+    color: var(--color-base-content);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .mode-chip {
     margin-left: auto;
+    flex: none;
     display: inline-flex;
     align-items: center;
     gap: 4px;
     font-size: 10px;
+    font-weight: 500;
     color: var(--color-neutral-content);
     padding: 2px 7px;
     border: 1px solid var(--border-soft);
     border-radius: 20px;
+    background: var(--color-base-100);
   }
   .mode-chip.manual {
     color: var(--st-manual);
@@ -347,84 +399,128 @@
     color: var(--st-running);
     border-color: rgba(34, 197, 94, 0.4);
   }
+
   .goal {
     color: var(--color-neutral-content);
     font-size: 12px;
-    margin: 9px 0 11px;
+    margin: 0;
     line-height: 1.45;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
-    min-height: 34px;
   }
-  .foot {
+
+  /* --- status + metric --- */
+  .statusrow {
     display: flex;
     align-items: center;
     gap: 8px;
   }
-  .sched-chip {
+  .metric {
+    margin-left: auto;
+    flex: none;
+    font-size: 11px;
+    color: var(--faint);
+  }
+
+  /* --- secondary chips (schedule / notify / PR / feedback) --- */
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .chip {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
+    gap: 4px;
     font-size: 10px;
     color: var(--color-neutral-content);
-    padding: 1px 7px;
+    padding: 2px 7px;
     border: 1px solid var(--border-soft);
     border-radius: 20px;
-  }
-  .sched-chip.paused {
-    opacity: 0.55;
-  }
-  .notify-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    font-size: 10px;
-    color: var(--color-neutral-content);
-    padding: 1px 7px;
-    border: 1px solid var(--border-soft);
-    border-radius: 20px;
-    max-width: 160px;
+    background: var(--color-base-100);
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .notify-chip.muted {
-    color: var(--st-stopped);
-    border-color: var(--st-stopped);
-    opacity: 0.85;
+  .chip.paused {
+    opacity: 0.55;
   }
-  .metric {
-    margin-left: auto;
-    font-size: 11px;
+  .chip.muted {
+    color: var(--st-stopped);
+    border-color: rgba(251, 191, 36, 0.4);
+    opacity: 0.9;
+  }
+  .chip.fb {
+    gap: 3px;
     color: var(--faint);
   }
-  .waiting {
-    font-size: 11px;
-    color: var(--st-stopped);
-    margin-top: 9px;
-    line-height: 1.4;
+  a.chip.pr {
+    text-decoration: none;
+    color: var(--st-done);
+    border-color: rgba(96, 165, 250, 0.4);
+    background: rgba(96, 165, 250, 0.08);
+    transition: border-color 0.15s, background 0.15s;
   }
-  .review {
+  a.chip.pr:hover {
+    border-color: var(--st-done);
+    background: rgba(96, 165, 250, 0.16);
+  }
+  a.chip.pr.failed {
+    color: var(--st-error);
+    border-color: rgba(248, 113, 113, 0.4);
+    background: rgba(248, 113, 113, 0.08);
+  }
+  a.chip.pr.opening {
+    color: var(--st-stopped);
+    border-color: rgba(251, 191, 36, 0.4);
+    background: rgba(251, 191, 36, 0.06);
+  }
+
+  /* --- attention banners --- */
+  .banner {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 11px;
+    line-height: 1.35;
+    padding: 6px 8px;
+    border-radius: 8px;
+  }
+  .banner :global(svg) {
+    flex: none;
+  }
+  .banner.review {
     font-weight: 600;
     color: var(--st-needs-input);
-    margin-top: 9px;
-    line-height: 1.4;
+    background: rgba(251, 191, 36, 0.08);
+    border: 1px solid rgba(251, 191, 36, 0.3);
   }
+  .banner.waiting {
+    color: var(--st-stopped);
+    background: rgba(251, 191, 36, 0.05);
+    border: 1px solid rgba(251, 191, 36, 0.22);
+  }
+
+  /* --- dependencies --- */
   .deps {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 5px;
-    margin-top: 9px;
     font-size: 11px;
     color: var(--faint);
   }
   .runs-after {
     color: var(--faint);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 9.5px;
+    font-weight: 600;
   }
   .dep-chip {
     font-size: 10px;
@@ -432,29 +528,47 @@
     padding: 1px 7px;
     border: 1px solid var(--border-soft);
     border-radius: 20px;
+    background: var(--color-base-100);
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
+  /* --- brain decision --- */
   .dec {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
     font-size: 11px;
-    color: var(--faint);
-    margin-top: 9px;
+    color: var(--color-neutral-content);
     padding-top: 9px;
     border-top: 1px dashed var(--border-soft);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
-  .dec .k {
+  .dec :global(.dec-ic) {
+    flex: none;
+    margin-top: 1px;
     color: var(--color-primary);
-    font-weight: 600;
   }
+  .dec-txt {
+    min-width: 0;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* --- actions --- */
   .acts {
     display: flex;
+    align-items: center;
     gap: 6px;
-    margin-top: 11px;
+    margin-top: 1px;
+  }
+  .acts-sp {
+    margin-left: auto;
   }
   .del:hover {
     border-color: var(--color-error);
