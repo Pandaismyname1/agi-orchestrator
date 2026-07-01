@@ -75,10 +75,17 @@
           >
             <Icon name="play" size={13} /> Continue
           </button>
+        {:else}
+          <button
+            class="btn btn-primary btn-sm grow"
+            title="Start this session (new conversation)"
+            onclick={() => wsStore.send({ type: "start", id: s.id })}
+          >
+            <Icon name="play" size={13} /> Start
+          </button>
         {/if}
         <button
           class="btn btn-sm"
-          class:grow={!active && !s.canContinue}
           onclick={() => ui.openModal({ kind: "history", sessionId: s.id })}
         >
           <Icon name="clock" size={13} /> History
