@@ -10,6 +10,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, statSync } from "node:fs";
+import { execFile } from "node:child_process";
 import * as pty from "node-pty";
 import { VirtualScreen } from "../terminal/screen.js";
 import {
@@ -21,12 +22,23 @@ import {
 } from "../terminal/state.js";
 import { parseContextFraction } from "../policy/context.js";
 import { classifyGate } from "../terminal/gates.js";
-import { readLastAssistantMessage } from "../transcript/reader.js";
+import {
+  assistantTextAfterOffset,
+  quarantineUnresumableTranscript,
+  transcriptResumable,
+  transcriptStat,
+  transcriptTurnEnded,
+} from "../transcript/reader.js";
 import { parseUsage, type UsageStatus } from "../policy/usage.js";
 import { scrubbedEnv } from "../util/env.js";
 import type { GateRequest, GateResolution, ScreenState, SessionConfig, TurnResult } from "../types.js";
 
 const ESC = "\x1b"; // cancels/denies a claude TUI gate ("Esc to cancel")
+// Bracketed-paste envelope: the TUI treats the payload as ONE paste (newlines
+// included, nothing auto-submits), so a multi-line brain prompt can't half-submit
+// and the rapid-typing paste heuristic can't swallow the trailing Enter.
+const PASTE_START = "\x1b[200~";
+const PASTE_END = "\x1b[201~";
 
 const COLS = 120;
 const ROWS = 40;
@@ -51,6 +63,59 @@ const MIN_THINK_MS = 1500; // ignore "ready" for this long after injecting (avoi
 // reopening one within a single turn, bail with a clear error instead of spinning
 // (or silently re-dismissing) until the multi-minute turn timeout.
 const MAX_CHOICE_DISMISSALS = 6;
+// Submission verification: after Enter, evidence that the turn started must appear
+// within this window, else the Enter was swallowed and is re-sent (bounded).
+const SUBMIT_VERIFY_MS = 4000;
+const SUBMIT_RETRIES = 3;
+// The feedback survey wants "0: Dismiss" on current builds; older builds took Esc.
+// Attempts alternate 0/Esc; past the cap the survey is treated as a stuck screen.
+const MAX_SURVEY_DISMISSALS = 8;
+// Recovery ladder tuning: transcript growth within this window counts as live
+// progress even when the rendered screen looks frozen (the transcript is appended
+// continuously while claude works — it's the ground truth; the screen is not).
+const TRANSCRIPT_ACTIVE_MS = 45_000;
+// Rung 2 (turn-already-ended) demands MUCH longer transcript quiet than rung 1:
+// claude writes a turn's text preamble and its following tool_use as separate
+// JSONL lines, with real gaps up to ~70s while a large tool call generates — a
+// text-only tail + 45s of quiet is NOT proof the turn ended (verified against
+// live transcripts). 3 minutes + a double-sample is.
+const TURN_END_QUIET_MS = 180_000;
+const TURN_END_RESAMPLE_MS = 12_000;
+// At most this many Qwen screen-triage keypress attempts per wait.
+const MAX_TRIAGES = 3;
+
+/**
+ * A fallback classification of an unrecognized/frozen screen, produced by the
+ * local brain (Qwen). `key` is the single keystroke it suggests — the session
+ * only ever acts on Enter, Esc, or one digit (never free text; see decision D7).
+ */
+export interface ScreenTriage {
+  state: "ready" | "working" | "gate" | "menu" | "survey" | "error" | "unknown";
+  key?: string;
+  reason?: string;
+}
+
+/** Map a triage key suggestion to the byte(s) to type; null = not allowed. */
+export function triageKeyBytes(key: string | undefined): string | null {
+  if (!key) return null;
+  const k = key.trim().toLowerCase();
+  if (k === "enter" || k === "return" || k === "\r") return "\r";
+  if (k === "esc" || k === "escape") return ESC;
+  if (/^[0-9]$/.test(k)) return k;
+  return null;
+}
+
+/** `claude --version`, resolved once per process — for exit/boot diagnostics. */
+let cachedClaudeVersion: string | undefined;
+export function claudeVersion(): Promise<string> {
+  if (cachedClaudeVersion !== undefined) return Promise.resolve(cachedClaudeVersion);
+  return new Promise((resolve) => {
+    execFile("claude.exe", ["--version"], { timeout: 10_000, windowsHide: true }, (err, stdout) => {
+      cachedClaudeVersion = err ? "(unknown)" : stdout.trim();
+      resolve(cachedClaudeVersion);
+    });
+  });
+}
 
 export class AuthError extends Error {}
 export class TimeoutError extends Error {}
@@ -66,12 +131,21 @@ export class ClaudeSession {
   private term: pty.IPty | undefined;
   private exited = false;
   private exitCode: number | null = null;
+  /** Last screen tail captured the moment claude exited — the crash diagnostic. */
+  private exitTail = "";
 
   /**
    * Optional handler for a DANGEROUS gate. Returns approve/deny. If unset, the
    * session default-denies dangerous gates (safe under unattended automation).
    */
   onGate?: (req: GateRequest) => Promise<GateResolution>;
+
+  /**
+   * Optional fallback screen classifier (the local brain). Consulted by the
+   * recovery ladder when the screen is frozen and unrecognized, BEFORE giving up.
+   * May suggest one safe keystroke (Enter/Esc/digit); anything else is ignored.
+   */
+  onTriage?: (screenText: string) => Promise<ScreenTriage | null>;
 
   constructor(private readonly cfg: SessionConfig) {
     // claude --session-id and the transcript path require a real UUID. The
@@ -88,7 +162,17 @@ export class ClaudeSession {
     this.ensureCwd();
 
     // Resume an existing session, or start a fresh one with a forced id.
-    const idArgs = this.cfg.resumeId
+    // Ground truth, not assumption: a recovery respawn passes resumeId even when
+    // the first turn crashed before any conversation reached disk — `--resume` on
+    // a non-existent OR message-less conversation exits 1 (and would exit-1 again
+    // on every retry and every self-heal). Resume only when the transcript holds
+    // at least one real message; otherwise mint the SAME id fresh via --session-id.
+    const canResume = !!this.cfg.resumeId && transcriptResumable(this.cfg.cwd, this.sessionId);
+    // Not resumable → we mint with --session-id, which claude refuses ("already
+    // in use") if a message-less leftover file still occupies the id. Quarantine
+    // it first so the id is actually mintable (a real conversation is never touched).
+    if (!canResume) quarantineUnresumableTranscript(this.cfg.cwd, this.sessionId);
+    const idArgs = canResume
       ? ["--resume", this.sessionId]
       : ["--session-id", this.sessionId];
     const args = [...idArgs, "--permission-mode", this.cfg.permissionMode ?? "acceptEdits"];
@@ -110,12 +194,20 @@ export class ClaudeSession {
     this.term.onExit(({ exitCode }) => {
       this.exited = true;
       this.exitCode = exitCode ?? 0;
+      // Snapshot the final screen NOW — it's the only evidence of why claude died
+      // (auth failure, bad --resume id, crash banner). Read before dispose clears it.
+      try {
+        this.exitTail = this.screenTail(this.screen.visibleText(), 12);
+      } catch {
+        /* emulator already disposed */
+      }
     });
+    void claudeVersion().then((v) => console.log(`[session ${this.cfg.id}] claude ${v}`));
 
     // Fresh boot is quick (45s). A resume can legitimately take much longer (it
     // replays the transcript and may auto-continue), so give it a generous cap but
     // bail fast if the screen freezes (a stuck picker / unrecognized prompt).
-    if (this.cfg.resumeId) {
+    if (canResume) {
       await this.waitForReady(RESUME_BOOT_CAP_MS, /*requireThink*/ false, RESUME_STUCK_MS);
     } else {
       await this.waitForReady(BOOT_TIMEOUT_MS, /*requireThink*/ false);
@@ -151,24 +243,92 @@ export class ClaudeSession {
 
     // Dismiss Claude's "How is Claude doing?" survey if it's up — otherwise it can
     // swallow the first keystroke of our prompt as a 1/2/3 rating.
-    if (detectFeedbackSurvey(this.screen.visibleText())) {
-      this.type(ESC);
-      await sleep(400);
+    for (let i = 0; i < 3 && detectFeedbackSurvey(this.screen.visibleText()); i++) {
+      this.type(this.surveyKey(i));
+      await sleep(500);
     }
 
-    this.type(prompt);
-    await sleep(300);
-    this.type("\r"); // submit
+    // Transcript byte offset before injection — the ground-truth marker for "did
+    // this prompt submit" and "did this turn produce a reply". Everything below
+    // is anchored to it so a stale previous-turn reply can never be returned as
+    // this turn's answer.
+    const sinceOffset = (await transcriptStat(this.cfg.cwd, this.sessionId))?.size ?? 0;
 
-    const gatesHandled = await this.waitForReady(TURN_TIMEOUT_MS, /*requireThink*/ true, TURN_STUCK_MS);
+    await this.inject(prompt, sinceOffset);
 
-    const assistantText = await readLastAssistantMessage(this.cfg.cwd, this.sessionId);
+    // Slash commands (/compact, /clear …) run locally and may write little or
+    // nothing to the transcript, so they skip the transcript-growth turn-end
+    // requirements (the screen path still applies).
+    const guardOffset = prompt.trim().startsWith("/") ? undefined : sinceOffset;
+    const gatesHandled = await this.waitForReady(
+      TURN_TIMEOUT_MS,
+      /*requireThink*/ true,
+      TURN_STUCK_MS,
+      guardOffset,
+    );
+
+    // Read the reply STRICTLY from after this turn's injection point. "" (no new
+    // assistant text) is an honest "no message" — never the previous turn's reply.
+    const assistantText = (await assistantTextAfterOffset(this.cfg.cwd, this.sessionId, sinceOffset)) ?? "";
     return {
       prompt,
       assistantText,
       gatesHandled,
       durationMs: Date.now() - startedAt,
     };
+  }
+
+  /** The survey key for the Nth dismissal attempt: "0: Dismiss" first, Esc fallback. */
+  private surveyKey(attempt: number): string {
+    return attempt % 2 === 0 ? "0" : ESC;
+  }
+
+  /**
+   * Type the prompt (as one bracketed paste, so embedded newlines can't half-submit)
+   * and press Enter — then VERIFY the turn actually started. The TUI occasionally
+   * swallows the Enter (mid-render race); un-verified injection left "> continue"
+   * sitting in the input box until the stuck-timeout killed the run.
+   *
+   * Verification is GROUND-TRUTH based: claude appends the submitted prompt to the
+   * transcript JSONL immediately, so transcript growth past `sinceOffset` proves
+   * the submit took. (A pixel-diff heuristic is NOT proof — the screen keeps
+   * repainting after a large paste and the footer rotates hints on its own, which
+   * is exactly the window in which Enter gets swallowed.) Screen states that
+   * preempt the transcript write (a gate or choice menu) also count. If every
+   * retry fails, this THROWS — a silent fall-through would let the turn "complete"
+   * with a stale reply while the prompt still sits unsent in the input box.
+   */
+  private async inject(prompt: string, sinceOffset: number): Promise<void> {
+    const normalized = prompt.replace(/\r\n?/g, "\n");
+    // A slash command (/compact, /clear …) runs locally and may write nothing to
+    // the transcript for a while — for those, a working spinner or any screen
+    // change after Enter is accepted as submit evidence instead.
+    const isSlashCommand = normalized.startsWith("/");
+    this.type(PASTE_START + normalized + PASTE_END);
+    await sleep(400); // let the paste render before submitting
+    for (let attempt = 0; attempt < SUBMIT_RETRIES; attempt++) {
+      this.type("\r");
+      const baseline = this.screen.visibleText();
+      const deadline = Date.now() + SUBMIT_VERIFY_MS;
+      while (Date.now() < deadline) {
+        await sleep(300);
+        if (this.exited) return; // waitForReady will surface the exit diagnostics
+        const ts = await transcriptStat(this.cfg.cwd, this.sessionId);
+        if (ts && ts.size > sinceOffset) return; // the prompt landed in the transcript
+        const text = this.screen.visibleText();
+        const state = classifyScreen(text);
+        if (state === "gate" || detectChoicePrompt(text)) return; // modal preempted the write
+        if (state === "working") return; // in-flight chrome — the turn started
+        if (isSlashCommand && text !== baseline) return;
+      }
+      // No transcript growth and no modal — the Enter was swallowed; re-send it.
+      // A repaint nudge first, so a stale render can't hide an actually-started turn.
+      if (attempt === 0) this.nudgeRepaint();
+    }
+    throw new TimeoutError(
+      `prompt failed to submit after ${SUBMIT_RETRIES} attempts (transcript never grew). ` +
+        `Screen tail: ${this.screenTail(this.screen.visibleText())}`,
+    );
   }
 
   /**
@@ -186,13 +346,21 @@ export class ClaudeSession {
    *    replay / auto-continue keeps the screen moving) run up to the hard cap, while
    *    a genuinely frozen screen (stuck picker / unrecognized prompt) still fails fast.
    */
-  private async waitForReady(timeoutMs: number, requireThink: boolean, stuckMs?: number): Promise<number> {
+  private async waitForReady(
+    timeoutMs: number,
+    requireThink: boolean,
+    stuckMs?: number,
+    sinceOffset?: number,
+  ): Promise<number> {
     const deadline = Date.now() + timeoutMs;
     const injectedAt = Date.now();
     let readySince: number | null = null;
     let sawNonReady = false;
     let gates = 0;
     let choiceDismissals = 0;
+    let surveyDismissals = 0;
+    let nudges = 0;
+    let triages = 0;
     let lastText = "";
     let lastChangeAt = Date.now();
     let lastState: ScreenState = "unknown";
@@ -205,7 +373,10 @@ export class ClaudeSession {
 
     while (true) {
       if (this.exited) {
-        throw new Error(`claude exited (code ${this.exitCode}) while waiting for ready`);
+        throw new Error(
+          `claude exited (code ${this.exitCode}) while waiting for ready. ` +
+            `Screen at exit: ${this.exitTail || "(not captured)"}`,
+        );
       }
       if (Date.now() > deadline) {
         fail(`timed out after ${(timeoutMs / 1000).toFixed(0)}s waiting for ready`);
@@ -219,6 +390,99 @@ export class ClaudeSession {
         lastChangeAt = Date.now();
       }
       if (stuckMs !== undefined && Date.now() - lastChangeAt > stuckMs) {
+        // Frozen screen — run the recovery ladder before giving up. A static
+        // screen usually means "idle in a footer variant the regexes don't know",
+        // not "dead" (see docs/AUTOPILOT_brain_resilience.md). Once the ladder is
+        // engaged, later rungs re-arm on a SHORT delay (not another full stuckMs —
+        // for a turn that would be 8 minutes between rungs).
+        const rearm = (): void => {
+          lastChangeAt = Date.now() - stuckMs + Math.min(stuckMs, 60_000);
+        };
+        // Rung 1: transcript growth = claude IS working; the screen just isn't moving.
+        const ts = await transcriptStat(this.cfg.cwd, this.sessionId);
+        if (ts && Date.now() - ts.mtimeMs < TRANSCRIPT_ACTIVE_MS) {
+          lastChangeAt = Date.now(); // genuine progress — full stuck window again
+          continue;
+        }
+        // Rung 2: a reply landed after our injection and the transcript's tail is
+        // a final assistant message → the turn is OVER; the screen was just an
+        // unrecognized idle variant. Success, not death. The bar is deliberately
+        // high: a text-only tail can be an in-flight PREAMBLE (claude writes text
+        // and the following tool_use as separate lines, with gaps up to ~70s), so
+        // demand LONG quiet plus a double-sample before trusting it.
+        if (
+          sinceOffset !== undefined &&
+          ts &&
+          ts.size > sinceOffset &&
+          Date.now() - ts.mtimeMs > TURN_END_QUIET_MS &&
+          (await transcriptTurnEnded(this.cfg.cwd, this.sessionId))
+        ) {
+          await sleep(TURN_END_RESAMPLE_MS);
+          const ts2 = await transcriptStat(this.cfg.cwd, this.sessionId);
+          if (ts2 && ts2.size === ts.size && (await transcriptTurnEnded(this.cfg.cwd, this.sessionId))) {
+            return gates;
+          }
+          lastChangeAt = Date.now(); // it moved — claude is alive; keep waiting
+          continue;
+        }
+        // Rung 3: repaint nudge — resize the PTY by one column and back, forcing
+        // the TUI to redraw fully. Cures a stale/partial render and gives the
+        // classifier a fresh screen. One shot.
+        if (nudges < 1) {
+          nudges += 1;
+          this.nudgeRepaint();
+          rearm();
+          await sleep(2000);
+          continue;
+        }
+        // Rung 4: ask the local brain to triage the screen (bounded). What it may
+        // cause depends on its VERDICT, never on a raw key suggestion alone:
+        //   gate  → a dialog the gate regexes did NOT recognize (else the main
+        //           loop would have handled it) — classifyGate can't judge it, so
+        //           it is treated as DANGEROUS-unknown: escalate via onGate;
+        //           without a handler it is default-DENIED (Esc). Enter is never
+        //           typed here without an explicit human/handler approval.
+        //   survey → Esc or "0" (dismiss). Digits 1-9 are refused: on a missed
+        //           real gate a digit selects-and-confirms (approval in disguise).
+        //   menu / unknown → Esc only.
+        //   ready (boot only) / working / error → no keystroke.
+        if (this.onTriage && triages < MAX_TRIAGES) {
+          triages += 1;
+          let triage: ScreenTriage | null = null;
+          try {
+            triage = await this.onTriage(text);
+          } catch {
+            /* triage is best-effort; a brain hiccup falls through to the timeout */
+          }
+          if (triage?.state === "ready" && !requireThink) return gates; // boot: idle variant confirmed
+          if (triage?.state === "gate") {
+            const resolution: GateResolution = this.onGate
+              ? await this.onGate({
+                  id: randomUUID(),
+                  sessionId: this.sessionId,
+                  summary: `unrecognized dialog — ${this.screenTail(text, 4)}`,
+                })
+              : { kind: "deny" };
+            this.type(resolution.kind === "approve" ? "\r" : ESC);
+            gates += 1;
+            rearm();
+            await sleep(GATE_COOLDOWN_MS);
+            continue;
+          }
+          const key = triageKeyBytes(triage?.key);
+          const allowed =
+            triage?.state === "survey"
+              ? key === ESC || key === "0"
+              : triage?.state === "menu" || triage?.state === "unknown"
+                ? key === ESC
+                : false;
+          if (key && allowed) {
+            this.type(key);
+            rearm();
+            await sleep(GATE_COOLDOWN_MS);
+            continue;
+          }
+        }
         fail(`claude's screen was frozen for ${(stuckMs / 1000).toFixed(0)}s and never became ready`);
       }
       if (detectAuthError(text)) {
@@ -228,9 +492,14 @@ export class ClaudeSession {
         throw new RateLimitError("claude hit the subscription usage limit — pausing this session.");
       }
 
-      // Dismiss the feedback survey if it pops up mid-turn.
+      // Dismiss the feedback survey if it pops up mid-turn. Current builds want
+      // "0: Dismiss" (Esc does nothing — the old Esc-only path spammed it for 8
+      // minutes and died); attempts alternate 0/Esc to cover both TUI builds.
       if (detectFeedbackSurvey(text)) {
-        this.type(ESC);
+        if (surveyDismissals >= MAX_SURVEY_DISMISSALS) {
+          fail(`the feedback survey did not dismiss after ${surveyDismissals} attempts`);
+        }
+        this.type(this.surveyKey(surveyDismissals++));
         await sleep(GATE_COOLDOWN_MS);
         continue;
       }
@@ -275,7 +544,21 @@ export class ClaudeSession {
         const thinkOk = !requireThink || sawNonReady || Date.now() - injectedAt > MIN_THINK_MS;
         if (thinkOk) {
           if (readySince === null) readySince = Date.now();
-          if (Date.now() - readySince >= READY_SETTLE_MS) return gates;
+          if (Date.now() - readySince >= READY_SETTLE_MS) {
+            // Ground-truth veto: a screen can LOOK idle while the turn never ran
+            // (swallowed Enter, prompt still in the input box — the idle footer
+            // chips render either way). When an offset marker exists, the
+            // transcript must have grown past it before ready counts as turn-end.
+            if (sinceOffset !== undefined) {
+              const ts = await transcriptStat(this.cfg.cwd, this.sessionId);
+              if (!ts || ts.size <= sinceOffset) {
+                readySince = null; // looks idle but nothing was submitted — keep waiting
+                await sleep(POLL_MS);
+                continue;
+              }
+            }
+            return gates;
+          }
         }
       }
 
@@ -308,6 +591,18 @@ export class ClaudeSession {
 
   private type(s: string): void {
     this.term?.write(s);
+  }
+
+  /** Force a full TUI repaint by resizing the PTY one column down and back. */
+  private nudgeRepaint(): void {
+    try {
+      this.term?.resize(COLS - 1, ROWS);
+      this.screen.resize(COLS - 1, ROWS);
+      this.term?.resize(COLS, ROWS);
+      this.screen.resize(COLS, ROWS);
+    } catch {
+      /* a dead pty surfaces via exited on the next poll */
+    }
   }
 
   /** Last few non-blank screen lines, trimmed — for diagnosing a stuck boot/turn. */

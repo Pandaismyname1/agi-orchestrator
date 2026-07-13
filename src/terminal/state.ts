@@ -30,18 +30,54 @@ const GATE_RE =
 //   - live token counter:    "↑ 21.6k tokens" / "↓ 2.1k tokens" — note the arrow can
 //     be UP or down and the count is abbreviated (k/m). (Anchored on "tokens" so the
 //     "↓ to manage" footer hint does NOT trip it.)
+// NOTE: "N shell(s) still running" is deliberately NOT working — background shells
+// are typically dev servers that never exit; the main prompt is idle and the turn's
+// final message is already in the transcript. Treating them as in-flight turned
+// finished turns into 8-minute frozen-screen deaths (see docs/AUTOPILOT decision D1).
 const WORKING_RE =
   /esc to interrupt|Waiting for \d+ background agent|[↑↓·•]\s*[\d.,]+\s*[km]?\s*tokens/i;
-// The idle input box, shown only at the main prompt.
-const IDLE_RE = /\?\s*for shortcuts|shift\s*\+\s*tab to cycle|\/effort\b/i;
+// The idle input box / idle footer, shown only at the main prompt. Footer hints
+// rotate and vary by permission mode and background-task chips, so this matches
+// every attested variant (v2.1.x):
+//   "? for shortcuts", "shift+tab to cycle", "/effort"
+//   mode chips: "bypass permissions on", "accept edits on", "plan mode on"
+//   background-task chips: "1 shell", "← for agents", "↓ to manage"
+// Tested against the FOOTER REGION only (the last few screen lines) — these are
+// plain substrings that also occur in assistant PROSE (claude writing "bypass
+// permissions on…" mid-reply must not read as an idle footer).
+const IDLE_RE =
+  /\?\s*for shortcuts|shift\s*\+\s*tab to cycle|\/effort\b|bypass permissions on|accept edits on|plan mode on|\b\d+\s+shells?\b|←\s*for agents|↓\s*to manage/i;
+// How many trailing screen lines count as the footer region for IDLE_RE.
+const FOOTER_LINES = 6;
+// The completed-turn spinner line: "✻ Worked for 24m 28s", "✻ Sautéed for 18m 12s ·
+// 1 shell still running". Anchored to a line start and to the spinner's sparkle
+// glyphs specifically — markdown bullets ("* Ran for 3m 12s") and "·"-separated
+// prose ("attempt 2 · waited for 30s") must NOT read as a finished turn. The
+// duration unit is attached to the number ("24m", "28s"), which distinguishes it
+// from the in-flight "✻ Waiting for 1 background agent".
+const TURN_DONE_RE = /^\s*[✻✳✽✶✢✣✤∗]\s+\S+ for (?:\d+h\s*)?\d+[ms](?:\s+\d+s)?\s*(?:·|$)/mu;
+
+/** The last few non-empty screen lines — where the TUI renders its footer. */
+function footerRegion(text: string): string {
+  return text
+    .split("\n")
+    .filter((l) => l.trim().length > 0)
+    .slice(-FOOTER_LINES)
+    .join("\n");
+}
 
 export function classifyScreen(text: string): ScreenState {
   // Order: a gate dialog overrides everything; then in-flight work (main OR
   // background agents) BEFORE the idle box, so we don't mistake "idle while agents
-  // run" for "ready" and spin the brain against unfinished work.
+  // run" for "ready" and spin the brain against unfinished work. Idle hints are
+  // only trusted in the footer region — several are plain words that also occur
+  // in assistant prose mid-reply.
   if (GATE_RE.test(text)) return "gate";
   if (WORKING_RE.test(text)) return "working";
-  if (IDLE_RE.test(text)) return "ready";
+  if (IDLE_RE.test(footerRegion(text))) return "ready";
+  // No footer hint matched, but a completed-turn spinner line ("✻ Worked for 24m
+  // 28s") with no in-flight chrome means the turn is over and the prompt is idle.
+  if (TURN_DONE_RE.test(text)) return "ready";
   return "unknown";
 }
 
