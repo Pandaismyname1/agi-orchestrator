@@ -23,7 +23,7 @@ import {
 import { parseContextFraction } from "../policy/context.js";
 import { classifyGate } from "../terminal/gates.js";
 import {
-  readLastAssistantMessage,
+  assistantTextAfterOffset,
   transcriptStat,
   transcriptTurnEnded,
 } from "../transcript/reader.js";
@@ -72,6 +72,13 @@ const MAX_SURVEY_DISMISSALS = 8;
 // progress even when the rendered screen looks frozen (the transcript is appended
 // continuously while claude works — it's the ground truth; the screen is not).
 const TRANSCRIPT_ACTIVE_MS = 45_000;
+// Rung 2 (turn-already-ended) demands MUCH longer transcript quiet than rung 1:
+// claude writes a turn's text preamble and its following tool_use as separate
+// JSONL lines, with real gaps up to ~70s while a large tool call generates — a
+// text-only tail + 45s of quiet is NOT proof the turn ended (verified against
+// live transcripts). 3 minutes + a double-sample is.
+const TURN_END_QUIET_MS = 180_000;
+const TURN_END_RESAMPLE_MS = 12_000;
 // At most this many Qwen screen-triage keypress attempts per wait.
 const MAX_TRIAGES = 3;
 
@@ -230,19 +237,27 @@ export class ClaudeSession {
     }
 
     // Transcript byte offset before injection — the ground-truth marker for "did
-    // this turn produce a reply", used by the frozen-screen recovery ladder.
+    // this prompt submit" and "did this turn produce a reply". Everything below
+    // is anchored to it so a stale previous-turn reply can never be returned as
+    // this turn's answer.
     const sinceOffset = (await transcriptStat(this.cfg.cwd, this.sessionId))?.size ?? 0;
 
-    await this.inject(prompt);
+    await this.inject(prompt, sinceOffset);
 
+    // Slash commands (/compact, /clear …) run locally and may write little or
+    // nothing to the transcript, so they skip the transcript-growth turn-end
+    // requirements (the screen path still applies).
+    const guardOffset = prompt.trim().startsWith("/") ? undefined : sinceOffset;
     const gatesHandled = await this.waitForReady(
       TURN_TIMEOUT_MS,
       /*requireThink*/ true,
       TURN_STUCK_MS,
-      sinceOffset,
+      guardOffset,
     );
 
-    const assistantText = await readLastAssistantMessage(this.cfg.cwd, this.sessionId);
+    // Read the reply STRICTLY from after this turn's injection point. "" (no new
+    // assistant text) is an honest "no message" — never the previous turn's reply.
+    const assistantText = (await assistantTextAfterOffset(this.cfg.cwd, this.sessionId, sinceOffset)) ?? "";
     return {
       prompt,
       assistantText,
@@ -260,13 +275,23 @@ export class ClaudeSession {
    * Type the prompt (as one bracketed paste, so embedded newlines can't half-submit)
    * and press Enter — then VERIFY the turn actually started. The TUI occasionally
    * swallows the Enter (mid-render race); un-verified injection left "> continue"
-   * sitting in the input box until the stuck-timeout killed the run. Evidence of a
-   * started turn: the screen leaves the idle/static state (working spinner, a gate,
-   * a choice menu) or keeps changing. A still-frozen screen gets Enter re-sent, a
-   * bounded number of times; after that waitForReady's recovery ladder takes over.
+   * sitting in the input box until the stuck-timeout killed the run.
+   *
+   * Verification is GROUND-TRUTH based: claude appends the submitted prompt to the
+   * transcript JSONL immediately, so transcript growth past `sinceOffset` proves
+   * the submit took. (A pixel-diff heuristic is NOT proof — the screen keeps
+   * repainting after a large paste and the footer rotates hints on its own, which
+   * is exactly the window in which Enter gets swallowed.) Screen states that
+   * preempt the transcript write (a gate or choice menu) also count. If every
+   * retry fails, this THROWS — a silent fall-through would let the turn "complete"
+   * with a stale reply while the prompt still sits unsent in the input box.
    */
-  private async inject(prompt: string): Promise<void> {
+  private async inject(prompt: string, sinceOffset: number): Promise<void> {
     const normalized = prompt.replace(/\r\n?/g, "\n");
+    // A slash command (/compact, /clear …) runs locally and may write nothing to
+    // the transcript for a while — for those, a working spinner or any screen
+    // change after Enter is accepted as submit evidence instead.
+    const isSlashCommand = normalized.startsWith("/");
     this.type(PASTE_START + normalized + PASTE_END);
     await sleep(400); // let the paste render before submitting
     for (let attempt = 0; attempt < SUBMIT_RETRIES; attempt++) {
@@ -274,17 +299,24 @@ export class ClaudeSession {
       const baseline = this.screen.visibleText();
       const deadline = Date.now() + SUBMIT_VERIFY_MS;
       while (Date.now() < deadline) {
-        await sleep(250);
+        await sleep(300);
         if (this.exited) return; // waitForReady will surface the exit diagnostics
+        const ts = await transcriptStat(this.cfg.cwd, this.sessionId);
+        if (ts && ts.size > sinceOffset) return; // the prompt landed in the transcript
         const text = this.screen.visibleText();
         const state = classifyScreen(text);
-        // Any post-Enter screen activity or in-flight/gate state = the submit took.
-        if (state === "working" || state === "gate" || detectChoicePrompt(text) || text !== baseline) {
-          return;
-        }
+        if (state === "gate" || detectChoicePrompt(text)) return; // modal preempted the write
+        if (state === "working") return; // in-flight chrome — the turn started
+        if (isSlashCommand && text !== baseline) return;
       }
-      // Screen completely static since Enter — assume it was swallowed; re-send.
+      // No transcript growth and no modal — the Enter was swallowed; re-send it.
+      // A repaint nudge first, so a stale render can't hide an actually-started turn.
+      if (attempt === 0) this.nudgeRepaint();
     }
+    throw new TimeoutError(
+      `prompt failed to submit after ${SUBMIT_RETRIES} attempts (transcript never grew). ` +
+        `Screen tail: ${this.screenTail(this.screen.visibleText())}`,
+    );
   }
 
   /**
@@ -362,14 +394,24 @@ export class ClaudeSession {
         }
         // Rung 2: a reply landed after our injection and the transcript's tail is
         // a final assistant message → the turn is OVER; the screen was just an
-        // unrecognized idle variant. Success, not death.
+        // unrecognized idle variant. Success, not death. The bar is deliberately
+        // high: a text-only tail can be an in-flight PREAMBLE (claude writes text
+        // and the following tool_use as separate lines, with gaps up to ~70s), so
+        // demand LONG quiet plus a double-sample before trusting it.
         if (
           sinceOffset !== undefined &&
           ts &&
           ts.size > sinceOffset &&
+          Date.now() - ts.mtimeMs > TURN_END_QUIET_MS &&
           (await transcriptTurnEnded(this.cfg.cwd, this.sessionId))
         ) {
-          return gates;
+          await sleep(TURN_END_RESAMPLE_MS);
+          const ts2 = await transcriptStat(this.cfg.cwd, this.sessionId);
+          if (ts2 && ts2.size === ts.size && (await transcriptTurnEnded(this.cfg.cwd, this.sessionId))) {
+            return gates;
+          }
+          lastChangeAt = Date.now(); // it moved — claude is alive; keep waiting
+          continue;
         }
         // Rung 3: repaint nudge — resize the PTY by one column and back, forcing
         // the TUI to redraw fully. Cures a stale/partial render and gives the
@@ -381,9 +423,15 @@ export class ClaudeSession {
           await sleep(2000);
           continue;
         }
-        // Rung 4: ask the local brain to triage the screen (bounded). It may
-        // recognize a menu/survey/picker the regexes don't and suggest ONE safe
-        // key (Enter/Esc/digit — enforced here, never free text).
+        // Rung 4: ask the local brain to triage the screen (bounded). What it may
+        // cause depends on its VERDICT, never on a raw key suggestion alone:
+        //   gate  → the existing gate safety policy (classifyGate / onGate /
+        //           default-deny) — triage must NOT be able to blind-approve a
+        //           permission dialog the regexes didn't recognize.
+        //   menu / survey → Esc or a digit (dismiss / pick); Enter is refused —
+        //           accepting a highlighted default is a gate-approval in disguise.
+        //   unknown → Esc only.
+        //   ready (boot only) / working / error → no keystroke.
         if (this.onTriage && triages < MAX_TRIAGES) {
           triages += 1;
           let triage: ScreenTriage | null = null;
@@ -393,8 +441,21 @@ export class ClaudeSession {
             /* triage is best-effort; a brain hiccup falls through to the timeout */
           }
           if (triage?.state === "ready" && !requireThink) return gates; // boot: idle variant confirmed
+          if (triage?.state === "gate") {
+            await this.handleGate(text);
+            gates += 1;
+            rearm();
+            await sleep(GATE_COOLDOWN_MS);
+            continue;
+          }
           const key = triageKeyBytes(triage?.key);
-          if (key) {
+          const allowed =
+            triage?.state === "menu" || triage?.state === "survey"
+              ? key !== null && key !== "\r"
+              : triage?.state === "unknown"
+                ? key === ESC
+                : false;
+          if (key && allowed) {
             this.type(key);
             rearm();
             await sleep(GATE_COOLDOWN_MS);
@@ -462,7 +523,21 @@ export class ClaudeSession {
         const thinkOk = !requireThink || sawNonReady || Date.now() - injectedAt > MIN_THINK_MS;
         if (thinkOk) {
           if (readySince === null) readySince = Date.now();
-          if (Date.now() - readySince >= READY_SETTLE_MS) return gates;
+          if (Date.now() - readySince >= READY_SETTLE_MS) {
+            // Ground-truth veto: a screen can LOOK idle while the turn never ran
+            // (swallowed Enter, prompt still in the input box — the idle footer
+            // chips render either way). When an offset marker exists, the
+            // transcript must have grown past it before ready counts as turn-end.
+            if (sinceOffset !== undefined) {
+              const ts = await transcriptStat(this.cfg.cwd, this.sessionId);
+              if (!ts || ts.size <= sinceOffset) {
+                readySince = null; // looks idle but nothing was submitted — keep waiting
+                await sleep(POLL_MS);
+                continue;
+              }
+            }
+            return gates;
+          }
         }
       }
 

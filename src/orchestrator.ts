@@ -16,8 +16,16 @@ import {
   readRecentMessages,
   readLastAssistantMessage,
   transcriptStat,
+  transcriptTurnEnded,
   assistantTextAfterOffset,
 } from "./transcript/reader.js";
+
+/** Thrown inside turn recovery when the operator stopped the run mid-recovery. */
+class StopRequested extends Error {
+  constructor() {
+    super("stopped by operator");
+  }
+}
 import { gitSummary } from "./brain/repoState.js";
 import { RollingSummary, type RollingSummaryOptions } from "./brain/summary.js";
 import { LocalLLM, isTransientError } from "./brain/provider.js";
@@ -69,6 +77,12 @@ export type EventSink = (e: OrchestratorEvent) => void;
  */
 export interface AgentSession {
   readonly sessionId: string;
+  /**
+   * Whether the memory-preserving /compact flow works for this driver. Undefined
+   * = true (the PTY engine). The headless engine sets false: it can't read
+   * /context and a "/compact" prompt through `claude -p` is not the panel flow.
+   */
+  readonly supportsCompaction?: boolean;
   onGate?: (req: GateRequest) => Promise<GateResolution>;
   onTriage?: (screenText: string) => Promise<import("./session/claudeSession.js").ScreenTriage | null>;
   start(): Promise<void>;
@@ -220,25 +234,72 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
       if (e instanceof TimeoutError) return true;
       return e instanceof Error && (/claude exited \(code/.test(e.message) || e.message === "session not running");
     };
+    // A prompt re-injected after PARTIAL execution must not blindly re-run —
+    // side effects may already have happened. Wrap it so claude reconciles
+    // against what's already done. Slash commands re-inject verbatim (they're
+    // local commands; the wrapper text would break them).
+    const reinjection = (p: string): string =>
+      p.trim().startsWith("/")
+        ? p
+        : "Your previous instruction was interrupted mid-execution by a technical failure. " +
+          "The instruction was:\n---\n" + p + "\n---\n" +
+          "Check what has ALREADY been done (files on disk, repo state, your own prior messages) " +
+          "and complete only the remainder — do not redo finished work.";
     const runTurnRecovered = async (prompt: string): Promise<TurnResult> => {
       const t0 = Date.now();
       const offset = (await transcriptStat(session.cwd, sess.sessionId))?.size ?? 0;
+      let attemptPrompt = prompt;
       for (let attempt = 0; ; attempt++) {
         try {
           if (attempt > 0) {
             await sess.dispose();
             await sleep(RECOVERY_BACKOFF_MS[Math.min(attempt - 1, RECOVERY_BACKOFF_MS.length - 1)]!);
+            if (opts.shouldStop?.()) {
+              // The operator stopped during the backoff — do not resurrect the
+              // session they killed; surface the stop to the outer loop.
+              throw new StopRequested();
+            }
             sess = makeSession(sess.sessionId); // resume the SAME conversation
             await sess.start();
-            // Did the reply land before/despite the failure (or during the
-            // resume's auto-continue)? Then the turn is already complete.
-            const landed = await assistantTextAfterOffset(session.cwd, sess.sessionId, offset);
-            if (landed !== null) {
-              return { prompt, assistantText: landed, gatesHandled: 0, durationMs: Date.now() - t0 };
+            // Transcript triage: what actually happened to this turn before the
+            // failure? (The transcript is ground truth; never re-run blindly.)
+            const ts = await transcriptStat(session.cwd, sess.sessionId);
+            const activity = !!ts && ts.size > offset;
+            if (activity) {
+              const ended = await transcriptTurnEnded(session.cwd, sess.sessionId);
+              const landed = await assistantTextAfterOffset(session.cwd, sess.sessionId, offset);
+              // Fully complete: final reply landed — the turn is done, return it.
+              if (ended && landed !== null) {
+                return { prompt, assistantText: landed, gatesHandled: 0, durationMs: Date.now() - t0 };
+              }
+              // Partial execution: work happened but no final reply. Give a
+              // possibly-still-finishing turn a bounded grace window, then
+              // reconcile-and-continue instead of double-executing.
+              const graceUntil = Date.now() + 120_000;
+              while (Date.now() < graceUntil) {
+                await sleep(5_000);
+                if (opts.shouldStop?.()) throw new StopRequested();
+                const now = await transcriptStat(session.cwd, sess.sessionId);
+                if (now && ts && now.size !== ts.size) break; // still moving — recheck below
+                if (await transcriptTurnEnded(session.cwd, sess.sessionId)) {
+                  const text = await assistantTextAfterOffset(session.cwd, sess.sessionId, offset);
+                  if (text !== null) {
+                    return { prompt, assistantText: text, gatesHandled: 0, durationMs: Date.now() - t0 };
+                  }
+                  break;
+                }
+              }
+              attemptPrompt = reinjection(prompt);
             }
           }
-          return await sess.runTurn(prompt);
+          return await sess.runTurn(attemptPrompt);
         } catch (e) {
+          if (e instanceof StopRequested) throw e;
+          if (opts.shouldStop?.()) {
+            // An operator stop tears the session down mid-turn, which surfaces
+            // as "claude exited" — that is a STOP, not a failure to recover from.
+            throw new StopRequested();
+          }
           if (attempt >= MAX_TURN_RECOVERIES || !isRecoverableTurnError(e)) throw e;
           emit({
             type: "recovery",
@@ -446,7 +507,7 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
 
       // ---- context guard: memory-preserving compaction before overflow ----
       const cg = opts.contextGuard;
-      if (cg?.enabled) {
+      if (cg?.enabled && sess.supportsCompaction !== false) {
         // Use Claude's REAL /context usage (tracks the actual window and DROPS
         // after a /compact). Only fall back to the byte estimate if that fails —
         // the estimate never shrinks post-compact, which caused a compaction loop.
@@ -467,7 +528,16 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
       if (ug?.shouldRefresh(guards.turnCount)) limited = await checkUsage();
     }
   } catch (e) {
-    if (e instanceof RateLimitError) {
+    if (e instanceof StopRequested) {
+      // An operator stop that surfaced mid-turn/mid-recovery is a clean stop.
+      emit({
+        type: "stop",
+        sessionId: session.id,
+        reason: "stopped by operator",
+        turns: guards.turnCount,
+        elapsedMin: guards.elapsedMin,
+      });
+    } else if (e instanceof RateLimitError) {
       emit({ type: "rate_limited", sessionId: session.id, detail: e.message });
       emit({
         type: "stop",

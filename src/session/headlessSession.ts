@@ -20,6 +20,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { transcriptPath } from "../transcript/reader.js";
 import { CwdError, TimeoutError } from "./claudeSession.js";
 import type { ScreenTriage } from "./claudeSession.js";
 import type { UsageStatus } from "../policy/usage.js";
@@ -29,6 +30,28 @@ import type { GateRequest, GateResolution, ScreenState, SessionConfig, TurnResul
 const TURN_TIMEOUT_MS = 90 * 60_000; // same per-turn hard cap as the PTY engine
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Kill a child process AND its descendants. `claude -p` spawns its own children
+ * (shells, MCP servers); on Windows plain ChildProcess.kill() terminates only the
+ * direct child and leaks the tree — use taskkill /T. Best-effort.
+ */
+function killTree(child: ChildProcessWithoutNullStreams): void {
+  const pid = child.pid;
+  try {
+    if (process.platform === "win32" && pid) {
+      spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+    } else {
+      child.kill();
+    }
+  } catch {
+    try {
+      child.kill();
+    } catch {
+      /* already gone */
+    }
+  }
+}
 
 /** Extract concatenated text blocks from a stream-json assistant message. */
 export function textFromAssistant(msg: unknown): string {
@@ -113,6 +136,9 @@ export class HeadlessClaudeSession {
   /** Rolling tail of assistant output — the dashboard's "screen". */
   private tail = "(headless session — no TUI; output appears per turn)";
 
+  /** Print mode can't drive the /context + /compact panel flow — the guard skips it. */
+  readonly supportsCompaction = false;
+
   /** Present for AgentSession compatibility; print mode never raises TUI gates. */
   onGate?: (req: GateRequest) => Promise<GateResolution>;
   onTriage?: (screenText: string) => Promise<ScreenTriage | null>;
@@ -120,7 +146,11 @@ export class HeadlessClaudeSession {
   constructor(private readonly cfg: SessionConfig) {
     if (cfg.resumeId && UUID_RE.test(cfg.resumeId)) {
       this.id = cfg.resumeId;
-      this.hasConversation = true;
+      // Ground truth, not assumption: a recovery respawn passes resumeId even
+      // when the first turn crashed before any conversation reached disk —
+      // `--resume` on a non-existent conversation exits 1. Resume only when the
+      // transcript actually exists; otherwise mint the SAME id via --session-id.
+      this.hasConversation = existsSync(transcriptPath(cfg.cwd, this.id));
     } else {
       this.id = UUID_RE.test(cfg.id) ? cfg.id : randomUUID();
       this.hasConversation = false;
@@ -182,11 +212,7 @@ export class HeadlessClaudeSession {
 
       const timer = setTimeout(() => {
         finish(new TimeoutError(`claude -p turn exceeded ${TURN_TIMEOUT_MS / 60_000} minutes — killed`));
-        try {
-          child.kill();
-        } catch {
-          /* already gone */
-        }
+        killTree(child);
       }, TURN_TIMEOUT_MS);
 
       const finish = (err: Error | null, result?: TurnResult): void => {
@@ -270,11 +296,7 @@ export class HeadlessClaudeSession {
   async dispose(): Promise<void> {
     this.disposed = true;
     if (this.child) {
-      try {
-        this.child.kill();
-      } catch {
-        /* already gone */
-      }
+      killTree(this.child);
       this.child = undefined;
     }
     this.turnActive = false;

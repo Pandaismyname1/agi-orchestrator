@@ -148,5 +148,28 @@ check(
 // In-flight spinner format "(12s · …)" must not read as turn-done.
 check("in-flight spinner '(12s · ↑ 1.2k tokens)' => working (token counter)", classifyScreen("✻ Cogitating… (12s · ↑ 1.2k tokens)") === "working");
 
+// --- prose false-positive guards (from the adversarial review) -------------------
+// Idle-footer hints are plain words that occur in assistant PROSE — they must only
+// count when rendered in the footer region (last lines), not mid-reply.
+const proseNotFooter = `
+  Here's what I changed: the settings now keep bypass permissions on for local
+  runs, and the task list shows 3 shells per worker.
+  More explanation text follows here.
+  line
+  line
+  line
+  line
+  line`;
+check("idle-hint words in PROSE (not footer) => unknown", classifyScreen(proseNotFooter) === "unknown");
+// The completed-turn spinner must not match markdown bullets / JSDoc / ·-prose.
+check("markdown bullet '* Ran for 3m 12s on CI' => NOT ready", classifyScreen("* Ran for 3m 12s on CI") === "unknown");
+check("JSDoc ' * Poll for 5s until…' => NOT ready", classifyScreen("  * Poll for 5s until the port opens") === "unknown");
+check(
+  "prose 'attempt 2 · waited for 30s' => NOT ready",
+  classifyScreen("attempt 2 · waited for 30s before retrying") === "unknown",
+);
+// …while the real done-spinner still matches (line-anchored sparkle glyph).
+check("real '✻ Worked for 24m 28s' still ready", classifyScreen("  ✻ Worked for 24m 28s") === "ready");
+
 console.log(`\n[screen] => ${pass ? "PASS ✅" : "FAIL ⚠️"}`);
 process.exit(pass ? 0 : 1);

@@ -566,8 +566,14 @@ export class Supervisor {
         }
         this.log.info("self-heal firing", { session: cur.id, attempt: cur.healAttempts });
         const outcome = this.start(cur.id, { auto: true });
-        if (!outcome.started) {
+        if (!outcome.started && !outcome.queued) {
+          // The restart was refused (budget/limit/deps). The heal notification
+          // was suppressed on the promise that a restart would happen — it won't,
+          // so page the human now instead of leaving the session silently dead.
+          cur.continueResumeId = undefined;
+          cur.continueSeed = undefined;
           this.log.warn("self-heal start refused", { session: cur.id, reason: outcome.reason });
+          this.notify(cur, "error", `${cur.error ?? "run failed"} — self-heal could not restart: ${outcome.reason ?? "start refused"}`);
         }
       }, delayMs),
     );
@@ -878,13 +884,17 @@ export class Supervisor {
             timer = setTimeout(() => {
               const fn = m.resolveAttention;
               if (!fn || m.attention?.id !== req.id) return;
+              if (this.sessions.get(m.id) !== m) return; // session was removed/replaced
+              if (this.escalationTimeoutMin(m) <= 0) return; // persona changed while parked
               const opt = req.options[0]!;
               this.log.warn("escalation timed out — auto-picking the recommended option", {
                 session: m.id,
                 minutes: tmin,
                 picked: opt.label,
               });
-              this.notify(m, "needs-input", `no answer in ${tmin}m — auto-picked "${opt.label}"`);
+              // automations:false — the session is being un-parked, so needs-input
+              // rules must not re-fire on this informational notice.
+              this.notify(m, "needs-input", `no answer in ${tmin}m — auto-picked "${opt.label}"`, { automations: false });
               fn({ kind: "answer", prompt: opt.prompt, label: `auto (timed out): ${opt.label}` });
             }, tmin * 60_000);
             timer.unref?.();
@@ -922,12 +932,14 @@ export class Supervisor {
             timer = setTimeout(() => {
               const fn = m.resolveGate;
               if (!fn || m.attention?.id !== req.id) return;
+              if (this.sessions.get(m.id) !== m) return; // session was removed/replaced
+              if (this.escalationTimeoutMin(m) <= 0) return; // persona changed while parked
               this.log.warn("gate approval timed out — auto-denying (safe direction)", {
                 session: m.id,
                 minutes: tmin,
                 summary: req.summary,
               });
-              this.notify(m, "needs-input", `no answer in ${tmin}m — risky action auto-DENIED: ${req.summary}`);
+              this.notify(m, "needs-input", `no answer in ${tmin}m — risky action auto-DENIED: ${req.summary}`, { automations: false });
               fn({ kind: "deny" });
             }, tmin * 60_000);
             timer.unref?.();
@@ -1252,10 +1264,12 @@ export class Supervisor {
   // ---- outbound webhooks / event notifications (automation suite) ----------
 
   /** Fire-and-forget a lifecycle webhook for a session. Never throws. */
-  private notify(m: Managed, event: WebhookEvent, detail?: string): void {
+  private notify(m: Managed, event: WebhookEvent, detail?: string, opts?: { automations?: boolean }): void {
     // Reactive automation rules run first (start/stop/notify), independent of
-    // whether any webhook is configured.
-    this.runAutomations(m, event, detail);
+    // whether any webhook is configured. Informational notices (e.g. a timeout
+    // AUTO-RESOLVING a needs-input) pass automations:false — the session is no
+    // longer waiting, so needs-input rules must not re-fire on the resolution.
+    if (opts?.automations !== false) this.runAutomations(m, event, detail);
     if (!this.notifier.active) return;
     // Per-session override: a muted (or event-narrowed) session skips its own
     // lifecycle notifications. Automation rules above still ran — this only gates
@@ -1832,6 +1846,13 @@ export class Supervisor {
     if (!m) throw new Error(`no session with id "${id}".`);
     if (m.status === "running") throw new Error("stop the session before deleting it.");
     this.clearResumeTimer(id); // don't let a pending auto-resume fire for a removed session
+    // A session parked at needs-input has a live run awaiting a resolver. Resolve
+    // it terminally (deny the gate / stop the escalation) so the orphaned run
+    // tears down instead of resuming later into a deleted session — and so the
+    // armed escalation-timeout can't fire into it either.
+    m.stopRequested = true;
+    m.resolveGate?.({ kind: "deny" });
+    m.resolveAttention?.({ kind: "stop" });
     this.sessions.delete(id);
     this.persist();
   }
