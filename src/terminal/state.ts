@@ -30,10 +30,24 @@ const GATE_RE =
 //   - live token counter:    "↑ 21.6k tokens" / "↓ 2.1k tokens" — note the arrow can
 //     be UP or down and the count is abbreviated (k/m). (Anchored on "tokens" so the
 //     "↓ to manage" footer hint does NOT trip it.)
+// NOTE: "N shell(s) still running" is deliberately NOT working — background shells
+// are typically dev servers that never exit; the main prompt is idle and the turn's
+// final message is already in the transcript. Treating them as in-flight turned
+// finished turns into 8-minute frozen-screen deaths (see docs/AUTOPILOT decision D1).
 const WORKING_RE =
   /esc to interrupt|Waiting for \d+ background agent|[↑↓·•]\s*[\d.,]+\s*[km]?\s*tokens/i;
-// The idle input box, shown only at the main prompt.
-const IDLE_RE = /\?\s*for shortcuts|shift\s*\+\s*tab to cycle|\/effort\b/i;
+// The idle input box / idle footer, shown only at the main prompt. Footer hints
+// rotate and vary by permission mode and background-task chips, so this matches
+// every attested variant (v2.1.x):
+//   "? for shortcuts", "shift+tab to cycle", "/effort"
+//   mode chips: "bypass permissions on", "accept edits on", "plan mode on"
+//   background-task chips: "1 shell", "← for agents", "↓ to manage"
+const IDLE_RE =
+  /\?\s*for shortcuts|shift\s*\+\s*tab to cycle|\/effort\b|bypass permissions on|accept edits on|plan mode on|\b\d+\s+shells?\b|←\s*for agents|↓\s*to manage/i;
+// The completed-turn spinner line: "✻ Worked for 24m 28s", "✻ Sautéed for 18m 12s ·
+// 1 shell still running". The duration unit is attached to the number ("24m", "28s"),
+// which distinguishes it from the in-flight "✻ Waiting for 1 background agent".
+const TURN_DONE_RE = /[✻·*]\s+\S+ for (?:\d+h\s*)?\d+[ms](?:\s+\d+s)?\b/;
 
 export function classifyScreen(text: string): ScreenState {
   // Order: a gate dialog overrides everything; then in-flight work (main OR
@@ -42,6 +56,9 @@ export function classifyScreen(text: string): ScreenState {
   if (GATE_RE.test(text)) return "gate";
   if (WORKING_RE.test(text)) return "working";
   if (IDLE_RE.test(text)) return "ready";
+  // No footer hint matched, but a completed-turn spinner line ("✻ Worked for 24m
+  // 28s") with no in-flight chrome means the turn is over and the prompt is idle.
+  if (TURN_DONE_RE.test(text)) return "ready";
   return "unknown";
 }
 

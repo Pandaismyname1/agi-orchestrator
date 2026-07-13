@@ -10,6 +10,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, statSync } from "node:fs";
+import { execFile } from "node:child_process";
 import * as pty from "node-pty";
 import { VirtualScreen } from "../terminal/screen.js";
 import {
@@ -27,6 +28,11 @@ import { scrubbedEnv } from "../util/env.js";
 import type { GateRequest, GateResolution, ScreenState, SessionConfig, TurnResult } from "../types.js";
 
 const ESC = "\x1b"; // cancels/denies a claude TUI gate ("Esc to cancel")
+// Bracketed-paste envelope: the TUI treats the payload as ONE paste (newlines
+// included, nothing auto-submits), so a multi-line brain prompt can't half-submit
+// and the rapid-typing paste heuristic can't swallow the trailing Enter.
+const PASTE_START = "\x1b[200~";
+const PASTE_END = "\x1b[201~";
 
 const COLS = 120;
 const ROWS = 40;
@@ -51,6 +57,25 @@ const MIN_THINK_MS = 1500; // ignore "ready" for this long after injecting (avoi
 // reopening one within a single turn, bail with a clear error instead of spinning
 // (or silently re-dismissing) until the multi-minute turn timeout.
 const MAX_CHOICE_DISMISSALS = 6;
+// Submission verification: after Enter, evidence that the turn started must appear
+// within this window, else the Enter was swallowed and is re-sent (bounded).
+const SUBMIT_VERIFY_MS = 4000;
+const SUBMIT_RETRIES = 3;
+// The feedback survey wants "0: Dismiss" on current builds; older builds took Esc.
+// Attempts alternate 0/Esc; past the cap the survey is treated as a stuck screen.
+const MAX_SURVEY_DISMISSALS = 8;
+
+/** `claude --version`, resolved once per process — for exit/boot diagnostics. */
+let cachedClaudeVersion: string | undefined;
+export function claudeVersion(): Promise<string> {
+  if (cachedClaudeVersion !== undefined) return Promise.resolve(cachedClaudeVersion);
+  return new Promise((resolve) => {
+    execFile("claude.exe", ["--version"], { timeout: 10_000, windowsHide: true }, (err, stdout) => {
+      cachedClaudeVersion = err ? "(unknown)" : stdout.trim();
+      resolve(cachedClaudeVersion);
+    });
+  });
+}
 
 export class AuthError extends Error {}
 export class TimeoutError extends Error {}
@@ -66,6 +91,8 @@ export class ClaudeSession {
   private term: pty.IPty | undefined;
   private exited = false;
   private exitCode: number | null = null;
+  /** Last screen tail captured the moment claude exited — the crash diagnostic. */
+  private exitTail = "";
 
   /**
    * Optional handler for a DANGEROUS gate. Returns approve/deny. If unset, the
@@ -110,7 +137,15 @@ export class ClaudeSession {
     this.term.onExit(({ exitCode }) => {
       this.exited = true;
       this.exitCode = exitCode ?? 0;
+      // Snapshot the final screen NOW — it's the only evidence of why claude died
+      // (auth failure, bad --resume id, crash banner). Read before dispose clears it.
+      try {
+        this.exitTail = this.screenTail(this.screen.visibleText(), 12);
+      } catch {
+        /* emulator already disposed */
+      }
     });
+    void claudeVersion().then((v) => console.log(`[session ${this.cfg.id}] claude ${v}`));
 
     // Fresh boot is quick (45s). A resume can legitimately take much longer (it
     // replays the transcript and may auto-continue), so give it a generous cap but
@@ -151,14 +186,12 @@ export class ClaudeSession {
 
     // Dismiss Claude's "How is Claude doing?" survey if it's up — otherwise it can
     // swallow the first keystroke of our prompt as a 1/2/3 rating.
-    if (detectFeedbackSurvey(this.screen.visibleText())) {
-      this.type(ESC);
-      await sleep(400);
+    for (let i = 0; i < 3 && detectFeedbackSurvey(this.screen.visibleText()); i++) {
+      this.type(this.surveyKey(i));
+      await sleep(500);
     }
 
-    this.type(prompt);
-    await sleep(300);
-    this.type("\r"); // submit
+    await this.inject(prompt);
 
     const gatesHandled = await this.waitForReady(TURN_TIMEOUT_MS, /*requireThink*/ true, TURN_STUCK_MS);
 
@@ -169,6 +202,42 @@ export class ClaudeSession {
       gatesHandled,
       durationMs: Date.now() - startedAt,
     };
+  }
+
+  /** The survey key for the Nth dismissal attempt: "0: Dismiss" first, Esc fallback. */
+  private surveyKey(attempt: number): string {
+    return attempt % 2 === 0 ? "0" : ESC;
+  }
+
+  /**
+   * Type the prompt (as one bracketed paste, so embedded newlines can't half-submit)
+   * and press Enter — then VERIFY the turn actually started. The TUI occasionally
+   * swallows the Enter (mid-render race); un-verified injection left "> continue"
+   * sitting in the input box until the stuck-timeout killed the run. Evidence of a
+   * started turn: the screen leaves the idle/static state (working spinner, a gate,
+   * a choice menu) or keeps changing. A still-frozen screen gets Enter re-sent, a
+   * bounded number of times; after that waitForReady's recovery ladder takes over.
+   */
+  private async inject(prompt: string): Promise<void> {
+    const normalized = prompt.replace(/\r\n?/g, "\n");
+    this.type(PASTE_START + normalized + PASTE_END);
+    await sleep(400); // let the paste render before submitting
+    for (let attempt = 0; attempt < SUBMIT_RETRIES; attempt++) {
+      this.type("\r");
+      const baseline = this.screen.visibleText();
+      const deadline = Date.now() + SUBMIT_VERIFY_MS;
+      while (Date.now() < deadline) {
+        await sleep(250);
+        if (this.exited) return; // waitForReady will surface the exit diagnostics
+        const text = this.screen.visibleText();
+        const state = classifyScreen(text);
+        // Any post-Enter screen activity or in-flight/gate state = the submit took.
+        if (state === "working" || state === "gate" || detectChoicePrompt(text) || text !== baseline) {
+          return;
+        }
+      }
+      // Screen completely static since Enter — assume it was swallowed; re-send.
+    }
   }
 
   /**
@@ -193,6 +262,7 @@ export class ClaudeSession {
     let sawNonReady = false;
     let gates = 0;
     let choiceDismissals = 0;
+    let surveyDismissals = 0;
     let lastText = "";
     let lastChangeAt = Date.now();
     let lastState: ScreenState = "unknown";
@@ -205,7 +275,10 @@ export class ClaudeSession {
 
     while (true) {
       if (this.exited) {
-        throw new Error(`claude exited (code ${this.exitCode}) while waiting for ready`);
+        throw new Error(
+          `claude exited (code ${this.exitCode}) while waiting for ready. ` +
+            `Screen at exit: ${this.exitTail || "(not captured)"}`,
+        );
       }
       if (Date.now() > deadline) {
         fail(`timed out after ${(timeoutMs / 1000).toFixed(0)}s waiting for ready`);
@@ -228,9 +301,14 @@ export class ClaudeSession {
         throw new RateLimitError("claude hit the subscription usage limit — pausing this session.");
       }
 
-      // Dismiss the feedback survey if it pops up mid-turn.
+      // Dismiss the feedback survey if it pops up mid-turn. Current builds want
+      // "0: Dismiss" (Esc does nothing — the old Esc-only path spammed it for 8
+      // minutes and died); attempts alternate 0/Esc to cover both TUI builds.
       if (detectFeedbackSurvey(text)) {
-        this.type(ESC);
+        if (surveyDismissals >= MAX_SURVEY_DISMISSALS) {
+          fail(`the feedback survey did not dismiss after ${surveyDismissals} attempts`);
+        }
+        this.type(this.surveyKey(surveyDismissals++));
         await sleep(GATE_COOLDOWN_MS);
         continue;
       }
