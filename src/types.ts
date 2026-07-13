@@ -6,9 +6,13 @@ export type ScreenState = "working" | "ready" | "gate" | "unknown";
 /**
  * Which coding agent drives a session.
  * "claude"  (default) — the Claude Code CLI, driven through an owned PTY.
+ * "claude-headless" — the Claude Code CLI in print mode (`claude -p`,
+ *   stream-json): structured turn boundaries, no TUI scraping. Same
+ *   subscription login; no live screen, no interactive gates, usage/context
+ *   panels unreadable (those guards are inert).
  * "opencode" — the OpenCode CLI, driven over its `opencode serve` HTTP API.
  */
-export type SessionEngine = "claude" | "opencode";
+export type SessionEngine = "claude" | "claude-headless" | "opencode";
 
 /** Connection + model settings for an OpenCode-engine session (see SessionConfig.opencode). */
 export interface OpenCodeEngineConfig {
@@ -367,6 +371,17 @@ export interface ReliabilityOptions {
   retryBackoffMs?: number;
   /** Seconds between health polls while auto-paused on an unreachable LLM. Default 15. */
   brainPollSeconds?: number;
+  /**
+   * Self-heal: when a run ends in `error`, automatically restart it (resuming the
+   * same claude conversation) with exponential backoff instead of just paging the
+   * human. Auth/cwd errors never heal. Default true.
+   */
+  autoHeal?: boolean;
+  /**
+   * Consecutive self-heal restarts (without a completed turn in between) before
+   * the error is surfaced to the human instead. Default 3; 0 disables healing.
+   */
+  autoHealMaxAttempts?: number;
 }
 
 /** A session lifecycle moment a webhook can subscribe to. */
@@ -437,6 +452,15 @@ export interface BrainOptions {
    * the raw last-N messages. Off by default (raw history unchanged).
    */
   rollingSummary?: import("./brain/summary.js").RollingSummaryOptions;
+  /**
+   * For sessions with the "autonomous" persona ONLY: if a brain escalation sits
+   * unanswered this many minutes, auto-pick the FIRST option (the brain's
+   * recommended path) so an unattended run never parks overnight on a question;
+   * a pending dangerous-gate approval is auto-DENIED (the safe direction) after
+   * the same window. Cautious/balanced sessions always wait for the human.
+   * Default 20; 0 disables both timeouts.
+   */
+  escalationTimeoutMin?: number;
 }
 
 /**

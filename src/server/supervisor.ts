@@ -8,7 +8,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { type OrchestratorEvent, type RunOptions, type UserInput } from "../orchestrator.js";
 import { runAgentSession } from "../runner.js";
-import { ClaudeSession } from "../session/claudeSession.js";
+import type { AgentSession } from "../orchestrator.js";
 import { LocalLLM } from "../brain/provider.js";
 import { saveConfig } from "../config.js";
 import { Recorder } from "../db/recorder.js";
@@ -33,7 +33,7 @@ import { isDue, hasActiveTrigger, parseHHMM } from "../policy/schedule.js";
 import { inQuietHours } from "../policy/quiethours.js";
 import { restoreTo, type RestoreResult } from "../git/diff.js";
 import { openPullRequest, defaultRunner, type Runner as PrRunner } from "../git/pr.js";
-import { retryOptsFrom, brainPollMsFrom } from "../policy/reliability.js";
+import { retryOptsFrom, brainPollMsFrom, normalizeReliability } from "../policy/reliability.js";
 import { planAutomations, countEnabled, chainGuard, DEFAULT_CHAIN_CAP } from "../policy/automation.js";
 import { chainDepthOf, overDepthCap, DEFAULT_WORKFLOW_DEPTH_CAP } from "../policy/wfdepth.js";
 import {
@@ -186,7 +186,7 @@ export interface SessionView {
 
 interface Managed extends SessionView {
   config: SessionConfig;
-  sess?: ClaudeSession;
+  sess?: AgentSession;
   stopRequested: boolean;
   /** The claude conversation UUID from the last run (for "continue" / resume). */
   claudeSessionId?: string;
@@ -212,6 +212,12 @@ interface Managed extends SessionView {
    * an automation started/affected it. Reset on every non-automation start.
    */
   autoGen?: number;
+  /**
+   * Consecutive self-heal restarts since the last real progress (a completed turn
+   * resets it). Capped by reliability.autoHealMaxAttempts so a deterministic boot
+   * failure can't restart-loop forever.
+   */
+  healAttempts?: number;
 }
 
 export class Supervisor {
@@ -504,6 +510,76 @@ export class Supervisor {
     );
   }
 
+  /**
+   * Minutes an escalation/gate may sit unanswered before it auto-resolves —
+   * ONLY for "autonomous"-persona sessions (cautious/balanced always wait for
+   * the human). 0 disables. Default 20 minutes.
+   */
+  private escalationTimeoutMin(m: Managed): number {
+    if (m.config.autonomy !== "autonomous") return 0;
+    const t = this.cfg.brain?.escalationTimeoutMin;
+    if (typeof t !== "number" || !Number.isFinite(t) || t < 0) return 20;
+    return t;
+  }
+
+  /**
+   * Self-heal an errored run: schedule an automatic restart that RESUMES the same
+   * claude conversation (so context carries over), with exponential backoff and a
+   * bounded attempt count. Returns true when a heal was scheduled — the caller
+   * then suppresses the error notification (the human is only paged when healing
+   * is disabled, ineligible, or exhausted). Errors that a restart can't fix
+   * (auth, bad cwd) never heal. A completed turn resets the attempt counter.
+   */
+  private scheduleHeal(m: Managed): boolean {
+    const r = normalizeReliability(this.cfg.reliability);
+    if (!r.autoHeal || m.stopRequested) return false;
+    if (m.error && /authentication|401|\/login|project (path|directory)|could not start claude/i.test(m.error)) {
+      return false; // needs the human, not a respawn
+    }
+    const attempts = m.healAttempts ?? 0;
+    if (attempts >= r.autoHealMaxAttempts) return false; // exhausted — page the human
+    m.healAttempts = attempts + 1;
+    const delayMs = 120_000 * 2 ** attempts; // 2m → 4m → 8m …
+    m.lastDecision = `self-heal ${m.healAttempts}/${r.autoHealMaxAttempts} — auto-restarting in ${Math.round(delayMs / 60_000)}m`;
+    this.log.warn("self-heal scheduled", {
+      session: m.id,
+      attempt: m.healAttempts,
+      max: r.autoHealMaxAttempts,
+      inMinutes: delayMs / 60_000,
+      error: (m.error ?? "").slice(0, 160),
+    });
+    this.clearResumeTimer(m.id); // shares the resume-timer slot; an operator stop cancels it
+    this.resumeTimers.set(
+      m.id,
+      setTimeout(() => {
+        this.resumeTimers.delete(m.id);
+        const cur = this.sessions.get(m.id);
+        // Only fire if the session is still sitting in the error state — an
+        // operator start/stop/remove in the meantime wins.
+        if (!cur || cur.status !== "error") return;
+        const resumeId = cur.claudeSessionId ?? cur.config.lastClaudeSessionId;
+        if (resumeId) {
+          cur.continueResumeId = resumeId;
+          cur.continueSeed =
+            "The previous run was interrupted by a technical failure (not by the user). " +
+            "Re-read the original goal, check the current repo state, and continue from where the work actually stands.";
+        }
+        this.log.info("self-heal firing", { session: cur.id, attempt: cur.healAttempts });
+        const outcome = this.start(cur.id, { auto: true });
+        if (!outcome.started && !outcome.queued) {
+          // The restart was refused (budget/limit/deps). The heal notification
+          // was suppressed on the promise that a restart would happen — it won't,
+          // so page the human now instead of leaving the session silently dead.
+          cur.continueResumeId = undefined;
+          cur.continueSeed = undefined;
+          this.log.warn("self-heal start refused", { session: cur.id, reason: outcome.reason });
+          this.notify(cur, "error", `${cur.error ?? "run failed"} — self-heal could not restart: ${outcome.reason ?? "start refused"}`);
+        }
+      }, delayMs),
+    );
+    return true;
+  }
+
   /** Cancel any pending auto-resume timer for a session. */
   private clearResumeTimer(id: string): void {
     const t = this.resumeTimers.get(id);
@@ -630,7 +706,11 @@ export class Supervisor {
     m.autoGen = opts?.gen ?? 0;
     // A manual start IS the review: clear any "needs review" flag so the operator's
     // click lets a deep step proceed (the depth guard below only gates auto-starts).
-    if (!opts?.auto) m.reviewRequired = false;
+    // It also refills the self-heal budget — the operator is watching again.
+    if (!opts?.auto) {
+      m.reviewRequired = false;
+      m.healAttempts = 0;
+    }
     // Workflow gate: hold the session as `blocked` until every session it
     // depends on has finished. promoteReady() releases it when they're done.
     const unmet = this.unmetDeps(m);
@@ -782,20 +862,47 @@ export class Supervisor {
         return false;
       },
       // Pause on a real human decision: flip to needs-input and hand back a
-      // promise the dashboard resolves when the user picks an option.
+      // promise the dashboard resolves when the user picks an option. For an
+      // "autonomous"-persona session the wait is bounded: after the timeout the
+      // FIRST option (the brain's recommended path) is auto-picked, so an
+      // unattended run never parks overnight on a question (decision D8).
       resolveAttention: (req) =>
         new Promise<Resolution>((resolve) => {
           m.attention = req;
           m.status = "needs-input";
           this.notify(m, "needs-input", req.question);
+          let timer: ReturnType<typeof setTimeout> | undefined;
           m.resolveAttention = (r) => {
+            if (timer) clearTimeout(timer);
             m.attention = null;
             m.resolveAttention = undefined;
             if (m.status === "needs-input") m.status = "running";
             resolve(r);
           };
+          const tmin = this.escalationTimeoutMin(m);
+          if (tmin > 0 && req.options.length > 0) {
+            timer = setTimeout(() => {
+              const fn = m.resolveAttention;
+              if (!fn || m.attention?.id !== req.id) return;
+              if (this.sessions.get(m.id) !== m) return; // session was removed/replaced
+              if (this.escalationTimeoutMin(m) <= 0) return; // persona changed while parked
+              const opt = req.options[0]!;
+              this.log.warn("escalation timed out — auto-picking the recommended option", {
+                session: m.id,
+                minutes: tmin,
+                picked: opt.label,
+              });
+              // automations:false — the session is being un-parked, so needs-input
+              // rules must not re-fire on this informational notice.
+              this.notify(m, "needs-input", `no answer in ${tmin}m — auto-picked "${opt.label}"`, { automations: false });
+              fn({ kind: "answer", prompt: opt.prompt, label: `auto (timed out): ${opt.label}` });
+            }, tmin * 60_000);
+            timer.unref?.();
+          }
         }),
       // A dangerous gate pauses the run for an Approve/Deny — reuses needs-input.
+      // Under the "autonomous" persona an unanswered gate times out to DENY (the
+      // safe direction — claude routes around it); it is never auto-approved.
       resolveGate: (req) =>
         new Promise<GateResolution>((resolve) => {
           m.attention = {
@@ -812,12 +919,31 @@ export class Supervisor {
           };
           m.status = "needs-input";
           this.notify(m, "needs-input", `risky action — ${req.summary}`);
+          let timer: ReturnType<typeof setTimeout> | undefined;
           m.resolveGate = (r) => {
+            if (timer) clearTimeout(timer);
             m.attention = null;
             m.resolveGate = undefined;
             if (m.status === "needs-input") m.status = "running";
             resolve(r);
           };
+          const tmin = this.escalationTimeoutMin(m);
+          if (tmin > 0) {
+            timer = setTimeout(() => {
+              const fn = m.resolveGate;
+              if (!fn || m.attention?.id !== req.id) return;
+              if (this.sessions.get(m.id) !== m) return; // session was removed/replaced
+              if (this.escalationTimeoutMin(m) <= 0) return; // persona changed while parked
+              this.log.warn("gate approval timed out — auto-denying (safe direction)", {
+                session: m.id,
+                minutes: tmin,
+                summary: req.summary,
+              });
+              this.notify(m, "needs-input", `no answer in ${tmin}m — risky action auto-DENIED: ${req.summary}`, { automations: false });
+              fn({ kind: "deny" });
+            }, tmin * 60_000);
+            timer.unref?.();
+          }
         }),
       onEvent: (e) => {
         this.onEvent(m, e);
@@ -835,7 +961,10 @@ export class Supervisor {
       // a paused-on-limit run doesn't double-notify here).
       if (m.status === "done") this.notify(m, "done", undefined);
       else if (m.status === "stopped") this.notify(m, "stopped", undefined);
-      else if (m.status === "error") this.notify(m, "error", m.error);
+      // An errored run tries to heal itself first (restart, resuming the same
+      // conversation, with backoff); the error only pages the human once healing
+      // is off, ineligible, or exhausted.
+      else if (m.status === "error" && !this.scheduleHeal(m)) this.notify(m, "error", m.error);
       const endFields = { session: m.id, turns: m.turns, elapsedMin: Number(m.elapsedMin.toFixed(1)) };
       if (m.status === "error") this.log.error("session ended", { ...endFields, status: m.status, error: m.error });
       else this.log.info("session ended", { ...endFields, status: m.status });
@@ -1135,10 +1264,12 @@ export class Supervisor {
   // ---- outbound webhooks / event notifications (automation suite) ----------
 
   /** Fire-and-forget a lifecycle webhook for a session. Never throws. */
-  private notify(m: Managed, event: WebhookEvent, detail?: string): void {
+  private notify(m: Managed, event: WebhookEvent, detail?: string, opts?: { automations?: boolean }): void {
     // Reactive automation rules run first (start/stop/notify), independent of
-    // whether any webhook is configured.
-    this.runAutomations(m, event, detail);
+    // whether any webhook is configured. Informational notices (e.g. a timeout
+    // AUTO-RESOLVING a needs-input) pass automations:false — the session is no
+    // longer waiting, so needs-input rules must not re-fire on the resolution.
+    if (opts?.automations !== false) this.runAutomations(m, event, detail);
     if (!this.notifier.active) return;
     // Per-session override: a muted (or event-narrowed) session skips its own
     // lifecycle notifications. Automation rules above still ran — this only gates
@@ -1548,6 +1679,7 @@ export class Supervisor {
     cwd: string;
     goal: string;
     doneCriteria: string;
+    engine?: SessionConfig["engine"];
     permissionMode?: SessionConfig["permissionMode"];
     autonomy?: SessionConfig["autonomy"];
     startMode?: SessionConfig["startMode"];
@@ -1564,6 +1696,7 @@ export class Supervisor {
     if (!goal) throw new Error("goal is required.");
     if (!doneCriteria) throw new Error("doneCriteria is required.");
     validateSessionEnums(input);
+    assertEnum("engine", input.engine, CREATABLE_ENGINES);
 
     const id = (input.id ?? "").trim() || randomUUID();
     if (this.sessions.has(id)) throw new Error(`a session with id "${id}" already exists.`);
@@ -1577,6 +1710,7 @@ export class Supervisor {
       cwd: path.resolve(cwd),
       goal,
       doneCriteria,
+      ...(input.engine && input.engine !== "claude" ? { engine: input.engine } : {}),
       permissionMode: input.permissionMode ?? "acceptEdits",
       autonomy: input.autonomy ?? "balanced",
       startMode: input.startMode ?? "autopilot",
@@ -1712,6 +1846,13 @@ export class Supervisor {
     if (!m) throw new Error(`no session with id "${id}".`);
     if (m.status === "running") throw new Error("stop the session before deleting it.");
     this.clearResumeTimer(id); // don't let a pending auto-resume fire for a removed session
+    // A session parked at needs-input has a live run awaiting a resolver. Resolve
+    // it terminally (deny the gate / stop the escalation) so the orphaned run
+    // tears down instead of resuming later into a deleted session — and so the
+    // armed escalation-timeout can't fire into it either.
+    m.stopRequested = true;
+    m.resolveGate?.({ kind: "deny" });
+    m.resolveAttention?.({ kind: "stop" });
     this.sessions.delete(id);
     this.persist();
   }
@@ -1787,6 +1928,14 @@ export class Supervisor {
       case "turn":
         m.turns = e.turnNumber;
         m.lastReply = e.result.assistantText;
+        // Refill the self-heal budget only after the run gets PAST its first turn —
+        // a run that always crashes right after turn 1 must still exhaust the
+        // budget and page the human, not heal-loop forever.
+        if (e.turnNumber >= 2) m.healAttempts = 0;
+        break;
+      case "recovery":
+        m.lastDecision = `self-heal: respawned claude, resuming the conversation (attempt ${e.attempt}) — ${e.detail}`;
+        this.log.warn("turn recovery", { session: m.id, attempt: e.attempt, detail: e.detail });
         break;
       case "decision":
         m.lastDecision =
@@ -1969,6 +2118,12 @@ const AUTONOMIES: ReadonlyArray<NonNullable<SessionConfig["autonomy"]>> = [
   "cautious", "balanced", "autonomous",
 ];
 const START_MODES: ReadonlyArray<NonNullable<SessionConfig["startMode"]>> = ["manual", "autopilot"];
+// "opencode" is deliberately NOT creatable through this API — it additionally
+// requires a SessionConfig.opencode block (provider/model), which only config.json
+// carries today. The two claude engines need nothing extra.
+const CREATABLE_ENGINES: ReadonlyArray<NonNullable<SessionConfig["engine"]>> = [
+  "claude", "claude-headless",
+];
 
 /** Throw a clear error if a provided enum value isn't in its whitelist (undefined is allowed). */
 function assertEnum<T extends string>(

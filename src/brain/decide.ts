@@ -126,7 +126,7 @@ function buildUserMessage(
 }
 
 /** Pull the first JSON object out of a model response, tolerating fences/prose. */
-function extractJson(raw: string): Record<string, unknown> | null {
+export function extractJson(raw: string): Record<string, unknown> | null {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
   const candidate = (fenced?.[1] ?? raw).trim();
   const start = candidate.indexOf("{");
@@ -154,11 +154,29 @@ export async function decideNextStep(
     { role: "system", content: buildSystemPrompt(session.autonomy, learnedGuidance) },
     { role: "user", content: buildUserMessage(session, lastAssistantText, turnNumber, history, repoState, projectSummary) },
   ];
-  const raw = await llm.chat(messages);
-  const obj = extractJson(raw);
+  let raw = await llm.chat(messages);
+  let obj = extractJson(raw);
+  const badShape = (o: Record<string, unknown> | null): boolean =>
+    !o || (o.action !== "continue" && o.action !== "stop" && o.action !== "escalate");
 
-  if (!obj || (obj.action !== "continue" && obj.action !== "stop" && obj.action !== "escalate")) {
-    // Fail safe: if the brain gives garbage, stop rather than inject nonsense.
+  if (badShape(obj)) {
+    // Self-repair: small local models occasionally wrap the JSON in prose or
+    // drift from the schema. One corrective retry — quote the failure back and
+    // demand bare JSON — before the fail-safe stop kills the run.
+    raw = await llm.chat([
+      ...messages,
+      { role: "assistant", content: raw.slice(0, 2000) },
+      {
+        role: "user",
+        content:
+          'Your reply was not the required JSON (missing or invalid "action"). Respond again with ONLY the JSON object — no prose, no code fence: {"action":"continue"|"stop"|"escalate",...}',
+      },
+    ]);
+    obj = extractJson(raw);
+  }
+
+  if (badShape(obj) || !obj) {
+    // Fail safe: if the brain gives garbage twice, stop rather than inject nonsense.
     return {
       action: "stop",
       reason: `brain returned unparseable decision; stopping for safety. raw="${raw.slice(0, 120)}"`,

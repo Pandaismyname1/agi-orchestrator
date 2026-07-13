@@ -105,5 +105,71 @@ check(
 check("idle box => NOT a choice menu", detectChoicePrompt("> \n  ? for shortcuts · /effort") === false);
 check("blank => NOT a choice menu", detectChoicePrompt("\n\n   \n") === false);
 
+// --- Real frozen-screen death captures (from live agi.db, 2026-07-13) -----------
+// Run 76 ("Zoom Cenzura"): turn COMPLETE, one background dev-server shell still up.
+// Footer is the bypass-permissions + background-task-chips variant. The old
+// classifier said "unknown" → static screen → 480s freeze → run death. Must be READY:
+// background shells never exit, and the final message is already in the transcript.
+const frozenDeathScreen = `
+  design) and the non-code items (EU endpoint ops, legal review of draft docs).
+✻ Sautéed for 18m 12s · 1 shell still running
+──────────────────────────────
+ > continue
+──────────────────────────────
+  ⏵⏵ bypass permissions on · PR #21 · 1 shell · ← for agents · ↓ to manage
+`;
+check("REAL death screen (turn done, 1 shell, bypass footer) => ready", classifyScreen(frozenDeathScreen) === "ready");
+
+// Run 75 variant: completed spinner + shell, minimal footer.
+check(
+  "completed spinner + shell still running => ready",
+  classifyScreen("  server is running on :5516 if you want to poke at it.\n✻ Worked for 24m 28s · 1 shell still running") === "ready",
+);
+
+// Completed spinner alone (no recognizable footer at all) is still turn-done.
+check("bare completed spinner ('✻ Crunched for 24m 24s') => ready", classifyScreen("✻ Crunched for 24m 24s") === "ready");
+check("completed spinner, hours form ('✻ Worked for 1h 3m') => ready", classifyScreen("✻ Worked for 1h 3m") === "ready");
+
+// The bypass-permissions idle footer with no completed spinner.
+check(
+  "bypass-permissions idle footer => ready",
+  classifyScreen("> \n  ⏵⏵ bypass permissions on · ? for shortcuts") === "ready",
+);
+
+// Guard: the completed-spinner pattern must NOT swallow the in-flight markers.
+check(
+  "'✻ Waiting for 1 background agent to finish' stays working",
+  classifyScreen("✻ Waiting for 1 background agent to finish") === "working",
+);
+check(
+  "completed spinner + esc-to-interrupt (still generating) stays working",
+  classifyScreen("✻ Reticulating… (3m 3s · ↓ 2.1k tokens · esc to interrupt)") === "working",
+);
+// In-flight spinner format "(12s · …)" must not read as turn-done.
+check("in-flight spinner '(12s · ↑ 1.2k tokens)' => working (token counter)", classifyScreen("✻ Cogitating… (12s · ↑ 1.2k tokens)") === "working");
+
+// --- prose false-positive guards (from the adversarial review) -------------------
+// Idle-footer hints are plain words that occur in assistant PROSE — they must only
+// count when rendered in the footer region (last lines), not mid-reply.
+const proseNotFooter = `
+  Here's what I changed: the settings now keep bypass permissions on for local
+  runs, and the task list shows 3 shells per worker.
+  More explanation text follows here.
+  line
+  line
+  line
+  line
+  line`;
+check("idle-hint words in PROSE (not footer) => unknown", classifyScreen(proseNotFooter) === "unknown");
+// The completed-turn spinner must not match markdown bullets / JSDoc / ·-prose.
+check("markdown bullet '* Ran for 3m 12s on CI' => NOT ready", classifyScreen("* Ran for 3m 12s on CI") === "unknown");
+check("JSDoc ' * Poll for 5s until…' => NOT ready", classifyScreen("  * Poll for 5s until the port opens") === "unknown");
+check(
+  "prose 'attempt 2 · waited for 30s' => NOT ready",
+  classifyScreen("attempt 2 · waited for 30s before retrying") === "unknown",
+);
+// …while the real done-spinner still matches (line-anchored sparkle glyph).
+check("real '✻ Worked for 24m 28s' still ready", classifyScreen("  ✻ Worked for 24m 28s") === "ready");
+
 console.log(`\n[screen] => ${pass ? "PASS ✅" : "FAIL ⚠️"}`);
 process.exit(pass ? 0 : 1);
