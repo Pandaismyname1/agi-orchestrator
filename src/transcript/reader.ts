@@ -12,6 +12,7 @@
  * blocks from assistant entries, and never throw on a malformed line.
  */
 import { readFile, stat } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -175,6 +176,24 @@ export async function readLastAssistantMessage(cwd: string, sessionId: string): 
     return "";
   }
   return lastAssistantFromRaw(raw);
+}
+
+/**
+ * Can this conversation actually be `--resume`d? File EXISTENCE is not enough:
+ * the TUI writes mode/permission metadata lines before the first user message,
+ * and `claude --resume` exits 1 ("No conversation found") on a transcript with
+ * no message entries — a first-turn crash can leave exactly such a poison file,
+ * which would exit-1 every respawn forever. Resume only when at least one real
+ * message entry exists; otherwise the caller re-mints the id via --session-id.
+ * Sync (used on the boot path). Never throws.
+ */
+export function transcriptResumable(cwd: string, sessionId: string): boolean {
+  try {
+    const raw = readFileSync(transcriptPath(cwd, sessionId), "utf8");
+    return messagesFromRaw(raw, 1).length > 0;
+  } catch {
+    return false;
+  }
 }
 
 /**

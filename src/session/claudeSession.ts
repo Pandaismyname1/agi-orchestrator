@@ -24,7 +24,7 @@ import { parseContextFraction } from "../policy/context.js";
 import { classifyGate } from "../terminal/gates.js";
 import {
   assistantTextAfterOffset,
-  transcriptPath,
+  transcriptResumable,
   transcriptStat,
   transcriptTurnEnded,
 } from "../transcript/reader.js";
@@ -163,10 +163,10 @@ export class ClaudeSession {
     // Resume an existing session, or start a fresh one with a forced id.
     // Ground truth, not assumption: a recovery respawn passes resumeId even when
     // the first turn crashed before any conversation reached disk — `--resume` on
-    // a non-existent conversation exits 1 (and would exit-1 again on every retry
-    // and every self-heal). Resume only when the transcript actually exists;
-    // otherwise mint the SAME id fresh via --session-id.
-    const canResume = !!this.cfg.resumeId && existsSync(transcriptPath(this.cfg.cwd, this.sessionId));
+    // a non-existent OR message-less conversation exits 1 (and would exit-1 again
+    // on every retry and every self-heal). Resume only when the transcript holds
+    // at least one real message; otherwise mint the SAME id fresh via --session-id.
+    const canResume = !!this.cfg.resumeId && transcriptResumable(this.cfg.cwd, this.sessionId);
     const idArgs = canResume
       ? ["--resume", this.sessionId]
       : ["--session-id", this.sessionId];

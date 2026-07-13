@@ -12,6 +12,7 @@ import {
   assistantTextAfterOffset,
   transcriptStat,
   transcriptPath,
+  transcriptResumable,
   encodeProjectDir,
 } from "../src/transcript/reader.js";
 
@@ -97,6 +98,21 @@ try {
     (await assistantTextAfterOffset(cwd, "99999999-0000-0000-0000-000000000000", 0)) === null,
   );
   check("encodeProjectDir strips non-alphanumerics", encodeProjectDir("C:\\a b/c") === "C--a-b-c");
+
+  // --- transcriptResumable: --resume poison-file guard ---------------------------
+  check("transcript with real messages => resumable", transcriptResumable(cwd, sid) === true);
+  check(
+    "missing transcript => NOT resumable",
+    transcriptResumable(cwd, "99999999-0000-0000-0000-000000000001") === false,
+  );
+  const poison = "88888888-0000-0000-0000-000000000002";
+  writeFileSync(transcriptPath(cwd, poison), ""); // 0-byte file: exists but message-less
+  check("0-byte transcript => NOT resumable", transcriptResumable(cwd, poison) === false);
+  writeFileSync(
+    transcriptPath(cwd, poison),
+    JSON.stringify({ type: "mode", mode: "acceptEdits" }) + "\n" + JSON.stringify({ type: "permission-mode" }) + "\n",
+  );
+  check("metadata-only transcript (the poison file) => NOT resumable", transcriptResumable(cwd, poison) === false);
 } finally {
   (os as { homedir: () => string }).homedir = realHome;
   rmSync(fakeHome, { recursive: true, force: true });

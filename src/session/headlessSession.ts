@@ -20,7 +20,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { transcriptPath } from "../transcript/reader.js";
+import { transcriptResumable } from "../transcript/reader.js";
 import { CwdError, TimeoutError } from "./claudeSession.js";
 import type { ScreenTriage } from "./claudeSession.js";
 import type { UsageStatus } from "../policy/usage.js";
@@ -148,9 +148,10 @@ export class HeadlessClaudeSession {
       this.id = cfg.resumeId;
       // Ground truth, not assumption: a recovery respawn passes resumeId even
       // when the first turn crashed before any conversation reached disk —
-      // `--resume` on a non-existent conversation exits 1. Resume only when the
-      // transcript actually exists; otherwise mint the SAME id via --session-id.
-      this.hasConversation = existsSync(transcriptPath(cfg.cwd, this.id));
+      // `--resume` on a non-existent OR message-less conversation exits 1.
+      // Resume only when the transcript holds at least one real message;
+      // otherwise mint the SAME id via --session-id.
+      this.hasConversation = transcriptResumable(cfg.cwd, this.id);
     } else {
       this.id = UUID_RE.test(cfg.id) ? cfg.id : randomUUID();
       this.hasConversation = false;
