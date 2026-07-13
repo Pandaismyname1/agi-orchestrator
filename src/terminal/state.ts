@@ -102,3 +102,19 @@ export function detectChoicePrompt(text: string): boolean {
     text,
   );
 }
+
+/**
+ * Detect Claude Code's one-time "Bypass Permissions mode" acceptance warning,
+ * shown at STARTUP when claude launches in a permission mode that skips approval
+ * prompts (bypassPermissions). It lists "1. No, exit" (pre-selected) and
+ * "2. Yes, I accept" under an "Enter to confirm · Esc to cancel" footer — so it
+ * trips GATE_RE and looks like an ordinary permission gate. But it is the
+ * opposite: the pre-selected default (Enter) is "No, exit" and Esc cancels, so
+ * BOTH the normal gate-approve (Enter) and gate-deny (Esc) quit claude before the
+ * session ever boots — the session then hangs at turn 0. The driver must instead
+ * move the selection to "2. Yes, I accept" and confirm. Keyed on the distinctive
+ * warning headline AND the accept option so it never trips on a real gate.
+ */
+export function detectBypassWarning(text: string): boolean {
+  return /Bypass Permissions mode/i.test(text) && /Yes, I accept/i.test(text);
+}

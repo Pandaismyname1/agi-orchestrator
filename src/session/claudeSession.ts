@@ -18,6 +18,7 @@ import {
   detectRateLimit,
   detectFeedbackSurvey,
   detectChoicePrompt,
+  detectBypassWarning,
 } from "../terminal/state.js";
 import { parseContextFraction } from "../policy/context.js";
 import { classifyGate } from "../terminal/gates.js";
@@ -27,6 +28,7 @@ import { scrubbedEnv } from "../util/env.js";
 import type { GateRequest, GateResolution, ScreenState, SessionConfig, TurnResult } from "../types.js";
 
 const ESC = "\x1b"; // cancels/denies a claude TUI gate ("Esc to cancel")
+const DOWN = "\x1b[B"; // arrow-down: moves the TUI selection to the next option
 
 const COLS = 120;
 const ROWS = 40;
@@ -51,6 +53,9 @@ const MIN_THINK_MS = 1500; // ignore "ready" for this long after injecting (avoi
 // reopening one within a single turn, bail with a clear error instead of spinning
 // (or silently re-dismissing) until the multi-minute turn timeout.
 const MAX_CHOICE_DISMISSALS = 6;
+// The one-time "Bypass Permissions mode" acceptance prompt is answered once at
+// boot; if it somehow keeps reappearing, bail rather than loop forever.
+const MAX_BYPASS_ACCEPTS = 3;
 
 export class AuthError extends Error {}
 export class TimeoutError extends Error {}
@@ -193,6 +198,7 @@ export class ClaudeSession {
     let sawNonReady = false;
     let gates = 0;
     let choiceDismissals = 0;
+    let bypassAccepts = 0;
     let lastText = "";
     let lastChangeAt = Date.now();
     let lastState: ScreenState = "unknown";
@@ -226,6 +232,24 @@ export class ClaudeSession {
       }
       if (detectRateLimit(text)) {
         throw new RateLimitError("claude hit the subscription usage limit — pausing this session.");
+      }
+
+      // One-time "Bypass Permissions mode" acceptance prompt at boot. It renders
+      // like a gate ("Enter to confirm"), but Enter = the pre-selected "1. No, exit"
+      // and Esc = cancel, so BOTH would quit claude before the session starts. Must
+      // run BEFORE the gate branch: move the selection to "2. Yes, I accept" and
+      // confirm. Guard against an unexpected re-loop.
+      if (detectBypassWarning(text)) {
+        if (++bypassAccepts > MAX_BYPASS_ACCEPTS) {
+          fail(`the Bypass Permissions warning reappeared ${bypassAccepts} times without proceeding`);
+        }
+        this.type(DOWN); // 1. No, exit  ->  2. Yes, I accept
+        await sleep(200);
+        this.type("\r"); // confirm acceptance
+        sawNonReady = true;
+        readySince = null;
+        await sleep(GATE_COOLDOWN_MS);
+        continue;
       }
 
       // Dismiss the feedback survey if it pops up mid-turn.
