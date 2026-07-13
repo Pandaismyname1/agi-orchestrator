@@ -55,6 +55,8 @@ cover surveys/pickers, Enter/Esc cover gates/menus.
 **Decision:** `brain.escalationTimeoutMin` (default 20, 0=off) auto-picks the FIRST
 escalation option after the timeout — but only for sessions whose autonomy persona is
 "autonomous". Cautious/balanced sessions still wait for the human indefinitely.
+A pending DANGEROUS-GATE approval under the same persona times out to **deny** (the
+safe direction — claude routes around it); a gate is never auto-approved.
 **Why:** an autonomous-persona overnight run parking forever on a question defeats the
 mode; the first option is by convention the brain's recommended path. A notification
 fires either way. **Double-check:** if you dislike auto-picks, set it to 0.

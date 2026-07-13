@@ -448,6 +448,15 @@ export interface BrainOptions {
    * the raw last-N messages. Off by default (raw history unchanged).
    */
   rollingSummary?: import("./brain/summary.js").RollingSummaryOptions;
+  /**
+   * For sessions with the "autonomous" persona ONLY: if a brain escalation sits
+   * unanswered this many minutes, auto-pick the FIRST option (the brain's
+   * recommended path) so an unattended run never parks overnight on a question;
+   * a pending dangerous-gate approval is auto-DENIED (the safe direction) after
+   * the same window. Cautious/balanced sessions always wait for the human.
+   * Default 20; 0 disables both timeouts.
+   */
+  escalationTimeoutMin?: number;
 }
 
 /**

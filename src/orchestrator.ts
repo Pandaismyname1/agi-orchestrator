@@ -11,6 +11,7 @@
  */
 import { ClaudeSession, AuthError, RateLimitError, CwdError, TimeoutError } from "./session/claudeSession.js";
 import { decideNextStep } from "./brain/decide.js";
+import { triageScreen } from "./brain/triage.js";
 import {
   readRecentMessages,
   readLastAssistantMessage,
@@ -164,6 +165,10 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
       emit({ type: "gate_resolved", sessionId: session.id, request: req, resolution });
       return resolution;
     };
+    // Fallback perception: when the screen is frozen and unrecognized, the local
+    // brain triages it (and may suggest one safe keystroke) before the session
+    // gives up. Free (local model) and best-effort — errors return null.
+    s.onTriage = (screenText) => triageScreen(llm, screenText);
     opts.onSession?.(s);
     return s;
   };

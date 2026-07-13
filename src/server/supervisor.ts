@@ -511,6 +511,18 @@ export class Supervisor {
   }
 
   /**
+   * Minutes an escalation/gate may sit unanswered before it auto-resolves —
+   * ONLY for "autonomous"-persona sessions (cautious/balanced always wait for
+   * the human). 0 disables. Default 20 minutes.
+   */
+  private escalationTimeoutMin(m: Managed): number {
+    if (m.config.autonomy !== "autonomous") return 0;
+    const t = this.cfg.brain?.escalationTimeoutMin;
+    if (typeof t !== "number" || !Number.isFinite(t) || t < 0) return 20;
+    return t;
+  }
+
+  /**
    * Self-heal an errored run: schedule an automatic restart that RESUMES the same
    * claude conversation (so context carries over), with exponential backoff and a
    * bounded attempt count. Returns true when a heal was scheduled — the caller
@@ -844,20 +856,43 @@ export class Supervisor {
         return false;
       },
       // Pause on a real human decision: flip to needs-input and hand back a
-      // promise the dashboard resolves when the user picks an option.
+      // promise the dashboard resolves when the user picks an option. For an
+      // "autonomous"-persona session the wait is bounded: after the timeout the
+      // FIRST option (the brain's recommended path) is auto-picked, so an
+      // unattended run never parks overnight on a question (decision D8).
       resolveAttention: (req) =>
         new Promise<Resolution>((resolve) => {
           m.attention = req;
           m.status = "needs-input";
           this.notify(m, "needs-input", req.question);
+          let timer: ReturnType<typeof setTimeout> | undefined;
           m.resolveAttention = (r) => {
+            if (timer) clearTimeout(timer);
             m.attention = null;
             m.resolveAttention = undefined;
             if (m.status === "needs-input") m.status = "running";
             resolve(r);
           };
+          const tmin = this.escalationTimeoutMin(m);
+          if (tmin > 0 && req.options.length > 0) {
+            timer = setTimeout(() => {
+              const fn = m.resolveAttention;
+              if (!fn || m.attention?.id !== req.id) return;
+              const opt = req.options[0]!;
+              this.log.warn("escalation timed out — auto-picking the recommended option", {
+                session: m.id,
+                minutes: tmin,
+                picked: opt.label,
+              });
+              this.notify(m, "needs-input", `no answer in ${tmin}m — auto-picked "${opt.label}"`);
+              fn({ kind: "answer", prompt: opt.prompt, label: `auto (timed out): ${opt.label}` });
+            }, tmin * 60_000);
+            timer.unref?.();
+          }
         }),
       // A dangerous gate pauses the run for an Approve/Deny — reuses needs-input.
+      // Under the "autonomous" persona an unanswered gate times out to DENY (the
+      // safe direction — claude routes around it); it is never auto-approved.
       resolveGate: (req) =>
         new Promise<GateResolution>((resolve) => {
           m.attention = {
@@ -874,12 +909,29 @@ export class Supervisor {
           };
           m.status = "needs-input";
           this.notify(m, "needs-input", `risky action — ${req.summary}`);
+          let timer: ReturnType<typeof setTimeout> | undefined;
           m.resolveGate = (r) => {
+            if (timer) clearTimeout(timer);
             m.attention = null;
             m.resolveGate = undefined;
             if (m.status === "needs-input") m.status = "running";
             resolve(r);
           };
+          const tmin = this.escalationTimeoutMin(m);
+          if (tmin > 0) {
+            timer = setTimeout(() => {
+              const fn = m.resolveGate;
+              if (!fn || m.attention?.id !== req.id) return;
+              this.log.warn("gate approval timed out — auto-denying (safe direction)", {
+                session: m.id,
+                minutes: tmin,
+                summary: req.summary,
+              });
+              this.notify(m, "needs-input", `no answer in ${tmin}m — risky action auto-DENIED: ${req.summary}`);
+              fn({ kind: "deny" });
+            }, tmin * 60_000);
+            timer.unref?.();
+          }
         }),
       onEvent: (e) => {
         this.onEvent(m, e);
