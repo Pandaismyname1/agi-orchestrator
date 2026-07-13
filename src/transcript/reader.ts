@@ -12,7 +12,7 @@
  * blocks from assistant entries, and never throw on a malformed line.
  */
 import { readFile, stat } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -193,6 +193,27 @@ export function transcriptResumable(cwd: string, sessionId: string): boolean {
     return messagesFromRaw(raw, 1).length > 0;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Quarantine a message-less ("poison") transcript so its session id becomes
+ * usable again. claude's own id bookkeeping is file-existence based: with a
+ * metadata-only <id>.jsonl on disk, `--resume <id>` exits 1 ("No conversation
+ * found") AND `--session-id <id>` exits 1 ("Session ID already in use") — a
+ * first-turn crash would otherwise wedge the id forever (verified on v2.1.207).
+ * Renames (never deletes — kept for forensics) and only ever touches a file
+ * `transcriptResumable` rejects. Returns true when the path is clear afterwards.
+ */
+export function quarantineUnresumableTranscript(cwd: string, sessionId: string): boolean {
+  const p = transcriptPath(cwd, sessionId);
+  if (!existsSync(p)) return true;
+  if (transcriptResumable(cwd, sessionId)) return false; // real conversation — hands off
+  try {
+    renameSync(p, `${p}.unresumable-${Date.now()}`);
+    return true;
+  } catch {
+    return false; // claude will fail loudly; better than silently deleting
   }
 }
 

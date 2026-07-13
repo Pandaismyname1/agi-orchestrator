@@ -13,6 +13,7 @@ import {
   transcriptStat,
   transcriptPath,
   transcriptResumable,
+  quarantineUnresumableTranscript,
   encodeProjectDir,
 } from "../src/transcript/reader.js";
 
@@ -113,6 +114,13 @@ try {
     JSON.stringify({ type: "mode", mode: "acceptEdits" }) + "\n" + JSON.stringify({ type: "permission-mode" }) + "\n",
   );
   check("metadata-only transcript (the poison file) => NOT resumable", transcriptResumable(cwd, poison) === false);
+  // Quarantine: the poison file must be moved aside (claude refuses BOTH --resume
+  // and --session-id while it exists); a real conversation must never be touched.
+  check("quarantine clears the poison file", quarantineUnresumableTranscript(cwd, poison) === true);
+  check("poison file actually gone", (await transcriptStat(cwd, poison)) === null);
+  check("quarantine refuses to touch a real conversation", quarantineUnresumableTranscript(cwd, sid) === false);
+  check("real conversation still on disk", (await transcriptStat(cwd, sid)) !== null);
+  check("quarantine on a missing file is a clean no-op", quarantineUnresumableTranscript(cwd, "77777777-0000-0000-0000-000000000003") === true);
 } finally {
   (os as { homedir: () => string }).homedir = realHome;
   rmSync(fakeHome, { recursive: true, force: true });

@@ -20,7 +20,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { transcriptResumable } from "../transcript/reader.js";
+import { quarantineUnresumableTranscript, transcriptResumable } from "../transcript/reader.js";
 import { CwdError, TimeoutError } from "./claudeSession.js";
 import type { ScreenTriage } from "./claudeSession.js";
 import type { UsageStatus } from "../policy/usage.js";
@@ -164,6 +164,9 @@ export class HeadlessClaudeSession {
 
   /** No process to boot — just make sure the workspace exists (mirrors the PTY engine). */
   async start(): Promise<void> {
+    // Starting fresh with --session-id while a message-less leftover file holds
+    // the id makes claude exit 1 ("already in use") — quarantine it first.
+    if (!this.hasConversation) quarantineUnresumableTranscript(this.cfg.cwd, this.id);
     const cwd = this.cfg.cwd;
     if (existsSync(cwd)) {
       if (!statSync(cwd).isDirectory()) throw new CwdError(`project path is not a directory: "${cwd}"`);

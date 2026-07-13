@@ -24,6 +24,7 @@ import { parseContextFraction } from "../policy/context.js";
 import { classifyGate } from "../terminal/gates.js";
 import {
   assistantTextAfterOffset,
+  quarantineUnresumableTranscript,
   transcriptResumable,
   transcriptStat,
   transcriptTurnEnded,
@@ -167,6 +168,10 @@ export class ClaudeSession {
     // on every retry and every self-heal). Resume only when the transcript holds
     // at least one real message; otherwise mint the SAME id fresh via --session-id.
     const canResume = !!this.cfg.resumeId && transcriptResumable(this.cfg.cwd, this.sessionId);
+    // Not resumable → we mint with --session-id, which claude refuses ("already
+    // in use") if a message-less leftover file still occupies the id. Quarantine
+    // it first so the id is actually mintable (a real conversation is never touched).
+    if (!canResume) quarantineUnresumableTranscript(this.cfg.cwd, this.sessionId);
     const idArgs = canResume
       ? ["--resume", this.sessionId]
       : ["--session-id", this.sessionId];
