@@ -33,7 +33,7 @@ import { isDue, hasActiveTrigger, parseHHMM } from "../policy/schedule.js";
 import { inQuietHours } from "../policy/quiethours.js";
 import { restoreTo, type RestoreResult } from "../git/diff.js";
 import { openPullRequest, defaultRunner, type Runner as PrRunner } from "../git/pr.js";
-import { retryOptsFrom, brainPollMsFrom } from "../policy/reliability.js";
+import { retryOptsFrom, brainPollMsFrom, normalizeReliability } from "../policy/reliability.js";
 import { planAutomations, countEnabled, chainGuard, DEFAULT_CHAIN_CAP } from "../policy/automation.js";
 import { chainDepthOf, overDepthCap, DEFAULT_WORKFLOW_DEPTH_CAP } from "../policy/wfdepth.js";
 import {
@@ -212,6 +212,12 @@ interface Managed extends SessionView {
    * an automation started/affected it. Reset on every non-automation start.
    */
   autoGen?: number;
+  /**
+   * Consecutive self-heal restarts since the last real progress (a completed turn
+   * resets it). Capped by reliability.autoHealMaxAttempts so a deterministic boot
+   * failure can't restart-loop forever.
+   */
+  healAttempts?: number;
 }
 
 export class Supervisor {
@@ -504,6 +510,58 @@ export class Supervisor {
     );
   }
 
+  /**
+   * Self-heal an errored run: schedule an automatic restart that RESUMES the same
+   * claude conversation (so context carries over), with exponential backoff and a
+   * bounded attempt count. Returns true when a heal was scheduled — the caller
+   * then suppresses the error notification (the human is only paged when healing
+   * is disabled, ineligible, or exhausted). Errors that a restart can't fix
+   * (auth, bad cwd) never heal. A completed turn resets the attempt counter.
+   */
+  private scheduleHeal(m: Managed): boolean {
+    const r = normalizeReliability(this.cfg.reliability);
+    if (!r.autoHeal || m.stopRequested) return false;
+    if (m.error && /authentication|401|\/login|project (path|directory)|could not start claude/i.test(m.error)) {
+      return false; // needs the human, not a respawn
+    }
+    const attempts = m.healAttempts ?? 0;
+    if (attempts >= r.autoHealMaxAttempts) return false; // exhausted — page the human
+    m.healAttempts = attempts + 1;
+    const delayMs = 120_000 * 2 ** attempts; // 2m → 4m → 8m …
+    m.lastDecision = `self-heal ${m.healAttempts}/${r.autoHealMaxAttempts} — auto-restarting in ${Math.round(delayMs / 60_000)}m`;
+    this.log.warn("self-heal scheduled", {
+      session: m.id,
+      attempt: m.healAttempts,
+      max: r.autoHealMaxAttempts,
+      inMinutes: delayMs / 60_000,
+      error: (m.error ?? "").slice(0, 160),
+    });
+    this.clearResumeTimer(m.id); // shares the resume-timer slot; an operator stop cancels it
+    this.resumeTimers.set(
+      m.id,
+      setTimeout(() => {
+        this.resumeTimers.delete(m.id);
+        const cur = this.sessions.get(m.id);
+        // Only fire if the session is still sitting in the error state — an
+        // operator start/stop/remove in the meantime wins.
+        if (!cur || cur.status !== "error") return;
+        const resumeId = cur.claudeSessionId ?? cur.config.lastClaudeSessionId;
+        if (resumeId) {
+          cur.continueResumeId = resumeId;
+          cur.continueSeed =
+            "The previous run was interrupted by a technical failure (not by the user). " +
+            "Re-read the original goal, check the current repo state, and continue from where the work actually stands.";
+        }
+        this.log.info("self-heal firing", { session: cur.id, attempt: cur.healAttempts });
+        const outcome = this.start(cur.id, { auto: true });
+        if (!outcome.started) {
+          this.log.warn("self-heal start refused", { session: cur.id, reason: outcome.reason });
+        }
+      }, delayMs),
+    );
+    return true;
+  }
+
   /** Cancel any pending auto-resume timer for a session. */
   private clearResumeTimer(id: string): void {
     const t = this.resumeTimers.get(id);
@@ -630,7 +688,11 @@ export class Supervisor {
     m.autoGen = opts?.gen ?? 0;
     // A manual start IS the review: clear any "needs review" flag so the operator's
     // click lets a deep step proceed (the depth guard below only gates auto-starts).
-    if (!opts?.auto) m.reviewRequired = false;
+    // It also refills the self-heal budget — the operator is watching again.
+    if (!opts?.auto) {
+      m.reviewRequired = false;
+      m.healAttempts = 0;
+    }
     // Workflow gate: hold the session as `blocked` until every session it
     // depends on has finished. promoteReady() releases it when they're done.
     const unmet = this.unmetDeps(m);
@@ -835,7 +897,10 @@ export class Supervisor {
       // a paused-on-limit run doesn't double-notify here).
       if (m.status === "done") this.notify(m, "done", undefined);
       else if (m.status === "stopped") this.notify(m, "stopped", undefined);
-      else if (m.status === "error") this.notify(m, "error", m.error);
+      // An errored run tries to heal itself first (restart, resuming the same
+      // conversation, with backoff); the error only pages the human once healing
+      // is off, ineligible, or exhausted.
+      else if (m.status === "error" && !this.scheduleHeal(m)) this.notify(m, "error", m.error);
       const endFields = { session: m.id, turns: m.turns, elapsedMin: Number(m.elapsedMin.toFixed(1)) };
       if (m.status === "error") this.log.error("session ended", { ...endFields, status: m.status, error: m.error });
       else this.log.info("session ended", { ...endFields, status: m.status });
@@ -1787,6 +1852,11 @@ export class Supervisor {
       case "turn":
         m.turns = e.turnNumber;
         m.lastReply = e.result.assistantText;
+        m.healAttempts = 0; // real progress — the self-heal budget refills
+        break;
+      case "recovery":
+        m.lastDecision = `self-heal: respawned claude, resuming the conversation (attempt ${e.attempt}) — ${e.detail}`;
+        this.log.warn("turn recovery", { session: m.id, attempt: e.attempt, detail: e.detail });
         break;
       case "decision":
         m.lastDecision =

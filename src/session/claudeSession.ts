@@ -22,7 +22,11 @@ import {
 } from "../terminal/state.js";
 import { parseContextFraction } from "../policy/context.js";
 import { classifyGate } from "../terminal/gates.js";
-import { readLastAssistantMessage } from "../transcript/reader.js";
+import {
+  readLastAssistantMessage,
+  transcriptStat,
+  transcriptTurnEnded,
+} from "../transcript/reader.js";
 import { parseUsage, type UsageStatus } from "../policy/usage.js";
 import { scrubbedEnv } from "../util/env.js";
 import type { GateRequest, GateResolution, ScreenState, SessionConfig, TurnResult } from "../types.js";
@@ -64,6 +68,33 @@ const SUBMIT_RETRIES = 3;
 // The feedback survey wants "0: Dismiss" on current builds; older builds took Esc.
 // Attempts alternate 0/Esc; past the cap the survey is treated as a stuck screen.
 const MAX_SURVEY_DISMISSALS = 8;
+// Recovery ladder tuning: transcript growth within this window counts as live
+// progress even when the rendered screen looks frozen (the transcript is appended
+// continuously while claude works — it's the ground truth; the screen is not).
+const TRANSCRIPT_ACTIVE_MS = 45_000;
+// At most this many Qwen screen-triage keypress attempts per wait.
+const MAX_TRIAGES = 3;
+
+/**
+ * A fallback classification of an unrecognized/frozen screen, produced by the
+ * local brain (Qwen). `key` is the single keystroke it suggests — the session
+ * only ever acts on Enter, Esc, or one digit (never free text; see decision D7).
+ */
+export interface ScreenTriage {
+  state: "ready" | "working" | "gate" | "menu" | "survey" | "error" | "unknown";
+  key?: string;
+  reason?: string;
+}
+
+/** Map a triage key suggestion to the byte(s) to type; null = not allowed. */
+export function triageKeyBytes(key: string | undefined): string | null {
+  if (!key) return null;
+  const k = key.trim().toLowerCase();
+  if (k === "enter" || k === "return" || k === "\r") return "\r";
+  if (k === "esc" || k === "escape") return ESC;
+  if (/^[0-9]$/.test(k)) return k;
+  return null;
+}
 
 /** `claude --version`, resolved once per process — for exit/boot diagnostics. */
 let cachedClaudeVersion: string | undefined;
@@ -99,6 +130,13 @@ export class ClaudeSession {
    * session default-denies dangerous gates (safe under unattended automation).
    */
   onGate?: (req: GateRequest) => Promise<GateResolution>;
+
+  /**
+   * Optional fallback screen classifier (the local brain). Consulted by the
+   * recovery ladder when the screen is frozen and unrecognized, BEFORE giving up.
+   * May suggest one safe keystroke (Enter/Esc/digit); anything else is ignored.
+   */
+  onTriage?: (screenText: string) => Promise<ScreenTriage | null>;
 
   constructor(private readonly cfg: SessionConfig) {
     // claude --session-id and the transcript path require a real UUID. The
@@ -191,9 +229,18 @@ export class ClaudeSession {
       await sleep(500);
     }
 
+    // Transcript byte offset before injection — the ground-truth marker for "did
+    // this turn produce a reply", used by the frozen-screen recovery ladder.
+    const sinceOffset = (await transcriptStat(this.cfg.cwd, this.sessionId))?.size ?? 0;
+
     await this.inject(prompt);
 
-    const gatesHandled = await this.waitForReady(TURN_TIMEOUT_MS, /*requireThink*/ true, TURN_STUCK_MS);
+    const gatesHandled = await this.waitForReady(
+      TURN_TIMEOUT_MS,
+      /*requireThink*/ true,
+      TURN_STUCK_MS,
+      sinceOffset,
+    );
 
     const assistantText = await readLastAssistantMessage(this.cfg.cwd, this.sessionId);
     return {
@@ -255,7 +302,12 @@ export class ClaudeSession {
    *    replay / auto-continue keeps the screen moving) run up to the hard cap, while
    *    a genuinely frozen screen (stuck picker / unrecognized prompt) still fails fast.
    */
-  private async waitForReady(timeoutMs: number, requireThink: boolean, stuckMs?: number): Promise<number> {
+  private async waitForReady(
+    timeoutMs: number,
+    requireThink: boolean,
+    stuckMs?: number,
+    sinceOffset?: number,
+  ): Promise<number> {
     const deadline = Date.now() + timeoutMs;
     const injectedAt = Date.now();
     let readySince: number | null = null;
@@ -263,6 +315,8 @@ export class ClaudeSession {
     let gates = 0;
     let choiceDismissals = 0;
     let surveyDismissals = 0;
+    let nudges = 0;
+    let triages = 0;
     let lastText = "";
     let lastChangeAt = Date.now();
     let lastState: ScreenState = "unknown";
@@ -292,6 +346,56 @@ export class ClaudeSession {
         lastChangeAt = Date.now();
       }
       if (stuckMs !== undefined && Date.now() - lastChangeAt > stuckMs) {
+        // Frozen screen — run the recovery ladder before giving up. A static
+        // screen usually means "idle in a footer variant the regexes don't know",
+        // not "dead" (see docs/AUTOPILOT_brain_resilience.md).
+        // Rung 1: transcript growth = claude IS working; the screen just isn't moving.
+        const ts = await transcriptStat(this.cfg.cwd, this.sessionId);
+        if (ts && Date.now() - ts.mtimeMs < TRANSCRIPT_ACTIVE_MS) {
+          lastChangeAt = Date.now();
+          continue;
+        }
+        // Rung 2: a reply landed after our injection and the transcript's tail is
+        // a final assistant message → the turn is OVER; the screen was just an
+        // unrecognized idle variant. Success, not death.
+        if (
+          sinceOffset !== undefined &&
+          ts &&
+          ts.size > sinceOffset &&
+          (await transcriptTurnEnded(this.cfg.cwd, this.sessionId))
+        ) {
+          return gates;
+        }
+        // Rung 3: repaint nudge — resize the PTY by one column and back, forcing
+        // the TUI to redraw fully. Cures a stale/partial render and gives the
+        // classifier a fresh screen. One shot.
+        if (nudges < 1) {
+          nudges += 1;
+          this.nudgeRepaint();
+          lastChangeAt = Date.now();
+          await sleep(2000);
+          continue;
+        }
+        // Rung 4: ask the local brain to triage the screen (bounded). It may
+        // recognize a menu/survey/picker the regexes don't and suggest ONE safe
+        // key (Enter/Esc/digit — enforced here, never free text).
+        if (this.onTriage && triages < MAX_TRIAGES) {
+          triages += 1;
+          let triage: ScreenTriage | null = null;
+          try {
+            triage = await this.onTriage(text);
+          } catch {
+            /* triage is best-effort; a brain hiccup falls through to the timeout */
+          }
+          if (triage?.state === "ready" && !requireThink) return gates; // boot: idle variant confirmed
+          const key = triageKeyBytes(triage?.key);
+          if (key) {
+            this.type(key);
+            lastChangeAt = Date.now();
+            await sleep(GATE_COOLDOWN_MS);
+            continue;
+          }
+        }
         fail(`claude's screen was frozen for ${(stuckMs / 1000).toFixed(0)}s and never became ready`);
       }
       if (detectAuthError(text)) {
@@ -386,6 +490,18 @@ export class ClaudeSession {
 
   private type(s: string): void {
     this.term?.write(s);
+  }
+
+  /** Force a full TUI repaint by resizing the PTY one column down and back. */
+  private nudgeRepaint(): void {
+    try {
+      this.term?.resize(COLS - 1, ROWS);
+      this.screen.resize(COLS - 1, ROWS);
+      this.term?.resize(COLS, ROWS);
+      this.screen.resize(COLS, ROWS);
+    } catch {
+      /* a dead pty surfaces via exited on the next poll */
+    }
   }
 
   /** Last few non-blank screen lines, trimmed — for diagnosing a stuck boot/turn. */

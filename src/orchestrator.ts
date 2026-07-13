@@ -9,9 +9,14 @@
  * This is the whole point of the project: the brain stands in for the human so
  * claude never sits idle waiting for you to answer "ok, continue".
  */
-import { ClaudeSession, AuthError, RateLimitError } from "./session/claudeSession.js";
+import { ClaudeSession, AuthError, RateLimitError, CwdError, TimeoutError } from "./session/claudeSession.js";
 import { decideNextStep } from "./brain/decide.js";
-import { readRecentMessages, readLastAssistantMessage } from "./transcript/reader.js";
+import {
+  readRecentMessages,
+  readLastAssistantMessage,
+  transcriptStat,
+  assistantTextAfterOffset,
+} from "./transcript/reader.js";
 import { gitSummary } from "./brain/repoState.js";
 import { RollingSummary, type RollingSummaryOptions } from "./brain/summary.js";
 import { LocalLLM, isTransientError } from "./brain/provider.js";
@@ -50,6 +55,8 @@ export type OrchestratorEvent =
   | { type: "context"; sessionId: string; phase: "compacting" | "resumed"; usedPercent: number }
   /** The local brain (LLM) went unreachable and the run auto-paused, or recovered. */
   | { type: "brain"; sessionId: string; phase: "unreachable" | "recovered"; detail?: string }
+  /** A dead/frozen turn was self-healed by respawning claude and resuming the conversation. */
+  | { type: "recovery"; sessionId: string; turnNumber: number; attempt: number; detail: string }
   | { type: "error"; sessionId: string; error: string };
 
 export type EventSink = (e: OrchestratorEvent) => void;
@@ -142,26 +149,76 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
   const stuck = new StuckDetector();
   // Optional maintained running summary fed to the brain (else raw history).
   const summarizer = opts.rollingSummary?.enabled ? new RollingSummary(opts.rollingSummary) : undefined;
-  // opts.resumeId (a "continue") takes precedence over the session's own resumeId.
-  const sess = new ClaudeSession(
-    opts.resumeId ? { ...session, resumeId: opts.resumeId } : session,
-  );
-  // Per-gate safety: a dangerous gate pauses here, is surfaced, and is resolved
-  // by the human (resolveGate) or default-denied.
-  sess.onGate = async (req): Promise<GateResolution> => {
-    emit({ type: "gate", sessionId: session.id, request: req });
-    const resolution: GateResolution = opts.resolveGate
-      ? await opts.resolveGate(req)
-      : { kind: "deny" };
-    emit({ type: "gate_resolved", sessionId: session.id, request: req, resolution });
-    return resolution;
+  // Build a wired session. Turn recovery may replace the live session with a
+  // fresh one resuming the SAME conversation, so construction is reusable and
+  // every consumer (gate handler, dashboard hook) is re-attached each time.
+  const makeSession = (resumeId?: string): ClaudeSession => {
+    const s = new ClaudeSession(resumeId ? { ...session, resumeId } : session);
+    // Per-gate safety: a dangerous gate pauses here, is surfaced, and is resolved
+    // by the human (resolveGate) or default-denied.
+    s.onGate = async (req): Promise<GateResolution> => {
+      emit({ type: "gate", sessionId: session.id, request: req });
+      const resolution: GateResolution = opts.resolveGate
+        ? await opts.resolveGate(req)
+        : { kind: "deny" };
+      emit({ type: "gate_resolved", sessionId: session.id, request: req, resolution });
+      return resolution;
+    };
+    opts.onSession?.(s);
+    return s;
   };
-  opts.onSession?.(sess);
+  // opts.resumeId (a "continue") takes precedence over the session's own resumeId.
+  let sess = makeSession(opts.resumeId ?? session.resumeId);
 
   emit({ type: "start", sessionId: session.id, goal: session.goal });
 
   try {
     await sess.start();
+
+    // ---- turn-level self-healing --------------------------------------------
+    // A frozen/unrecognized screen or a crashed claude.exe used to kill the whole
+    // run (the top killers in practice: 31x "exited (code 1)", ~10x frozen-screen).
+    // Instead: respawn claude RESUMING the same conversation, check the transcript
+    // to see whether the reply already landed (never double-execute a prompt), and
+    // only re-inject if it didn't. Bounded attempts with backoff; auth/rate-limit/
+    // cwd errors are never retried (they need the human or a pause, not a respawn).
+    const MAX_TURN_RECOVERIES = 2;
+    const RECOVERY_BACKOFF_MS = [5_000, 30_000];
+    const isRecoverableTurnError = (e: unknown): boolean => {
+      if (e instanceof AuthError || e instanceof RateLimitError || e instanceof CwdError) return false;
+      if (e instanceof TimeoutError) return true;
+      return e instanceof Error && (/claude exited \(code/.test(e.message) || e.message === "session not running");
+    };
+    const runTurnRecovered = async (prompt: string): Promise<TurnResult> => {
+      const t0 = Date.now();
+      const offset = (await transcriptStat(session.cwd, sess.sessionId))?.size ?? 0;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          if (attempt > 0) {
+            await sess.dispose();
+            await sleep(RECOVERY_BACKOFF_MS[Math.min(attempt - 1, RECOVERY_BACKOFF_MS.length - 1)]!);
+            sess = makeSession(sess.sessionId); // resume the SAME conversation
+            await sess.start();
+            // Did the reply land before/despite the failure (or during the
+            // resume's auto-continue)? Then the turn is already complete.
+            const landed = await assistantTextAfterOffset(session.cwd, sess.sessionId, offset);
+            if (landed !== null) {
+              return { prompt, assistantText: landed, gatesHandled: 0, durationMs: Date.now() - t0 };
+            }
+          }
+          return await sess.runTurn(prompt);
+        } catch (e) {
+          if (attempt >= MAX_TURN_RECOVERIES || !isRecoverableTurnError(e)) throw e;
+          emit({
+            type: "recovery",
+            sessionId: session.id,
+            turnNumber: guards.turnCount,
+            attempt: attempt + 1,
+            detail: (e as Error).message.slice(0, 200),
+          });
+        }
+      }
+    };
 
     const stopRun = (reason: string) =>
       emit({ type: "stop", sessionId: session.id, reason, turns: guards.turnCount, elapsedMin: guards.elapsedMin });
@@ -338,7 +395,7 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
         stopRun(guard.reason);
         break;
       }
-      const result = await sess.runTurn(pending);
+      const result = await runTurnRecovered(pending);
       // Capture what changed on disk this turn (best-effort; never throws), and
       // pin the post-turn snapshot so it can be rolled back to later.
       if (gitTracked) {
@@ -367,9 +424,9 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
         if (cg.shouldCompact(used, guards.turnCount)) {
           const usedPercent = Math.round(used * 100);
           emit({ type: "context", sessionId: session.id, phase: "compacting", usedPercent });
-          await sess.runTurn(cg.savePrompt()); // write the handoff memory
-          await sess.runTurn("/compact"); // compact the conversation
-          lastResult = await sess.runTurn(cg.resumePrompt()); // resume from the handoff
+          await runTurnRecovered(cg.savePrompt()); // write the handoff memory
+          await runTurnRecovered("/compact"); // compact the conversation
+          lastResult = await runTurnRecovered(cg.resumePrompt()); // resume from the handoff
           cg.markCompacted(guards.turnCount);
           emit({ type: "context", sessionId: session.id, phase: "resumed", usedPercent });
         }

@@ -11,6 +11,8 @@ export const RELIABILITY_DEFAULTS = {
   retries: 3,
   retryBackoffMs: 400,
   brainPollSeconds: 15,
+  autoHeal: true,
+  autoHealMaxAttempts: 3,
 } as const;
 
 /** Inclusive clamp; non-finite input falls back to `def`. */
@@ -28,6 +30,10 @@ export function normalizeReliability(r: ReliabilityOptions | undefined): Require
     retryBackoffMs: clamp(r?.retryBackoffMs, 50, 10_000, RELIABILITY_DEFAULTS.retryBackoffMs),
     // At least 5s between health polls (don't hammer the endpoint); at most 5m.
     brainPollSeconds: clamp(r?.brainPollSeconds, 5, 300, RELIABILITY_DEFAULTS.brainPollSeconds),
+    // Self-heal: auto-restart an errored run (resuming its conversation).
+    autoHeal: typeof r?.autoHeal === "boolean" ? r.autoHeal : RELIABILITY_DEFAULTS.autoHeal,
+    // Consecutive heal restarts before the error pages the human. 0 = never heal.
+    autoHealMaxAttempts: clamp(r?.autoHealMaxAttempts, 0, 10, RELIABILITY_DEFAULTS.autoHealMaxAttempts),
   };
 }
 

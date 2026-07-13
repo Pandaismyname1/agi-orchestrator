@@ -11,7 +11,7 @@
  * versions, so we parse defensively: tolerate unknown shapes, extract text
  * blocks from assistant entries, and never throw on a malformed line.
  */
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -175,6 +175,109 @@ export async function readLastAssistantMessage(cwd: string, sessionId: string): 
     return "";
   }
   return lastAssistantFromRaw(raw);
+}
+
+/**
+ * Ground-truth liveness: size + mtime of the transcript file. The transcript is
+ * appended continuously WHILE claude works, so recent growth = real progress even
+ * when the rendered screen looks frozen — and a quiet file disambiguates "stuck"
+ * from "idle but the screen regexes didn't recognize the footer". Returns null
+ * when the transcript doesn't exist yet.
+ */
+export async function transcriptStat(
+  cwd: string,
+  sessionId: string,
+): Promise<{ size: number; mtimeMs: number } | null> {
+  try {
+    const st = await stat(transcriptPath(cwd, sessionId));
+    return { size: st.size, mtimeMs: st.mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pure turn-end check on raw transcript JSONL: TRUE when the LAST message entry
+ * is an assistant message whose content is final text (no tool_use in flight).
+ * While a turn runs, the tail is a tool_use assistant entry or a tool_result user
+ * entry; when it finishes, claude appends the closing text-only assistant message.
+ * Non-message entries (progress/system/summary) are skipped. Conservative: an
+ * unparseable or empty tail returns false.
+ */
+export function turnEndedInRaw(raw: string): boolean {
+  const lines = raw.split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]?.trim();
+    if (!line) continue;
+    let entry: Record<string, unknown>;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const msg = entry.message as Record<string, unknown> | undefined;
+    const isAssistant = entry.type === "assistant" || (msg && msg.role === "assistant");
+    const isUser = entry.type === "user" || (msg && msg.role === "user");
+    if (!isAssistant && !isUser) continue; // progress/system/summary — skip
+    if (!isAssistant) return false; // user entry last: injected prompt or tool_result → in flight
+    const content = msg?.content;
+    if (typeof content === "string") return content.trim().length > 0;
+    if (!Array.isArray(content)) return false;
+    // Final message = has text, and is NOT awaiting a tool result.
+    const hasToolUse = content.some(
+      (b) => b && typeof b === "object" && (b as Record<string, unknown>).type === "tool_use",
+    );
+    const hasText = content.some(
+      (b) =>
+        b &&
+        typeof b === "object" &&
+        (b as Record<string, unknown>).type === "text" &&
+        typeof (b as Record<string, unknown>).text === "string" &&
+        ((b as Record<string, unknown>).text as string).trim().length > 0,
+    );
+    return hasText && !hasToolUse;
+  }
+  return false;
+}
+
+/** Disk wrapper for `turnEndedInRaw`. False when the transcript is missing. */
+export async function transcriptTurnEnded(cwd: string, sessionId: string): Promise<boolean> {
+  try {
+    const raw = await readFile(transcriptPath(cwd, sessionId), "utf8");
+    return turnEndedInRaw(raw);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The last assistant text that appears strictly AFTER `byteOffset` in the
+ * transcript, or null if none. Used by turn recovery: the orchestrator records
+ * the transcript size before injecting a prompt; after a kill+resume it can tell
+ * whether the reply already landed (→ don't re-inject, don't double-execute).
+ * The slice starts at the first newline past the offset so a mid-line cut can't
+ * corrupt the first parsed entry.
+ */
+export async function assistantTextAfterOffset(
+  cwd: string,
+  sessionId: string,
+  byteOffset: number,
+): Promise<string | null> {
+  let buf: Buffer;
+  try {
+    buf = await readFile(transcriptPath(cwd, sessionId));
+  } catch {
+    return null;
+  }
+  if (buf.length <= byteOffset) return null;
+  let start = byteOffset;
+  if (start > 0) {
+    const nl = buf.indexOf(0x0a, start - 1); // include an entry that starts exactly at offset
+    if (nl === -1) return null;
+    start = nl + 1;
+  }
+  const text = lastAssistantFromRaw(buf.subarray(start).toString("utf8"));
+  return text ? text : null;
 }
 
 /**

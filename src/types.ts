@@ -367,6 +367,17 @@ export interface ReliabilityOptions {
   retryBackoffMs?: number;
   /** Seconds between health polls while auto-paused on an unreachable LLM. Default 15. */
   brainPollSeconds?: number;
+  /**
+   * Self-heal: when a run ends in `error`, automatically restart it (resuming the
+   * same claude conversation) with exponential backoff instead of just paging the
+   * human. Auth/cwd errors never heal. Default true.
+   */
+  autoHeal?: boolean;
+  /**
+   * Consecutive self-heal restarts (without a completed turn in between) before
+   * the error is surfaced to the human instead. Default 3; 0 disables healing.
+   */
+  autoHealMaxAttempts?: number;
 }
 
 /** A session lifecycle moment a webhook can subscribe to. */
