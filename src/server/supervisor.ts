@@ -8,7 +8,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { type OrchestratorEvent, type RunOptions, type UserInput } from "../orchestrator.js";
 import { runAgentSession } from "../runner.js";
-import { ClaudeSession } from "../session/claudeSession.js";
+import type { AgentSession } from "../orchestrator.js";
 import { LocalLLM } from "../brain/provider.js";
 import { saveConfig } from "../config.js";
 import { Recorder } from "../db/recorder.js";
@@ -186,7 +186,7 @@ export interface SessionView {
 
 interface Managed extends SessionView {
   config: SessionConfig;
-  sess?: ClaudeSession;
+  sess?: AgentSession;
   stopRequested: boolean;
   /** The claude conversation UUID from the last run (for "continue" / resume). */
   claudeSessionId?: string;
@@ -1665,6 +1665,7 @@ export class Supervisor {
     cwd: string;
     goal: string;
     doneCriteria: string;
+    engine?: SessionConfig["engine"];
     permissionMode?: SessionConfig["permissionMode"];
     autonomy?: SessionConfig["autonomy"];
     startMode?: SessionConfig["startMode"];
@@ -1681,6 +1682,7 @@ export class Supervisor {
     if (!goal) throw new Error("goal is required.");
     if (!doneCriteria) throw new Error("doneCriteria is required.");
     validateSessionEnums(input);
+    assertEnum("engine", input.engine, CREATABLE_ENGINES);
 
     const id = (input.id ?? "").trim() || randomUUID();
     if (this.sessions.has(id)) throw new Error(`a session with id "${id}" already exists.`);
@@ -1694,6 +1696,7 @@ export class Supervisor {
       cwd: path.resolve(cwd),
       goal,
       doneCriteria,
+      ...(input.engine && input.engine !== "claude" ? { engine: input.engine } : {}),
       permissionMode: input.permissionMode ?? "acceptEdits",
       autonomy: input.autonomy ?? "balanced",
       startMode: input.startMode ?? "autopilot",
@@ -2091,6 +2094,12 @@ const AUTONOMIES: ReadonlyArray<NonNullable<SessionConfig["autonomy"]>> = [
   "cautious", "balanced", "autonomous",
 ];
 const START_MODES: ReadonlyArray<NonNullable<SessionConfig["startMode"]>> = ["manual", "autopilot"];
+// "opencode" is deliberately NOT creatable through this API — it additionally
+// requires a SessionConfig.opencode block (provider/model), which only config.json
+// carries today. The two claude engines need nothing extra.
+const CREATABLE_ENGINES: ReadonlyArray<NonNullable<SessionConfig["engine"]>> = [
+  "claude", "claude-headless",
+];
 
 /** Throw a clear error if a provided enum value isn't in its whitelist (undefined is allowed). */
 function assertEnum<T extends string>(

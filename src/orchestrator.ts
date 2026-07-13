@@ -62,6 +62,25 @@ export type OrchestratorEvent =
 
 export type EventSink = (e: OrchestratorEvent) => void;
 
+/**
+ * What the autopilot loop needs from a session driver. ClaudeSession (the PTY
+ * engine) satisfies it as-is; HeadlessClaudeSession (`claude -p`) implements it
+ * without a TUI. Structural — no inheritance required.
+ */
+export interface AgentSession {
+  readonly sessionId: string;
+  onGate?: (req: GateRequest) => Promise<GateResolution>;
+  onTriage?: (screenText: string) => Promise<import("./session/claudeSession.js").ScreenTriage | null>;
+  start(): Promise<void>;
+  runTurn(prompt: string): Promise<TurnResult>;
+  readUsage(): Promise<UsageStatus | undefined>;
+  readContextFraction(): Promise<number | null>;
+  screenText(): string;
+  state(): import("./types.js").ScreenState;
+  readonly isAlive: boolean;
+  dispose(): Promise<void>;
+}
+
 /** What the user does while a session is in MANUAL mode. */
 export type UserInput =
   | { kind: "message"; text: string } // type a message straight to the agent
@@ -73,7 +92,13 @@ export interface RunOptions {
   limits: Limits;
   onEvent?: EventSink;
   /** Hands the live session to the caller (for dashboard screen reads + stop). */
-  onSession?: (sess: ClaudeSession) => void;
+  onSession?: (sess: AgentSession) => void;
+  /**
+   * Session-driver factory. Defaults to the PTY ClaudeSession; the runner passes
+   * a HeadlessClaudeSession factory for `engine: "claude-headless"` sessions.
+   * Turn recovery calls it again to respawn into the same conversation.
+   */
+  createSession?: (cfg: SessionConfig) => AgentSession;
   /**
    * Checked at the top of each loop iteration. Return true (or a reason string)
    * to stop gracefully; false/undefined to continue.
@@ -153,8 +178,9 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
   // Build a wired session. Turn recovery may replace the live session with a
   // fresh one resuming the SAME conversation, so construction is reusable and
   // every consumer (gate handler, dashboard hook) is re-attached each time.
-  const makeSession = (resumeId?: string): ClaudeSession => {
-    const s = new ClaudeSession(resumeId ? { ...session, resumeId } : session);
+  const newDriver = opts.createSession ?? ((c: SessionConfig) => new ClaudeSession(c));
+  const makeSession = (resumeId?: string): AgentSession => {
+    const s = newDriver(resumeId ? { ...session, resumeId } : session);
     // Per-gate safety: a dangerous gate pauses here, is surfaced, and is resolved
     // by the human (resolveGate) or default-denied.
     s.onGate = async (req): Promise<GateResolution> => {

@@ -6,9 +6,13 @@ export type ScreenState = "working" | "ready" | "gate" | "unknown";
 /**
  * Which coding agent drives a session.
  * "claude"  (default) — the Claude Code CLI, driven through an owned PTY.
+ * "claude-headless" — the Claude Code CLI in print mode (`claude -p`,
+ *   stream-json): structured turn boundaries, no TUI scraping. Same
+ *   subscription login; no live screen, no interactive gates, usage/context
+ *   panels unreadable (those guards are inert).
  * "opencode" — the OpenCode CLI, driven over its `opencode serve` HTTP API.
  */
-export type SessionEngine = "claude" | "opencode";
+export type SessionEngine = "claude" | "claude-headless" | "opencode";
 
 /** Connection + model settings for an OpenCode-engine session (see SessionConfig.opencode). */
 export interface OpenCodeEngineConfig {
