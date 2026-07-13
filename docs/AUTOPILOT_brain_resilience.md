@@ -53,8 +53,12 @@ screen-regex-only, and any misread throws → run dies → nothing restarts it.
 ### Verification ladder (commit 5 if fixes needed)
 - [x] `npm run typecheck` clean.
 - [x] Full `npm test` chain passes (including new tests wired into it).
-- [ ] Multi-agent adversarial review of the diff; real findings fixed and re-verified.
-- [ ] PR opened/updated on `autopilot/brain-resilience` with decision log.
+- [x] Multi-agent adversarial review of the diff; real findings fixed and re-verified.
+      (4 rounds, 43 agents: R1 30 agents, 14 distinct defects fixed; R2 9 agents, 3 defects
+      fixed; R3 3 agents, 1 defect fixed; final verifier refuted the R3 remedy empirically,
+      closed with transcript quarantine. Findings narrowed 14 → 3 → 1 → 1-refinement.)
+- [x] PR opened/updated on `autopilot/brain-resilience` with decision log.
+      https://github.com/Pandaismyname1/agi-orchestrator/pull/1
 
 ## Decision log
 (appended as decisions are made — see AUTOPILOT_brain_resilience_DECISIONS.md)

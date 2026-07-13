@@ -69,6 +69,17 @@ gives up interactive gate mediation and live TUI view; per-session choice lets b
 coexist. Subscription-safety unchanged: same CLI binary, same login, `scrubbedEnv()`
 still enforced, no API key involved.
 
+## D11 — Adversarial review drove four hardening passes (post-implementation)
+**Decision:** the review findings were fixed by strengthening ground truth, not
+heuristics: submit verification & reply reads are transcript-offset based; rung 2
+demands 3-minute quiet + double-sample; an unrecognized dialog is deny-by-default
+(triage can never Enter/digit-approve anything); an operator stop is never
+"recovered"; partial execution re-injects a reconcile wrapper, never the raw prompt;
+message-less transcripts are quarantined (claude wedges the id for BOTH --resume and
+--session-id while such a file exists — verified on v2.1.207). **Double-check:** the
+quarantine renames files under `~/.claude/projects/<enc>/` to `*.unresumable-<ts>`;
+if you ever see those, they're forensic leftovers of crashed first turns.
+
 ## D10 — `unknown`+static screens get the ladder, not a bigger regex zoo
 **Decision:** `IDLE_RE` gains only the well-attested current footers; everything else
 unrecognized routes through transcript check → repaint nudge → Qwen triage → resume.
