@@ -273,20 +273,31 @@ export async function runSession(session: SessionConfig, opts: RunOptions): Prom
                 return { prompt, assistantText: landed, gatesHandled: 0, durationMs: Date.now() - t0 };
               }
               // Partial execution: work happened but no final reply. Give a
-              // possibly-still-finishing turn a bounded grace window, then
-              // reconcile-and-continue instead of double-executing.
-              const graceUntil = Date.now() + 120_000;
-              while (Date.now() < graceUntil) {
+              // possibly-still-finishing turn (the resume auto-continues it) a
+              // grace window: while the transcript keeps GROWING the turn is
+              // alive, so keep extending the quiet window (up to a hard cap);
+              // only after real quiet with no turn-end do we fall through to the
+              // reconcile-and-continue re-injection.
+              const GRACE_QUIET_MS = 120_000;
+              const graceHardCap = Date.now() + 15 * 60_000;
+              let graceUntil = Date.now() + GRACE_QUIET_MS;
+              let lastSize = ts.size;
+              while (Date.now() < graceUntil && Date.now() < graceHardCap) {
                 await sleep(5_000);
                 if (opts.shouldStop?.()) throw new StopRequested();
                 const now = await transcriptStat(session.cwd, sess.sessionId);
-                if (now && ts && now.size !== ts.size) break; // still moving — recheck below
+                if (now && now.size !== lastSize) {
+                  // Still actively finishing — extend the quiet window and keep waiting.
+                  lastSize = now.size;
+                  graceUntil = Date.now() + GRACE_QUIET_MS;
+                  continue;
+                }
                 if (await transcriptTurnEnded(session.cwd, sess.sessionId)) {
                   const text = await assistantTextAfterOffset(session.cwd, sess.sessionId, offset);
                   if (text !== null) {
                     return { prompt, assistantText: text, gatesHandled: 0, durationMs: Date.now() - t0 };
                   }
-                  break;
+                  break; // ended but produced no reply text — reconcile below
                 }
               }
               attemptPrompt = reinjection(prompt);

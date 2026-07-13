@@ -24,6 +24,7 @@ import { parseContextFraction } from "../policy/context.js";
 import { classifyGate } from "../terminal/gates.js";
 import {
   assistantTextAfterOffset,
+  transcriptPath,
   transcriptStat,
   transcriptTurnEnded,
 } from "../transcript/reader.js";
@@ -160,7 +161,13 @@ export class ClaudeSession {
     this.ensureCwd();
 
     // Resume an existing session, or start a fresh one with a forced id.
-    const idArgs = this.cfg.resumeId
+    // Ground truth, not assumption: a recovery respawn passes resumeId even when
+    // the first turn crashed before any conversation reached disk — `--resume` on
+    // a non-existent conversation exits 1 (and would exit-1 again on every retry
+    // and every self-heal). Resume only when the transcript actually exists;
+    // otherwise mint the SAME id fresh via --session-id.
+    const canResume = !!this.cfg.resumeId && existsSync(transcriptPath(this.cfg.cwd, this.sessionId));
+    const idArgs = canResume
       ? ["--resume", this.sessionId]
       : ["--session-id", this.sessionId];
     const args = [...idArgs, "--permission-mode", this.cfg.permissionMode ?? "acceptEdits"];
@@ -195,7 +202,7 @@ export class ClaudeSession {
     // Fresh boot is quick (45s). A resume can legitimately take much longer (it
     // replays the transcript and may auto-continue), so give it a generous cap but
     // bail fast if the screen freezes (a stuck picker / unrecognized prompt).
-    if (this.cfg.resumeId) {
+    if (canResume) {
       await this.waitForReady(RESUME_BOOT_CAP_MS, /*requireThink*/ false, RESUME_STUCK_MS);
     } else {
       await this.waitForReady(BOOT_TIMEOUT_MS, /*requireThink*/ false);
@@ -425,12 +432,14 @@ export class ClaudeSession {
         }
         // Rung 4: ask the local brain to triage the screen (bounded). What it may
         // cause depends on its VERDICT, never on a raw key suggestion alone:
-        //   gate  → the existing gate safety policy (classifyGate / onGate /
-        //           default-deny) — triage must NOT be able to blind-approve a
-        //           permission dialog the regexes didn't recognize.
-        //   menu / survey → Esc or a digit (dismiss / pick); Enter is refused —
-        //           accepting a highlighted default is a gate-approval in disguise.
-        //   unknown → Esc only.
+        //   gate  → a dialog the gate regexes did NOT recognize (else the main
+        //           loop would have handled it) — classifyGate can't judge it, so
+        //           it is treated as DANGEROUS-unknown: escalate via onGate;
+        //           without a handler it is default-DENIED (Esc). Enter is never
+        //           typed here without an explicit human/handler approval.
+        //   survey → Esc or "0" (dismiss). Digits 1-9 are refused: on a missed
+        //           real gate a digit selects-and-confirms (approval in disguise).
+        //   menu / unknown → Esc only.
         //   ready (boot only) / working / error → no keystroke.
         if (this.onTriage && triages < MAX_TRIAGES) {
           triages += 1;
@@ -442,7 +451,14 @@ export class ClaudeSession {
           }
           if (triage?.state === "ready" && !requireThink) return gates; // boot: idle variant confirmed
           if (triage?.state === "gate") {
-            await this.handleGate(text);
+            const resolution: GateResolution = this.onGate
+              ? await this.onGate({
+                  id: randomUUID(),
+                  sessionId: this.sessionId,
+                  summary: `unrecognized dialog — ${this.screenTail(text, 4)}`,
+                })
+              : { kind: "deny" };
+            this.type(resolution.kind === "approve" ? "\r" : ESC);
             gates += 1;
             rearm();
             await sleep(GATE_COOLDOWN_MS);
@@ -450,9 +466,9 @@ export class ClaudeSession {
           }
           const key = triageKeyBytes(triage?.key);
           const allowed =
-            triage?.state === "menu" || triage?.state === "survey"
-              ? key !== null && key !== "\r"
-              : triage?.state === "unknown"
+            triage?.state === "survey"
+              ? key === ESC || key === "0"
+              : triage?.state === "menu" || triage?.state === "unknown"
                 ? key === ESC
                 : false;
           if (key && allowed) {
