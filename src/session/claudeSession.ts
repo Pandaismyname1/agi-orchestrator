@@ -348,11 +348,16 @@ export class ClaudeSession {
       if (stuckMs !== undefined && Date.now() - lastChangeAt > stuckMs) {
         // Frozen screen — run the recovery ladder before giving up. A static
         // screen usually means "idle in a footer variant the regexes don't know",
-        // not "dead" (see docs/AUTOPILOT_brain_resilience.md).
+        // not "dead" (see docs/AUTOPILOT_brain_resilience.md). Once the ladder is
+        // engaged, later rungs re-arm on a SHORT delay (not another full stuckMs —
+        // for a turn that would be 8 minutes between rungs).
+        const rearm = (): void => {
+          lastChangeAt = Date.now() - stuckMs + Math.min(stuckMs, 60_000);
+        };
         // Rung 1: transcript growth = claude IS working; the screen just isn't moving.
         const ts = await transcriptStat(this.cfg.cwd, this.sessionId);
         if (ts && Date.now() - ts.mtimeMs < TRANSCRIPT_ACTIVE_MS) {
-          lastChangeAt = Date.now();
+          lastChangeAt = Date.now(); // genuine progress — full stuck window again
           continue;
         }
         // Rung 2: a reply landed after our injection and the transcript's tail is
@@ -372,7 +377,7 @@ export class ClaudeSession {
         if (nudges < 1) {
           nudges += 1;
           this.nudgeRepaint();
-          lastChangeAt = Date.now();
+          rearm();
           await sleep(2000);
           continue;
         }
@@ -391,7 +396,7 @@ export class ClaudeSession {
           const key = triageKeyBytes(triage?.key);
           if (key) {
             this.type(key);
-            lastChangeAt = Date.now();
+            rearm();
             await sleep(GATE_COOLDOWN_MS);
             continue;
           }

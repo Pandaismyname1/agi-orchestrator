@@ -1907,7 +1907,10 @@ export class Supervisor {
       case "turn":
         m.turns = e.turnNumber;
         m.lastReply = e.result.assistantText;
-        m.healAttempts = 0; // real progress — the self-heal budget refills
+        // Refill the self-heal budget only after the run gets PAST its first turn —
+        // a run that always crashes right after turn 1 must still exhaust the
+        // budget and page the human, not heal-loop forever.
+        if (e.turnNumber >= 2) m.healAttempts = 0;
         break;
       case "recovery":
         m.lastDecision = `self-heal: respawned claude, resuming the conversation (attempt ${e.attempt}) — ${e.detail}`;
