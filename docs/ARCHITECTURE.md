@@ -211,6 +211,7 @@ See [SECURITY.md](https://github.com/Pandaismyname1/agi-orchestrator/blob/main/S
 
 ## 7. Deployment topologies
 
+{% raw %}
 ```mermaid
 flowchart TB
     subgraph local["Local (default)"]
@@ -230,6 +231,7 @@ flowchart TB
         cont -->|"network_mode: host → localhost"| hostsvc
     end
 ```
+{% endraw %}
 
 - **Local** — the default. Loopback is trusted; zero friction.
 - **Dispatch** — expose the port to drive runs from your phone. Requires a token; use a TLS
