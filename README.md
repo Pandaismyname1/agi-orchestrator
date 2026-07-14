@@ -1,9 +1,35 @@
-# AGI — local autopilot orchestrator for Claude Code
+<div align="center">
+
+# 🤖 AGI
+
+### Local autopilot orchestrator for Claude Code
+
+*Drive interactive Claude Code sessions **unattended** — a local LLM stands in for you,<br/>
+reads each finished turn, and decides the next step (or STOP). Run a whole fleet in parallel.*
+
+<br/>
 
 [![CI](https://github.com/Pandaismyname1/agi-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/Pandaismyname1/agi-orchestrator/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A522.5-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Svelte](https://img.shields.io/badge/Svelte-FF3E00?logo=svelte&logoColor=white)](https://svelte.dev/)
+
+[![Subscription-safe](https://img.shields.io/badge/subscription--safe-no%20API%20key-2ea44f)](SECURITY.md)
+[![Local-only](https://img.shields.io/badge/local--only-no%20data%20leaves%20your%20machine-blue)](#why-its-subscription-safe-the-core-constraint)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](docs/DOCKER.md)
+
+[![GitHub stars](https://img.shields.io/github/stars/Pandaismyname1/agi-orchestrator?style=social)](https://github.com/Pandaismyname1/agi-orchestrator/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/Pandaismyname1/agi-orchestrator?style=social)](https://github.com/Pandaismyname1/agi-orchestrator/network/members)
+[![GitHub issues](https://img.shields.io/github/issues/Pandaismyname1/agi-orchestrator)](https://github.com/Pandaismyname1/agi-orchestrator/issues)
+[![Last commit](https://img.shields.io/github/last-commit/Pandaismyname1/agi-orchestrator)](https://github.com/Pandaismyname1/agi-orchestrator/commits/main)
+
+**[Run it](#run-it)** · **[Architecture](docs/ARCHITECTURE.md)** · **[Configuration](docs/CONFIGURATION.md)** · **[Docker](docs/DOCKER.md)** · **[Contributing](CONTRIBUTING.md)** · **[Security](SECURITY.md)**
+
+</div>
+
+---
 
 Drives **interactive Claude Code sessions** unattended, using a **local LLM (Qwen via
 LM Studio / Ollama)** as a stand-in for you: it reads what Claude said when a turn ends,
@@ -11,11 +37,7 @@ decides the next instruction (or STOP), and injects it — so Claude never sits 
 for you to type "ok, continue". Built to run several projects in parallel without you
 context-switching.
 
-**Local-only. Solo. No data leaves the machine. Subscription-safe by design.**
-
-> **New here?** Jump to [Run it](#run-it) · [Architecture & diagrams](docs/ARCHITECTURE.md) ·
-> [Configuration reference](docs/CONFIGURATION.md) · [Docker](docs/DOCKER.md) ·
-> [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+> **Local-only. Solo. No data leaves the machine. Subscription-safe by design.**
 
 ---
 
