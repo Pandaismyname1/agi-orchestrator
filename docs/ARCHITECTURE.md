@@ -227,7 +227,7 @@ flowchart TB
     subgraph docker["Docker (Linux host)"]
         cont["Container:\norchestrator + dashboard + claude CLI"]
         hostsvc["Host: LM Studio/Ollama\n+ ~/.claude creds"]
-        cont -->|network_mode: host → localhost| hostsvc
+        cont -->|"network_mode: host → localhost"| hostsvc
     end
 ```
 
