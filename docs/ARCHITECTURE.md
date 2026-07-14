@@ -1,3 +1,9 @@
+---
+layout: default
+title: Architecture
+nav_order: 3
+---
+
 # Architecture
 
 AGI Orchestrator drives **real, interactive `claude` CLI sessions** unattended. A **local LLM**
@@ -6,7 +12,8 @@ instruction (or STOP), and injects it. Everything runs on your machine and draws
 Claude subscription — no Agent SDK, no API key, no pay-per-token billing.
 
 This document is the map. For the "why it's subscription-safe" rationale see the
-[README](../README.md); for the security model see [SECURITY.md](../SECURITY.md).
+[README](https://github.com/Pandaismyname1/agi-orchestrator#readme); for the security model see
+[SECURITY.md](https://github.com/Pandaismyname1/agi-orchestrator/blob/main/SECURITY.md).
 
 ---
 
@@ -198,7 +205,7 @@ flowchart LR
 - **`isLoopbackEndpoint()`** refuses any brain (or escalation, or paid OpenCode) provider that
   isn't loopback.
 
-See [SECURITY.md](../SECURITY.md) for the full threat model.
+See [SECURITY.md](https://github.com/Pandaismyname1/agi-orchestrator/blob/main/SECURITY.md) for the full threat model.
 
 ---
 

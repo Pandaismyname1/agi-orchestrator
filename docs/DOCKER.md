@@ -1,3 +1,9 @@
+---
+layout: default
+title: Docker
+nav_order: 6
+---
+
 # Running AGI Orchestrator in Docker
 
 The provided image bundles the **orchestrator server + dashboard + the `claude` CLI**. It
@@ -9,7 +15,7 @@ guarantee:
 | Your Claude **subscription login** | Baking credentials into an image is unsafe, and the tool must draw from *your* subscription | Mount the host's `~/.claude` |
 | The **local brain model** (Qwen) | The brain must talk to a **loopback** endpoint (subscription-safety check), and models are large | Run LM Studio / Ollama on the host and use host networking |
 
-> **Read [SECURITY.md](../SECURITY.md) first.** A container that can start sessions has, in
+> **Read [SECURITY.md](https://github.com/Pandaismyname1/agi-orchestrator/blob/main/SECURITY.md) first.** A container that can start sessions has, in
 > effect, shell access to every mounted project directory. Don't expose the port publicly
 > without a token and a TLS tunnel.
 
@@ -36,7 +42,7 @@ passes the loopback check.
      or run the orchestrator natively (`npm start`) and containerize only your other services.
 
 If you need `host.docker.internal` support, that's a reasonable feature request — see
-[CONTRIBUTING.md](../CONTRIBUTING.md); it would relax the loopback check to also accept the
+[CONTRIBUTING.md](https://github.com/Pandaismyname1/agi-orchestrator/blob/main/CONTRIBUTING.md); it would relax the loopback check to also accept the
 Docker gateway host *only* when an explicit opt-in env var is set.
 
 ---
@@ -139,11 +145,11 @@ above, and Docker's GPU docs).
 | `AGI_PORT` | Dashboard port | `4317` |
 | `AGI_CONFIG` | Path to config JSON inside the container | `/app/config.json` |
 | `AGI_DB` | SQLite store path (mount it as a volume) | `/data/agi.db` |
-| `AGI_DISPATCH_TOKEN` | Remote-access token (see [SECURITY.md](../SECURITY.md)) | unset (remote refused) |
+| `AGI_DISPATCH_TOKEN` | Remote-access token (see [SECURITY.md](https://github.com/Pandaismyname1/agi-orchestrator/blob/main/SECURITY.md)) | unset (remote refused) |
 
 All other settings live in `config.json` — see the
 [configuration reference](CONFIGURATION.md) and
-[`schemas/config.schema.json`](../schemas/config.schema.json).
+[`schemas/config.schema.json`](https://github.com/Pandaismyname1/agi-orchestrator/blob/main/schemas/config.schema.json).
 
 ---
 

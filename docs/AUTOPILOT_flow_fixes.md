@@ -1,3 +1,10 @@
+---
+layout: default
+title: Flow Fixes
+parent: Design & Decision Records
+nav_order: 3
+---
+
 # Autopilot — finish the orchestrator-flow fixes
 
 Run under autopilot on 2026-06-30. Five issues were coded + committed in the prior

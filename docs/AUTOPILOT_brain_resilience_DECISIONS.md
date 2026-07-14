@@ -1,3 +1,10 @@
+---
+layout: default
+title: Brain Resilience — Decision Log
+parent: Design & Decision Records
+nav_order: 2
+---
+
 # Decision log — brain resilience autopilot run (2026-07-13)
 
 Autonomous calls made during the unattended run, newest last. Each entry: the

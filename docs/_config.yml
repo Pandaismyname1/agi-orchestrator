@@ -1,0 +1,69 @@
+title: AGI Orchestrator
+description: >-
+  Local autopilot orchestrator for Claude Code — drive interactive Claude Code
+  sessions unattended with a local LLM as your stand-in. Subscription-safe,
+  no API key, no data leaves the machine.
+url: "https://pandaismyname1.github.io"
+baseurl: "/agi-orchestrator"
+
+theme: just-the-docs
+color_scheme: dark
+
+search_enabled: true
+heading_anchors: true
+back_to_top: true
+back_to_top_text: "Back to top"
+
+permalink: pretty
+
+aux_links:
+  "AGI Orchestrator on GitHub":
+    - "https://github.com/Pandaismyname1/agi-orchestrator"
+aux_links_new_tab: true
+
+nav_external_links:
+  - title: Contributing Guide
+    url: https://github.com/Pandaismyname1/agi-orchestrator/blob/main/CONTRIBUTING.md
+    opens_in_new_tab: true
+  - title: Security Policy
+    url: https://github.com/Pandaismyname1/agi-orchestrator/blob/main/SECURITY.md
+    opens_in_new_tab: true
+  - title: Code of Conduct
+    url: https://github.com/Pandaismyname1/agi-orchestrator/blob/main/CODE_OF_CONDUCT.md
+    opens_in_new_tab: true
+  - title: Changelog
+    url: https://github.com/Pandaismyname1/agi-orchestrator/blob/main/CHANGELOG.md
+    opens_in_new_tab: true
+  - title: Roadmap
+    url: https://github.com/Pandaismyname1/agi-orchestrator/blob/main/ROADMAP.md
+    opens_in_new_tab: true
+
+footer_content: >-
+  Copyright &copy; 2026 AGI Orchestrator contributors. Distributed under the
+  <a href="https://github.com/Pandaismyname1/agi-orchestrator/blob/main/LICENSE">MIT License</a>.
+
+# This file (the GitHub-browsing index for docs/) is intentionally not part
+# of the generated site — index.md is the Jekyll home page instead.
+exclude:
+  - README.md
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - node_modules
+  - "*.gemspec"
+
+kramdown:
+  syntax_highlighter_opts:
+    block:
+      line_numbers: false
+
+mermaid:
+  version: "10.9.1"
+
+plugins:
+  - jekyll-seo-tag
+  - jekyll-relative-links
+
+relative_links:
+  enabled: true
+  collections: false

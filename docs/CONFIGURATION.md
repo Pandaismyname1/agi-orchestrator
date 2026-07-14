@@ -1,9 +1,15 @@
+---
+layout: default
+title: Configuration
+nav_order: 4
+---
+
 # Configuration reference
 
 All runtime configuration lives in **`config.json`** at the repo root (override the path with
-`$AGI_CONFIG`). Copy [`config.example.json`](../config.example.json) — which carries an inline
+`$AGI_CONFIG`). Copy [`config.example.json`](https://github.com/Pandaismyname1/agi-orchestrator/blob/main/config.example.json) — which carries an inline
 `_note` for every block — to `config.json` and edit it. A machine-readable
-[`schemas/config.schema.json`](../schemas/config.schema.json) validates the file in editors that
+[`schemas/config.schema.json`](https://github.com/Pandaismyname1/agi-orchestrator/blob/main/schemas/config.schema.json) validates the file in editors that
 support JSON Schema (VS Code picks it up via the `$schema` key in the example).
 
 > **Underscore keys** (`_note`, `_brain_note`, …) are human comments; the loader ignores them.
@@ -104,7 +110,7 @@ The unit of work. Required: `cwd`, `goal`, `doneCriteria`.
 
 ## Safety-critical settings
 
-These interact with the subscription-safety guarantee — read [SECURITY.md](../SECURITY.md).
+These interact with the subscription-safety guarantee — read [SECURITY.md](https://github.com/Pandaismyname1/agi-orchestrator/blob/main/SECURITY.md).
 
 - **`provider.baseUrl` / `escalationProvider.baseUrl`** must be **loopback**
   (`localhost`/`127.0.0.1`/`::1`). A remote URL is refused at load time.
@@ -142,4 +148,4 @@ These interact with the subscription-safety guarantee — read [SECURITY.md](../
 - **Fleets:** set `maxConcurrent` and a `budget` (or rely on `usageGuard`) so a fleet can't
   hammer your weekly cap.
 - Full field-level constraints and defaults are in
-  [`schemas/config.schema.json`](../schemas/config.schema.json).
+  [`schemas/config.schema.json`](https://github.com/Pandaismyname1/agi-orchestrator/blob/main/schemas/config.schema.json).

@@ -19,13 +19,14 @@ reads each finished turn, and decides the next step (or STOP). Run a whole fleet
 [![Local-only](https://img.shields.io/badge/local--only-no%20data%20leaves%20your%20machine-blue)](#why-its-subscription-safe-the-core-constraint)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](docs/DOCKER.md)
+[![Docs](https://img.shields.io/badge/docs-pandaismyname1.github.io-2ea44f)](https://pandaismyname1.github.io/agi-orchestrator/)
 
 [![GitHub stars](https://img.shields.io/github/stars/Pandaismyname1/agi-orchestrator?style=social)](https://github.com/Pandaismyname1/agi-orchestrator/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/Pandaismyname1/agi-orchestrator?style=social)](https://github.com/Pandaismyname1/agi-orchestrator/network/members)
 [![GitHub issues](https://img.shields.io/github/issues/Pandaismyname1/agi-orchestrator)](https://github.com/Pandaismyname1/agi-orchestrator/issues)
 [![Last commit](https://img.shields.io/github/last-commit/Pandaismyname1/agi-orchestrator)](https://github.com/Pandaismyname1/agi-orchestrator/commits/main)
 
-**[Run it](#run-it)** · **[Architecture](docs/ARCHITECTURE.md)** · **[Configuration](docs/CONFIGURATION.md)** · **[Docker](docs/DOCKER.md)** · **[Contributing](CONTRIBUTING.md)** · **[Security](SECURITY.md)**
+**[📖 Docs site](https://pandaismyname1.github.io/agi-orchestrator/)** · **[Run it](#run-it)** · **[Architecture](docs/ARCHITECTURE.md)** · **[Configuration](docs/CONFIGURATION.md)** · **[Docker](docs/DOCKER.md)** · **[Contributing](CONTRIBUTING.md)** · **[Security](SECURITY.md)**
 
 </div>
 
@@ -298,6 +299,8 @@ Full guide, Docker-Desktop caveats, and a bundled-Ollama variant: **[docs/DOCKER
 ---
 
 ## Documentation
+
+**Browse it as a site: [pandaismyname1.github.io/agi-orchestrator](https://pandaismyname1.github.io/agi-orchestrator/)**
 
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — system context, the autopilot loop, the
   turn state machine, fleet orchestration, and safety enforcement (with diagrams).

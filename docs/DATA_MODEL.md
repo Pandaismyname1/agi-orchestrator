@@ -1,3 +1,9 @@
+---
+layout: default
+title: Data Model
+nav_order: 5
+---
+
 # Data model
 
 The orchestrator keeps a structured record of every run in a local SQLite database (`agi.db` by
@@ -6,7 +12,7 @@ native build**. The JSONL transcript that `claude` writes stays the source of tr
 message content; this database is the structured index for **history, timeline replay, resume,
 and metrics**.
 
-Schema lives in [`src/db/schema.ts`](../src/db/schema.ts); it's written by a `Recorder`
+Schema lives in [`src/db/schema.ts`](https://github.com/Pandaismyname1/agi-orchestrator/blob/main/src/db/schema.ts); it's written by a `Recorder`
 (`src/db/recorder.ts`) that maps the orchestrator's event stream into rows. Timestamps are Unix
 epoch **milliseconds** (`INTEGER`).
 

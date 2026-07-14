@@ -1,3 +1,9 @@
+---
+layout: default
+title: Remote Dashboard Access
+nav_order: 7
+---
+
 # Dispatch — remote mobile access to the AGI dashboard
 
 Built under autopilot on 2026-06-30. Goal: reach the locally-running AGI dashboard

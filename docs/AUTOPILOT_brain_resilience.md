@@ -1,3 +1,10 @@
+---
+layout: default
+title: Brain Resilience
+parent: Design & Decision Records
+nav_order: 1
+---
+
 # Autopilot contract — brain resilience (stop the "brain stops" errors)
 
 Invoked 2026-07-13: "all phases in turns, commit each stage." Branch: `autopilot/brain-resilience`.
