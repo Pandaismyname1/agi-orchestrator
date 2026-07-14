@@ -1,7 +1,7 @@
 {
   "name": "agi-web",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "description": "AGI orchestrator dashboard — modular Svelte SPA (mission-control cockpit).",
   "scripts": {

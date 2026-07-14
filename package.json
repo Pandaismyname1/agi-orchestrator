@@ -1,6 +1,6 @@
 {
   "name": "agi-orchestrator",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Local autopilot orchestrator: drives interactive Claude Code sessions via owned PTYs, using a local LLM (Qwen) as the human-surrogate decision-maker. Subscription-safe, no Agent SDK, no API key.",

@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-14
+
 ### Added
 - Open-source release scaffolding: `LICENSE` (MIT), `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
   `SECURITY.md`, this changelog.
@@ -54,4 +56,5 @@ feature set at release time (summarized from `README.md` and `ROADMAP.md`):
 - Reliability: brain-call retries, auto-pause on unreachable model, transcript-first recovery
   ladder, and supervisor self-heal.
 
-[Unreleased]: https://github.com/Pandaismyname1/agi-orchestrator/commits/main
+[Unreleased]: https://github.com/Pandaismyname1/agi-orchestrator/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Pandaismyname1/agi-orchestrator/releases/tag/v0.1.0
