@@ -14,7 +14,10 @@ concurrency:
 jobs:
   build:
     name: typecheck · test · build
-    runs-on: ubuntu-latest
+    # This is a Windows-first project: it drives the real claude.exe through a
+    # ConPTY, ships launch.cmd, and parts of the test suite use Windows paths.
+    # Running CI on Windows matches the supported platform and what's tested.
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -24,16 +27,19 @@ jobs:
           node-version: 22
           cache: npm
 
-      # node-pty is a native module; ubuntu-latest ships the build toolchain,
-      # but be explicit so a runner image change doesn't break the build.
-      - name: Install build tooling for node-pty
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential python3
-
       - name: Install server dependencies
         run: npm ci
 
       - name: Install web dependencies
         run: npm --prefix web ci
+
+      # Some tests spin up throwaway git repos and commit to them; a fresh CI
+      # runner may have no git identity, so `git commit` would fail. Configure one.
+      - name: Configure git identity (tests create temp repos)
+        run: |
+          git config --global user.email "ci@agi.local"
+          git config --global user.name "AGI CI"
+          git config --global init.defaultBranch main
 
       - name: Type-check server
         run: npm run typecheck
