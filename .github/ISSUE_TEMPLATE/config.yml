@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/Pandaismyname1/agi-orchestrator/security/advisories/new
+    about: Billing-guard bypass, dispatch auth issues, or anything credential-related — report privately, not as a public issue.
+  - name: 💬 Questions & discussion
+    url: https://github.com/Pandaismyname1/agi-orchestrator/discussions
+    about: Setup help, "how do I…", and general discussion.
+  - name: 📖 Documentation
+    url: https://github.com/Pandaismyname1/agi-orchestrator/tree/main/docs
+    about: Architecture, configuration reference, Docker, and design records.

@@ -1,0 +1,454 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Pandaismyname1/agi-orchestrator/blob/main/schemas/config.schema.json",
+  "title": "AGI Orchestrator config",
+  "description": "Schema for config.json — the orchestrator's runtime configuration. See docs/CONFIGURATION.md and config.example.json.",
+  "type": "object",
+  "required": ["provider", "sessions"],
+  "additionalProperties": true,
+  "properties": {
+    "provider": {
+      "$ref": "#/$defs/provider",
+      "description": "The every-turn local decision model (the 'brain'). Must be a loopback endpoint. Keep it fast."
+    },
+    "escalationProvider": {
+      "$ref": "#/$defs/provider",
+      "description": "Optional second LOCAL model used only to regenerate escalation options. Omit to reuse `provider`."
+    },
+    "limits": { "$ref": "#/$defs/limits" },
+    "sessions": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The sessions the orchestrator drives. At least one is required.",
+      "items": { "$ref": "#/$defs/session" }
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "default": 4317,
+      "description": "HTTP port for the dashboard + optional Stop-hook notifier."
+    },
+    "dbPath": {
+      "type": "string",
+      "default": "./agi.db",
+      "description": "Path to the local SQLite store."
+    },
+    "budget": { "$ref": "#/$defs/budget" },
+    "maxConcurrent": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Max sessions running at once; extras queue and auto-start as slots free. Omit for no cap."
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Defaults applied to newly created sessions.",
+      "properties": {
+        "permissionMode": { "$ref": "#/$defs/permissionMode" },
+        "autonomy": { "$ref": "#/$defs/autonomy" }
+      }
+    },
+    "contextGuard": { "$ref": "#/$defs/contextGuard" },
+    "learning": { "$ref": "#/$defs/learning" },
+    "dispatch": { "$ref": "#/$defs/dispatch" },
+    "usageGuard": { "$ref": "#/$defs/usageGuard" },
+    "brain": { "$ref": "#/$defs/brain" },
+    "templates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/template" },
+      "description": "Reusable session presets for one-click new sessions."
+    },
+    "webhooks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/webhook" },
+      "description": "Outbound webhooks fired on session lifecycle events."
+    },
+    "reliability": { "$ref": "#/$defs/reliability" },
+    "logging": { "$ref": "#/$defs/logging" },
+    "registry": { "$ref": "#/$defs/registry" },
+    "automations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/automation" },
+      "description": "Reactive rules: on a lifecycle event, start/stop a session or notify."
+    },
+    "quietHours": { "$ref": "#/$defs/quietHours" },
+    "automationChainCap": {
+      "type": "integer",
+      "default": 8,
+      "description": "Max automation hops in one causal chain before further reactive actions are dropped. <= 0 disables."
+    },
+    "workflowDepthCap": {
+      "type": "integer",
+      "default": 10,
+      "description": "Max sequential dependency steps auto-run before pausing the next for manual review. <= 0 disables."
+    }
+  },
+  "patternProperties": {
+    "^_": {
+      "description": "Convention: keys starting with underscore are human notes (ignored by the loader)."
+    }
+  },
+  "$defs": {
+    "loopbackUrl": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://(localhost|127\\.0\\.0\\.1|\\[::1\\]|::1)(:\\d+)?(/.*)?$",
+      "description": "Must be a loopback URL (localhost/127.0.0.1/::1) to stay subscription-safe."
+    },
+    "hhmm": {
+      "type": "string",
+      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+      "description": "Local time, 24-hour 'HH:MM'."
+    },
+    "provider": {
+      "type": "object",
+      "required": ["baseUrl", "model"],
+      "additionalProperties": false,
+      "properties": {
+        "baseUrl": {
+          "allOf": [{ "$ref": "#/$defs/loopbackUrl" }],
+          "examples": ["http://localhost:1234/v1", "http://localhost:11434/v1"],
+          "description": "OpenAI-compatible endpoint. LM Studio = :1234/v1, Ollama = :11434/v1."
+        },
+        "model": {
+          "type": "string",
+          "description": "Model id as the local server reports it under /v1/models."
+        },
+        "apiKey": {
+          "type": "string",
+          "default": "local",
+          "description": "Usually ignored by local servers; the placeholder is fine."
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 2,
+          "default": 0.3
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-run guard rails. The real budget is rate-limit/turn burn, not dollars.",
+      "properties": {
+        "maxTurns": { "type": "integer", "minimum": 1, "default": 25, "description": "Max autopilot turns before a forced stop." },
+        "maxWallClockMin": { "type": "number", "minimum": 0, "default": 60, "description": "Max wall-clock minutes before a forced stop." },
+        "pingPongThreshold": { "type": "integer", "minimum": 1, "default": 3, "description": "Stop if the brain repeats N near-identical prompts." },
+        "stuckTurns": { "type": "integer", "minimum": 0, "default": 4, "description": "Escalate if no files change for this many turns. 0 = off." }
+      }
+    },
+    "permissionMode": {
+      "enum": ["default", "acceptEdits", "auto", "bypassPermissions"],
+      "description": "Claude permission mode. 'acceptEdits' auto-accepts file edits; 'bypassPermissions' is fully unattended (riskiest); 'default' prompts more (needed for gatePolicy to see bash prompts)."
+    },
+    "autonomy": {
+      "enum": ["cautious", "balanced", "autonomous"],
+      "default": "balanced",
+      "description": "Operator persona: how readily the brain escalates to you."
+    },
+    "session": {
+      "type": "object",
+      "required": ["cwd", "goal", "doneCriteria"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "Stable id (used for --session-id and the dashboard). Auto-generated if omitted." },
+        "engine": { "enum": ["claude", "claude-headless", "opencode"], "default": "claude", "description": "Which coding agent drives this session." },
+        "opencode": { "$ref": "#/$defs/opencode", "description": "Required when engine === 'opencode'." },
+        "cwd": { "type": "string", "description": "Working directory (the project) the session runs in." },
+        "goal": { "type": "string", "description": "High-level goal; the first prompt to claude and context for the brain." },
+        "doneCriteria": { "type": "string", "description": "Plain-language 'you are done when…' the brain uses to decide STOP." },
+        "permissionMode": { "$ref": "#/$defs/permissionMode" },
+        "gatePolicy": { "enum": ["guard", "auto"], "default": "guard", "description": "'guard' escalates dangerous gates and default-denies when unattended; 'auto' approves everything." },
+        "autonomy": { "$ref": "#/$defs/autonomy" },
+        "startMode": { "enum": ["manual", "autopilot"], "default": "autopilot", "description": "'autopilot' = the brain drives immediately; 'manual' = you drive, then flip." },
+        "limits": { "$ref": "#/$defs/limits", "description": "Per-session overrides of the global limits." },
+        "resumeId": { "type": "string", "description": "Resume this existing claude session id instead of starting fresh (adopt)." },
+        "lastClaudeSessionId": { "type": "string", "description": "Persisted conversation UUID so the session can be continued across restarts." },
+        "dependsOn": { "type": "array", "items": { "type": "string" }, "description": "Ids that must reach 'done' before this one auto-starts (workflow DAG)." },
+        "schedule": { "$ref": "#/$defs/schedule" },
+        "autoPr": { "$ref": "#/$defs/autoPr" },
+        "notify": { "$ref": "#/$defs/notifyOverride" }
+      }
+    },
+    "opencode": {
+      "type": "object",
+      "required": ["providerID", "modelID"],
+      "additionalProperties": false,
+      "properties": {
+        "baseUrl": { "type": "string", "description": "Base URL of an already-running `opencode serve` to attach to. Omit to auto-manage on `port`." },
+        "port": { "type": "integer", "default": 4919, "description": "Port for the auto-managed `opencode serve`." },
+        "providerID": { "type": "string", "description": "Provider id as OpenCode exposes it (e.g. 'lmstudio')." },
+        "modelID": { "type": "string", "description": "Model id within that provider." },
+        "agent": { "type": "string", "default": "build" },
+        "allowPaidProvider": { "type": "boolean", "default": false, "description": "Opt-in to a non-local (possibly billed) provider. Local providers ignore this." }
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Auto-start triggers. If both are set, either firing starts the session.",
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Master switch (defaults to enabled when a trigger is set)." },
+        "everyMinutes": { "type": "integer", "minimum": 1, "description": "Re-run every N minutes." },
+        "dailyAt": { "$ref": "#/$defs/hhmm", "description": "Re-run daily at this local time." }
+      }
+    },
+    "autoPr": {
+      "type": "object",
+      "required": ["mode"],
+      "additionalProperties": false,
+      "description": "Auto-open a PR when the session reaches done. Requires a git repo with 'origin' and the gh CLI.",
+      "properties": {
+        "mode": { "enum": ["draft", "ready"] },
+        "base": { "type": "string", "description": "Base branch to target. Defaults to origin's default branch." }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Daily caps across ALL sessions (reset at local midnight). Omit a field for no limit.",
+      "properties": {
+        "maxTurnsPerDay": { "type": "integer", "minimum": 0 },
+        "maxMinutesPerDay": { "type": "number", "minimum": 0 }
+      }
+    },
+    "contextGuard": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Memory-preserving compaction: write a handoff → /compact → resume.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "window": { "type": "integer", "minimum": 1, "description": "Approx model context window in tokens (e.g. 200000)." },
+        "compactAtPercent": { "type": "number", "minimum": 1, "maximum": 100 },
+        "handoffFile": { "type": "string", "default": ".agi/handoff.md" },
+        "minTurnsBetween": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "learning": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Self-improvement loop. Off by default; a strict no-op until you approve a profile.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "scanLimit": { "type": "integer", "minimum": 0 },
+        "maxExamples": { "type": "integer", "minimum": 0 },
+        "maxFewShot": { "type": "integer", "minimum": 0 },
+        "guidanceCharBudget": { "type": "integer", "minimum": 0 },
+        "evalHeldOut": { "type": "integer", "minimum": 0 },
+        "evalGate": { "type": "boolean", "default": true }
+      }
+    },
+    "dispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Remote access controls. With no token, non-loopback requests are refused.",
+      "properties": {
+        "token": { "type": "string", "description": "Shared secret for remote clients. Also read from env AGI_DISPATCH_TOKEN (env wins). Empty = remote disabled." },
+        "trustLocal": { "type": "boolean", "default": true, "description": "Trust loopback and skip the token. Set false behind a local tunnel." },
+        "rateLimit": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "windowMs": { "type": "integer", "minimum": 1, "default": 60000 },
+            "maxRequestsPerWindow": { "type": "integer", "minimum": 1, "default": 300 },
+            "authWindowMs": { "type": "integer", "minimum": 1, "default": 300000 },
+            "maxAuthFailures": { "type": "integer", "minimum": 1, "default": 12 }
+          }
+        }
+      }
+    },
+    "usageGuard": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Pause/resume on Claude's REAL subscription limits (read from /usage).",
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "pauseAtPercent": { "type": "number", "minimum": 1, "maximum": 100, "default": 100 },
+        "onOpusExhausted": { "enum": ["continue", "pause"], "default": "continue", "description": "When the weekly Opus cap is spent but Sonnet has room: keep working on Sonnet, or stop." },
+        "refreshEveryTurns": { "type": "integer", "minimum": 1, "default": 5 }
+      }
+    },
+    "brain": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the brain's raw decision is gated before it's acted on.",
+      "properties": {
+        "confidenceThreshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0, "description": "Auto-escalate a 'continue' whose confidence is below this. 0 = off." },
+        "rollingSummary": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Feed the brain a maintained running summary + a short tail instead of raw last-N messages.",
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "everyTurns": { "type": "integer", "minimum": 1, "default": 4 },
+            "maxChars": { "type": "integer", "minimum": 1, "default": 1200 },
+            "tailMessages": { "type": "integer", "minimum": 0, "default": 3 }
+          }
+        },
+        "escalationTimeoutMin": { "type": "integer", "minimum": 0, "default": 20, "description": "For 'autonomous' sessions only: auto-pick the first option / auto-deny a gate after this many minutes unanswered. 0 disables." }
+      }
+    },
+    "template": {
+      "type": "object",
+      "required": ["id", "name", "createdAt", "updatedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "goal": { "type": "string" },
+        "doneCriteria": { "type": "string" },
+        "permissionMode": { "$ref": "#/$defs/permissionMode" },
+        "autonomy": { "$ref": "#/$defs/autonomy" },
+        "startMode": { "enum": ["manual", "autopilot"] },
+        "catalogId": { "type": "string" },
+        "createdAt": { "type": "integer" },
+        "updatedAt": { "type": "integer" }
+      }
+    },
+    "webhook": {
+      "type": "object",
+      "required": ["id", "name", "url", "createdAt", "updatedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "url": { "type": "string", "format": "uri", "description": "Destination URL (use HTTPS)." },
+        "format": { "enum": ["json", "slack", "discord"], "default": "json" },
+        "events": { "type": "array", "items": { "$ref": "#/$defs/webhookEvent" }, "description": "Empty/undefined = every event." },
+        "enabled": { "type": "boolean", "default": true },
+        "createdAt": { "type": "integer" },
+        "updatedAt": { "type": "integer" }
+      }
+    },
+    "webhookEvent": {
+      "enum": ["done", "error", "stopped", "needs-input", "rate-limited"]
+    },
+    "notifyOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-session notification override.",
+      "properties": {
+        "mute": { "type": "boolean", "description": "Fire no lifecycle notifications for this session." },
+        "events": { "type": "array", "items": { "$ref": "#/$defs/webhookEvent" }, "description": "Allow-list; empty/undefined = all events." }
+      }
+    },
+    "reliability": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Self-healing knobs.",
+      "properties": {
+        "retries": { "type": "integer", "minimum": 0, "maximum": 10, "default": 3 },
+        "retryBackoffMs": { "type": "integer", "minimum": 0, "default": 400 },
+        "brainPollSeconds": { "type": "integer", "minimum": 5, "maximum": 300, "default": 15 },
+        "autoHeal": { "type": "boolean", "default": true, "description": "On an error run, auto-restart (resuming the same conversation) with backoff." },
+        "autoHealMaxAttempts": { "type": "integer", "minimum": 0, "default": 3 }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": { "enum": ["debug", "info", "warn", "error"], "default": "info" },
+        "file": { "type": "string", "description": "Append rotating JSON lines here. Omit for console-only." },
+        "maxBytes": { "type": "integer", "minimum": 1, "default": 5242880 },
+        "maxFiles": { "type": "integer", "minimum": 1, "default": 5 }
+      }
+    },
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional remote template registry (template DATA only; never touches the brain). Off unless a url is set.",
+      "properties": {
+        "url": { "type": "string", "description": "GET endpoint returning recipes. Omit to disable browsing." },
+        "publishUrl": { "type": "string", "description": "POST endpoint for publishing. Omit to disable publishing." },
+        "token": { "type": "string", "description": "Optional bearer token sent on registry requests." }
+      }
+    },
+    "automation": {
+      "type": "object",
+      "required": ["id", "name", "actions", "createdAt", "updatedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "enabled": { "type": "boolean", "default": true },
+        "on": { "type": "array", "items": { "$ref": "#/$defs/webhookEvent" }, "description": "Trigger events. Empty/undefined = any." },
+        "match": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Narrow which firing session runs this rule (AND-ed).",
+          "properties": {
+            "sessionId": { "type": "string" },
+            "cwdContains": { "type": "string" },
+            "goalContains": { "type": "string" },
+            "mode": { "enum": ["manual", "autopilot"] }
+          }
+        },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/automationAction" }
+        },
+        "createdAt": { "type": "integer" },
+        "updatedAt": { "type": "integer" }
+      }
+    },
+    "automationAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "notify" }, "message": { "type": "string" } }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "target"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "start" }, "target": { "type": "string", "description": "Session id or '$self'." } }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "target"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "stop" }, "target": { "type": "string" } }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "target", "mode"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "setMode" }, "target": { "type": "string" }, "mode": { "enum": ["manual", "autopilot"] } }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "target", "message"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "sendMessage" }, "target": { "type": "string" }, "message": { "type": "string" } }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "webhook"],
+          "additionalProperties": false,
+          "properties": { "kind": { "const": "webhook" }, "webhook": { "type": "string", "description": "Name of a configured webhook." } }
+        }
+      ]
+    },
+    "quietHours": {
+      "type": "object",
+      "required": ["start", "end"],
+      "additionalProperties": false,
+      "description": "Silence alerts/webhooks during a daily local-time window.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "start": { "$ref": "#/$defs/hhmm" },
+        "end": { "$ref": "#/$defs/hhmm", "description": "Earlier than start spans midnight." },
+        "days": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 6 }, "description": "Weekdays (0=Sun..6=Sat). Empty/undefined = every day." },
+        "allowUrgent": { "type": "boolean", "default": true, "description": "Let 'error' notifications page you even while quiet." }
+      }
+    }
+  }
+}

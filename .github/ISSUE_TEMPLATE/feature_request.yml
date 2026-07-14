@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest an idea or enhancement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! Note the project's fixed constraint: everything must stay
+        **local-only and subscription-safe** (no Agent SDK, no API key, brain on loopback).
+        Proposals that break that won't be accepted — but there's usually a local-safe way to
+        get the same outcome.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The user need or pain point, not the solution yet.
+      placeholder: "When running a fleet overnight, I can't easily ..."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you'd like to see. UI, config, behavior — whatever's relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: constraint
+    attributes:
+      label: Constraint check
+      options:
+        - label: This keeps the tool local-only and subscription-safe (or I've noted why it's an exception).
+          required: true

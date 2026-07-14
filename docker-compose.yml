@@ -1,0 +1,56 @@
+# AGI Orchestrator — Docker Compose (app image + host services).
+#
+# This runs the orchestrator + dashboard in a container while your LLM server
+# (LM Studio / Ollama) and your `claude` subscription login stay on the HOST.
+#
+# ─── Before `docker compose up` ────────────────────────────────────────────────
+#  1. Log in on the host once:            claude            (then /login)
+#  2. Start your local model on the host: LM Studio (:1234) or Ollama (:11434)
+#  3. Copy config:                        cp config.example.json config.json
+#     - provider.baseUrl MUST be a loopback URL (http://localhost:11434/v1). With
+#       host networking (below) the container shares the host's localhost, so this
+#       reaches your host model AND satisfies the subscription-safety check.
+#     - each session's `cwd` must be a path that exists INSIDE the container — see
+#       the `volumes` note about bind-mounting your project directories.
+#
+# See docs/DOCKER.md for the full guide, Docker-Desktop caveats, and the bundled-
+# Ollama variant.
+services:
+  agi:
+    build: .
+    image: agi-orchestrator:latest
+    container_name: agi-orchestrator
+
+    # Host networking lets the container reach the host's LM Studio / Ollama at
+    # `localhost` — required because the brain provider must be a loopback URL.
+    # Linux only. On Docker Desktop (macOS/Windows) see docs/DOCKER.md for the
+    # host.docker.internal alternative and its trade-offs.
+    network_mode: host
+
+    environment:
+      # Dashboard port (host networking => this is the host port too).
+      - AGI_PORT=4317
+      - AGI_CONFIG=/app/config.json
+      - AGI_DB=/data/agi.db
+      # Uncomment to require a token for remote access (see SECURITY.md / dispatch):
+      # - AGI_DISPATCH_TOKEN=change-me-to-a-long-random-secret
+
+    volumes:
+      # Your edited config (read-only inside the container).
+      - ./config.json:/app/config.json:ro
+
+      # Subscription credentials — authenticate `claude` on the host first.
+      # This is what keeps the container subscription-safe (no API key baked in).
+      - ${HOME}/.claude:/home/node/.claude
+
+      # Persisted SQLite store (history / metrics survive restarts).
+      - agi-data:/data
+
+      # Project directories the sessions work in. The path INSIDE the container
+      # must match each session's `cwd` in config.json. Example (edit to taste):
+      # - /home/you/projects:/home/you/projects
+
+    restart: unless-stopped
+
+volumes:
+  agi-data:

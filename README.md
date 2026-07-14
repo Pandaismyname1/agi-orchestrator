@@ -1,5 +1,10 @@
 # AGI — local autopilot orchestrator for Claude Code
 
+[![CI](https://github.com/Pandaismyname1/agi-orchestrator/actions/workflows/ci.yml/badge.svg)](https://github.com/Pandaismyname1/agi-orchestrator/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%E2%89%A522.5-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
 Drives **interactive Claude Code sessions** unattended, using a **local LLM (Qwen via
 LM Studio / Ollama)** as a stand-in for you: it reads what Claude said when a turn ends,
 decides the next instruction (or STOP), and injects it — so Claude never sits idle waiting
@@ -7,6 +12,10 @@ for you to type "ok, continue". Built to run several projects in parallel withou
 context-switching.
 
 **Local-only. Solo. No data leaves the machine. Subscription-safe by design.**
+
+> **New here?** Jump to [Run it](#run-it) · [Architecture & diagrams](docs/ARCHITECTURE.md) ·
+> [Configuration reference](docs/CONFIGURATION.md) · [Docker](docs/DOCKER.md) ·
+> [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 ---
 
@@ -249,3 +258,44 @@ To drive a session you start by hand instead of a daemon-owned one:
 - Tier 3: git per-turn snapshots, learning loop (thumbs up/down → tune the operator), attach/detach UI panel.
 - Dashboard UI panel for attach/detach (routes exist; wire a form like the session CRUD).
 - Brain history is last-N messages, not summarized — fine for now, may need trimming on very long runs.
+
+---
+
+## Run it with Docker
+
+The orchestrator + dashboard + `claude` CLI ship as a container; your subscription login and
+the local brain model stay on the host (host networking satisfies the loopback safety check).
+
+```bash
+cp config.example.json config.json   # edit provider.model + your sessions
+docker compose up --build            # then open http://localhost:4317
+```
+
+Full guide, Docker-Desktop caveats, and a bundled-Ollama variant: **[docs/DOCKER.md](docs/DOCKER.md)**.
+
+---
+
+## Documentation
+
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — system context, the autopilot loop, the
+  turn state machine, fleet orchestration, and safety enforcement (with diagrams).
+- **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** — every `config.json` block + env vars,
+  backed by a JSON Schema ([`schemas/config.schema.json`](schemas/config.schema.json)).
+- **[docs/DATA_MODEL.md](docs/DATA_MODEL.md)** — the SQLite store, its schema, and read APIs.
+- **[docs/DOCKER.md](docs/DOCKER.md)** — container deployment.
+- **[docs/README.md](docs/README.md)** — the full docs index (incl. design & decision records).
+
+---
+
+## Contributing
+
+Contributions are welcome! Please read **[CONTRIBUTING.md](CONTRIBUTING.md)** for the dev
+setup, conventions, and the pre-PR checks, and **[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)**.
+
+The one hard rule: every change must keep the tool **local-only and subscription-safe** — no
+Agent SDK, no API key, brain on loopback. See **[SECURITY.md](SECURITY.md)** for the threat
+model and how to report vulnerabilities.
+
+## License
+
+[MIT](LICENSE) © AGI Orchestrator contributors.

@@ -1,4 +1,5 @@
 {
+  "$schema": "./schemas/config.schema.json",
   "provider": {
     "baseUrl": "http://localhost:11434/v1",
     "model": "qwen3.5:9b",

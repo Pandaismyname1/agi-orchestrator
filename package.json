@@ -4,6 +4,33 @@
   "private": true,
   "type": "module",
   "description": "Local autopilot orchestrator: drives interactive Claude Code sessions via owned PTYs, using a local LLM (Qwen) as the human-surrogate decision-maker. Subscription-safe, no Agent SDK, no API key.",
+  "license": "MIT",
+  "author": "AGI Orchestrator contributors",
+  "homepage": "https://github.com/Pandaismyname1/agi-orchestrator#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pandaismyname1/agi-orchestrator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Pandaismyname1/agi-orchestrator/issues"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "autopilot",
+    "orchestrator",
+    "agent",
+    "llm",
+    "local-llm",
+    "qwen",
+    "ollama",
+    "lm-studio",
+    "pty",
+    "automation"
+  ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "start": "node scripts/launch.mjs",
     "launch": "node scripts/launch.mjs",

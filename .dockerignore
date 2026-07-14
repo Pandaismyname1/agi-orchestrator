@@ -1,0 +1,38 @@
+# Dependencies (reinstalled inside the image so native modules match the container OS)
+node_modules
+web/node_modules
+
+# Build output (rebuilt in the image)
+web/dist
+dist
+
+# Local state — never bake into the image
+agi.db
+agi.db-shm
+agi.db-wal
+*.db
+*.db-shm
+*.db-wal
+logs
+data
+.agi
+.scratch
+
+# Secrets / local config (provide at runtime via a mounted config.json)
+config.json
+config.json.tmp
+.env
+
+# VCS / tooling / editor
+.git
+.github
+.idea
+.vscode
+.playwright-mcp
+
+# Docs & meta not needed at runtime
+docs
+*.md
+!README.md
+*.png
+*.log
