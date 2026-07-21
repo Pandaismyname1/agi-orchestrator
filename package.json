@@ -52,9 +52,9 @@
     "web:check": "npm --prefix web run check"
   },
   "dependencies": {
-    "@xterm/headless": "^5.5.0",
+    "@xterm/headless": "^6.0.0",
     "node-pty": "^1.0.0",
-    "ws": "^8.21.0"
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
